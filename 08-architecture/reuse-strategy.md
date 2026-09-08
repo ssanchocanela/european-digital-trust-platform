@@ -7,7 +7,7 @@
 
 1. Reuse official EUDI RI components first for wallet-side behavior and conformance examples.
 2. Treat EUDIPLO as an independently governed server-side accelerator, not as the platform by default.
-3. Keep platform-owned business APIs, policy, tenancy and evidence models independent of protocol engines.
+3. Keep platform-owned business APIs, Authentic Source Connectors/semantics, eligibility and issuance policies, approval/lifecycle workflows, tenancy and evidence models independent of protocol engines.
 4. Never infer regulatory compliance from open-source interoperability.
 
 ## Three-layer matrix
@@ -16,6 +16,7 @@
 |---|---|---|---|---|---|
 | Wallet app/core | Mobile apps, Wallet Core/Kit and protocol libraries | Not a wallet | Only product-specific UX/integration | `REUSE` official RI | Avoid a proprietary wallet implementation |
 | OID4VCI issuer | Test/demo issuer services and libraries exist | Implemented issuer, offers, authorization/pre-authorized/deferred flows, metadata and notifications | Stable customer API, policy and assurance controls | `WRAP` EUDIPLO; `REFERENCE` RI demos | EUDIPLO fits the server-side abstraction; benchmark against official clients/tests |
+| Authentic Source and policy orchestration | Not a wallet/protocol concern | Attribute-provider extension, not the platform product model | Connectors, provenance, mapping, eligibility, approval, delegation and lifecycle | `BUILD` outside EUDIPLO | External sources retain authority; product responsibilities must stay engine-independent |
 | OID4VP verifier | Remote/proximity test components exist | Implemented request/session/validation flows using DCQL | Business policy and normalized result contract | `WRAP` EUDIPLO; `REFERENCE` RI | Preserve engine replaceability and independent decision/audit policy |
 | Digital Credentials API | Wallet-side libraries/examples | OID4VP and ISO 18013-7 browser flows documented/implemented | Browser integration SDK, feature detection and fallback UX | `EXTEND`/`WRAP` | Browser support and ecosystem behavior remain moving targets |
 | Credential formats | SD-JWT VC and mdoc in current wallet flows | Issues/verifies `dc+sd-jwt` and `mso_mdoc` | Canonical platform model and format adapters | `REUSE` libraries, `WRAP` formats | Do not leak format-specific payloads into business APIs |
@@ -34,6 +35,7 @@
 | Component area | Decision | Conditions |
 |---|---|---|
 | Backend issuer/verifier engine | `WRAP` | Pin a tested release; expose platform-owned contracts; retain exit path |
+| Attribute-provider extension | `WRAP`/`REFERENCE` | Invoke only through platform-owned Connector/orchestrator semantics; do not make it the product API |
 | Core SDK and schemas | `REUSE`/`REFERENCE` | Confirm API stability and license notices per release |
 | Admin web client | `REFERENCE` initially | Product UX, RBAC and operational workflows require redesign |
 | Tenant/config model | `EXTEND` | Validate isolation, delegation, retention and portability requirements |

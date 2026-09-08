@@ -2,50 +2,92 @@
 
 **Status:** [PRODUCT] / [EXPERIMENTAL]
 
-## Target users
+## Foundational principle
 
-- small and medium public administrations;
-- universities and educational bodies;
-- professional organisations;
-- public agencies;
-- SMEs and sector credential issuers.
+> [PRODUCT] The platform supports configurable delegation of the issuance lifecycle. Attribute retrieval, eligibility determination, business rules, approval and credential lifecycle actions may be performed by the customer, by the platform, or through a hybrid workflow. Authentic Sources always remain the authoritative systems of record for source data.
 
-## Proposition
+Executing a decision does not make the platform an Authentic Source. Likewise, technically issuing a credential does not by itself determine which party is legally the Attestation Provider. `[OPEN] Requires legal/regulatory analysis.` A later analysis must distinguish EAA, PuB-EAA and QEAA operating models.
+
+## Service models
+
+The models are configurations of one platform, not rigid product editions.
+
+| Lifecycle responsibility | Model A: Gateway | Model B: Full Issuer | Model C: Hybrid |
+|---|---|---|---|
+| Authentic Source | Customer/external authority | Customer/external authority | Customer/external authority |
+| Source connectivity and retrieval | Customer | Platform | Assigned per profile |
+| Eligibility and business rules | Customer | Platform | Assigned per profile |
+| Final approval | Customer | Platform/workflow | Customer, platform or joint workflow |
+| Credential configuration and mapping | Platform, using approved input | Platform | Assigned per profile |
+| Generation, signing and OID4VCI | Platform | Platform | Platform |
+| Renewal, suspension and revocation decisions | Customer-driven by default | Platform policy/source-driven | Assigned per profile |
+| Trust, status, interoperability and audit | Platform | Platform | Platform, with customer actions recorded |
+
+### Model A — Issuance Gateway as a Service
+
+The customer retrieves source data, evaluates eligibility and rules, and approves a credential. It sends approved credential data to the platform, which performs configuration validation, orchestration, credential generation, signing, trust/status integration, OpenID4VCI delivery and audit.
+
+### Model B — Full Issuer as a Service
+
+The customer retains its external Authentic Source. The platform connects to one or more sources, retrieves and maps attributes, evaluates eligibility and issuance policy, runs approval when configured, issues the credential, and manages renewal, suspension, revocation and expiry.
+
+### Model C — Hybrid issuance
+
+A Delegation Profile assigns every lifecycle step independently. For example, the platform may retrieve data and determine eligibility while the customer gives final approval; another customer may determine eligibility but delegate approval workflow and lifecycle operations.
 
 ```mermaid
-sequenceDiagram
-  participant B as Business system
-  participant P as Platform API
-  participant I as Issuer engine
-  participant T as Trust/KMS/status services
-  participant W as EUDI Wallet
-  B->>P: Create issuance transaction + claims reference
-  P->>P: Authorize tenant, schema and policy
-  P->>I: Create protocol session
-  I->>T: Resolve signing key and issuer configuration
-  I-->>B: Offer URI / delivery instructions
-  W->>I: OpenID4VCI authorization and credential request
-  I->>P: Resolve approved attributes (as late as possible)
-  P-->>I: Minimal claims
-  I->>T: Sign and assign status entry
-  I-->>W: Credential
-  I-->>P: Outcome event (no unnecessary credential copy)
-  P-->>B: Normalized status/webhook
+flowchart LR
+  AS1["Authentic Source A"] --> CONN["Authentic Source connectors"]
+  AS2["Authentic Source B"] --> CONN
+  CONN --> ELIG["Eligibility policy"]
+  ELIG --> RULES["Issuance policy / business rules"]
+  RULES --> APPROVAL["Approval policy and workflow"]
+  APPROVAL --> MAP["Attribute mapping"]
+  MAP --> ORCH["Issuance orchestrator"]
+  ORCH --> ENGINE["Credential engine"]
+  ENGINE --> EUDI["Platform EUDI adapter"]
+  EUDI --> DIPLO["EUDIPLO"]
+  DIPLO --> WALLET["EUDI Wallet"]
+  LIFE["Validity and lifecycle policy"] --> ORCH
+  TRUST["Trust / signing / status"] --> ENGINE
+  PROFILE["Delegation Profile"] -.-> CONN
+  PROFILE -.-> ELIG
+  PROFILE -.-> APPROVAL
+  PROFILE -.-> LIFE
 ```
 
-The customer should interact through a simple API/workflow while the service handles protocol, credential format, cryptography, trust, status and interoperability concerns.
+## Delegation Profile
 
-## Initial scope
+**Status:** [PRODUCT]
 
-- Authorization-code and pre-authorized-code offers; deferred issuance only where a use case needs it.
-- `dc+sd-jwt` and `mso_mdoc` through format-neutral business contracts.
-- Issuer metadata, keys/certificates, status, notifications and wallet interoperability tests.
-- Attribute-provider callback or just-in-time claims, minimizing platform retention.
+A versioned Delegation Profile assigns an executor to each step: `CUSTOMER`, `PLATFORM`, or `HYBRID_WORKFLOW`. It also defines hand-off evidence, timeouts, escalation, retry and authorization requirements. A profile is referenced by the Credential Type and snapshotted on each Issuance Transaction so later changes do not rewrite history.
 
-## Boundaries
+Minimum assignable steps are source retrieval, attribute mapping, eligibility, business-rule evaluation, approval, issuance initiation, renewal/update, suspension and revocation. Authentic-source ownership is not assignable to the platform.
 
-- [SPECIFICATION] OID4VCI compatibility does not prove that an issuer is authorized or trusted for a credential type.
-- [PRODUCT] The business system remains authoritative for eligibility and source data unless explicitly contracted otherwise.
-- [OPEN] Rulebooks, registration, access/registration certificates, wallet attestation and status requirements must be selected per scheme.
+## Credential lifecycle
 
-See [API concepts](api-concepts.md), [onboarding](onboarding.md), and [EUDIPLO assessment](eudiplo-assessment.md).
+```mermaid
+stateDiagram-v2
+  [*] --> Evaluating
+  Evaluating --> Ineligible
+  Evaluating --> AwaitingApproval
+  Evaluating --> Approved
+  AwaitingApproval --> Approved
+  AwaitingApproval --> Rejected
+  Approved --> Issuing
+  Issuing --> Active
+  Issuing --> Failed
+  Active --> Updating
+  Updating --> Active
+  Active --> Suspended
+  Suspended --> Active: reinstate
+  Active --> Revoked
+  Suspended --> Revoked
+  Active --> Expired
+  Active --> Renewing
+  Renewing --> Active: replacement issued
+```
+
+Lifecycle triggers can be customer-driven, source-driven, platform-driven or hybrid. Source-driven automation must evaluate a fresh, attributable source observation; it must not treat a connector cache as the authority.
+
+See the [issuer product model](issuer-product-model.md), [service architecture](../08-architecture/issuance-service-architecture.md), [API concepts](api-concepts.md), [issuer onboarding](issuer-onboarding.md), and [issuance MVP](../09-product-roadmap/issuance-mvp.md).

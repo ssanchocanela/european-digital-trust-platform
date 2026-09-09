@@ -1,38 +1,59 @@
 # API Concepts
 
-**Status:** [EXPERIMENTAL]
+**Status:** [PRODUCT] direction / [OPEN] contract design
 
-Customers integrate with stable business resources; protocol-specific endpoints remain behind the platform boundary.
+Customers integrate with business resources; OpenID4VCI, credential-format and EUDIPLO endpoints remain behind the platform-owned EUDI adapter. These examples illustrate distinct service journeys and do not freeze paths, schemas or transport style.
+
+## Gateway-oriented operation
+
+```http
+POST /v1/credentials
+```
+
+The customer asserts that its assigned retrieval, eligibility and approval steps are complete and supplies approved data or a short-lived claims reference. The platform validates the applicable Delegation Profile and hand-off evidence before issuing.
+
+```json
+{
+  "credentialType": "urn:example:education:diploma",
+  "subject": { "reference": "student-48291" },
+  "approvedClaims": { "reference": "award-937" },
+  "approvalEvidence": { "reference": "approval-204" },
+  "idempotencyKey": "award-937-v1"
+}
+```
+
+## Full-issuer or hybrid operation
 
 ```http
 POST /v1/issuance-transactions
 GET  /v1/issuance-transactions/{id}
-POST /v1/verification-transactions
-GET  /v1/verification-transactions/{id}
-POST /v1/verification-policies
-POST /v1/webhook-endpoints
+POST /v1/issuance-transactions/{id}/actions
 ```
 
-Example request (illustrative, not a frozen contract):
+The caller identifies the Subject and Credential Type. The platform resolves the versioned Delegation Profile, retrieves assigned source attributes, evaluates eligibility/policies and creates any customer/human approval task.
 
 ```json
 {
-  "credential_type": "urn:example:education:diploma",
-  "subject_binding": { "reference": "student-48291" },
-  "claims_source": { "mode": "callback", "reference": "award-937" },
-  "delivery": { "mode": "wallet_offer" },
-  "idempotency_key": "award-937-v1"
+  "credentialType": "urn:example:professional:membership",
+  "subject": { "reference": "member-1882" },
+  "requestedDelivery": "wallet_offer",
+  "idempotencyKey": "membership-1882-2027"
 }
 ```
+
+Lifecycle commands may eventually express renew, update, suspend, reinstate or revoke operations, but command names and synchronous/asynchronous behavior remain `[OPEN]`.
 
 ## Contract principles
 
 - Tenant identity comes from authenticated context, never a caller-controlled body field.
-- Idempotency, correlation IDs, expiry and explicit state machines are mandatory.
-- Business types map to versioned credential profiles; callers do not choose algorithms or trust anchors ad hoc.
-- Claims are resolved just in time where possible and minimized in logs/events.
-- Webhooks are signed, replay-protected, allow-listed and retried with bounded policy.
-- Errors distinguish business eligibility, protocol, trust, status, policy and transient infrastructure failures.
+- Every operation resolves an authorized Credential Type and snapshots configuration, policy and Delegation Profile versions.
+- Idempotency, correlation, expiry and explicit state transitions apply across customer/platform hand-offs.
+- APIs distinguish source observation, eligibility result, approval result, protocol outcome, credential status and policy decision.
+- Business types map to versioned credential profiles; callers do not choose algorithms, keys or trust anchors ad hoc.
+- Source/claim data is retrieved just in time and minimized in state, responses, logs and events.
+- Webhooks/actions are signed or strongly authenticated, replay-protected, authorized and auditable.
 - Raw credentials and wallet responses are not returned or retained by default.
 
-`[OPEN]` Requires validation: synchronous versus asynchronous result delivery, evidence-bundle format, bulk issuance, cancellation semantics and sector-specific API profiles.
+`[OPEN]` Requires validation: resource names, action model, bulk issuance, cancellation, evidence bundles, optimistic concurrency, event/webhook schemas and customer approval UX.
+
+See [Issuance as a Service](issuance-as-a-service.md) and the [issuer product model](issuer-product-model.md).

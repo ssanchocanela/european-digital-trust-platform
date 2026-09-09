@@ -1,12 +1,18 @@
 # Capability Map
 
-**Snapshot:** 7 September 2026. “Support” means evidence exists in current documentation/code; it does not mean certified, complete or production-ready.
+**Snapshot:** 8 September 2026. “Support” means evidence exists in current documentation/code; it does not mean certified, complete or production-ready.
 
 | Domain | Capability | Source | Status | Official EUDI RI support | EUDIPLO support | Platform requirement | Implementation approach | Priority | Open questions |
 |---|---|---|---|---|---|---|---|---|---|
 | EUDI Wallet | Wallet app/core | RI, ARF 3.0 | SPECIFICATION / EXPERIMENTAL | Yes, Android/iOS apps and core kits | No | Interoperate; avoid proprietary wallet | Reuse RI and test | P0 | Target OS/releases and certification impact? |
 | Issuer | Credential issuance | ARF, OID4VCI 1.0 | SPECIFICATION | Test/demo services and libraries | Yes | Simple managed API | Wrap EUDIPLO; benchmark RI | P0 | Exact profile/flow matrix? |
-| Issuer | Credential lifecycle/status | ARF, OAuth Status List | SPECIFICATION / PRODUCT | Component-specific | JWT/CWT status lists | Authority, revocation policy, evidence | Extend engine and lifecycle service | P0 | Legal retention and status SLAs? |
+| Issuer | Service operating model | Product model | PRODUCT | No | No | Gateway, Full Issuer and hybrid responsibilities | Delegation Profile per Credential Type/transaction | P0 | Legal role per delegation model? |
+| Issuer | Authentic Source connectivity | Product model; source contracts | PRODUCT / OPEN | No | Attribute-provider integration only | Multi-source access with provenance and isolation | Platform-owned connectors; REST first | P0 | Source protocols, availability and data-use authority? |
+| Issuer | Attribute mapping | Product model; scheme/rulebook | PRODUCT / SPECIFICATION | Component-specific | Credential claim configuration | Versioned multi-source-to-claim transformation | Platform mapping service | P0 | Mapping validation and change governance? |
+| Issuer | Eligibility policy | Product model; scheme-specific rules | PRODUCT / OPEN | No | Not product policy | Customer/platform/hybrid evaluation | Platform policy abstraction; engine not selected | P0 | Explainability and policy author? |
+| Issuer | Issuance and approval policy | Product model | PRODUCT / OPEN | No | Not product workflow | Rules, approvals and separation of duties | Platform policy/workflow layer | P0 | Human approval UX and evidence semantics? |
+| Issuer | Delegation Profile | Product model | PRODUCT | No | No | Assign each lifecycle step to customer/platform/workflow | Versioned profile snapshotted per transaction | P0 | Valid combinations and change control? |
+| Issuer | Credential lifecycle/status | ARF, OAuth Status List; product policies | SPECIFICATION / PRODUCT | Component-specific | JWT/CWT status lists | Renewal, update, suspension, revocation, expiry and status | Platform lifecycle service invoking wrapped engine | P0 | Trigger authority, retention and status SLAs? |
 | Verifier | Remote presentation | ARF, OID4VP 1.0 | SPECIFICATION | Yes | Yes, DCQL | Normalized verified result | Wrap EUDIPLO | P0 | Transaction data and policy profiles? |
 | Verifier | Browser wallet invocation | ARF Topic F, DC API | SPECIFICATION / EVOLVING | Libraries/examples | OID4VP and ISO 18013-7 paths | Browser SDK and fallback | Extend/wrap | P1 | Browser/platform support matrix? |
 | Verifier | Proximity presentation | ISO 18013-5, ARF | SPECIFICATION | Yes | Server focus; mdoc validation | Optional channel | Reuse RI reader where needed | P2 | Initial customers require proximity? |
@@ -23,10 +29,10 @@
 | DPP | Portfolio and lifecycle | ESPR/delegated acts + product hypothesis | REGULATORY / PRODUCT / OPEN | No | No | Major Business Wallet module | Build domain service | P1 | Product-group delegated acts and schemas? |
 | DPP Registry | Organisation enrolment and registration | EC Registry material | SPECIFICATION | No | No | Register identifiers/metadata | Build registry adapter | P1 | Stable production API and auth model? |
 | DPP Hosting | Complete DPP data | ESPR/DPP system | REGULATORY / PRODUCT | No | No | Provider-neutral data layer | Build abstraction/connectors | P1 | Availability, sovereignty and resolver rules? |
-| Audit | Evidence and traceability | eIDAS/ARF/product policies | MIXED | Wallet transaction history scope | Admin audit/session events | Purpose-limited, tamper-evident evidence | Build shared service | P0 | Retention, data minimization, admissibility? |
-| Administration | Multi-tenant control plane | Product requirements | PRODUCT | No | Tenant/client/config APIs and UI | Delegated admin, quotas, operations | Extend or build around engine | P0 | Isolation and data-residency tiers? |
+| Audit | Evidence and traceability | eIDAS/ARF/product policies | MIXED | Wallet transaction history scope | Admin audit/session events | Source provenance, delegated actions and purpose-limited evidence | Build shared service | P0 | Retention, data minimization, admissibility? |
+| Administration | Multi-tenant control plane | Product requirements | PRODUCT / OPEN | No | Tenant/client/config APIs and UI | Isolate issuer identity, keys, trust, configs, connectors, policies, transactions, audit and admins | Platform-owned control plane around engine | P0 | Topology, partitioning, key hierarchy and residency tiers? |
 | API Gateway | Stable business APIs | Product requirements | PRODUCT | No | Protocol/admin REST APIs | Versioned customer contracts | Build anti-corruption layer | P0 | Sync/async contract and error model? |
 | Security | Keys, secrets and signing | ARF/eIDAS/threat model | REGULATORY / SPECIFICATION / PRODUCT | Wallet secure-component paths | Local/cloud/PKCS#11 KMS options | Custody policy, HSM/KMS, rotation | Wrap providers; independent controls | P0 | Assurance levels and qualified boundaries? |
 | Security | Privacy and tenant isolation | GDPR, ARF, platform threat model | REGULATORY / PRODUCT | Wallet privacy features | Controls/tests exist | Minimize data; hard tenancy boundary | Verify, extend and continuously test | P0 | Session/claim retention per service? |
 
-See [reuse strategy](../08-architecture/reuse-strategy.md) for classifications and [gaps](gaps.md) for validation work.
+See [reuse strategy](../08-architecture/reuse-strategy.md) for classifications, the [issuance product model](../05-eudi-services/issuer-product-model.md), the [issuance MVP](issuance-mvp.md), and [gaps](gaps.md) for validation work.

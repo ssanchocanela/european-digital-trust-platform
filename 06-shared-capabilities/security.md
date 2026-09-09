@@ -5,6 +5,7 @@
 ## Security invariants
 
 - Strong tenant isolation across API, session, storage, cache, keys, events and administration paths.
+- Isolate issuer identities, source connectors/secrets, policies, configurations, transactions and administrators by tenant.
 - Separate keys by tenant, environment and purpose; enforce rotation, revocation and least privilege.
 - Store keys in an assurance-appropriate KMS/HSM; never infer qualified status from generic HSM use.
 - Treat wallet payloads, claims, offers, callbacks and trust documents as untrusted input.
@@ -14,6 +15,7 @@
 - Pin dependencies, generate an SBOM, verify artifacts and continuously scan the supply chain.
 - Record trust source, policy version and validation outcome without creating unnecessary surveillance data.
 - Test failover and cache behavior so stale trust/status information cannot silently become authoritative.
+- Apply purpose-bound least privilege, network isolation, source provenance and restricted caching to Authentic Source connectors.
 
 ## Assurance boundaries
 

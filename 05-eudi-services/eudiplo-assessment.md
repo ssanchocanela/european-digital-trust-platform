@@ -35,6 +35,10 @@ EUDIPLO does not by itself supply:
 - the platform's customer-facing stable API, commercial tenancy, policy decisions, evidence model, billing or support operations;
 - proof of production suitability, certification or compliance merely by being open source or conformance tested.
 
+## Product boundary
+
+`[PRODUCT]` EUDIPLO remains behind a platform-owned EUDI adapter/anti-corruption layer. The platform must not move Authentic Source semantics/connectors, eligibility or issuance policy, approval workflows, lifecycle orchestration, commercial tenant management or customer-facing product APIs into EUDIPLO. The adapter translates canonical platform commands, events and errors to the pinned EUDIPLO contract.
+
 ## Adoption gates
 
 1. Pin a release and map every used feature to ARF 3.0, applicable technical specifications and implementing acts.

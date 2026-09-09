@@ -68,3 +68,5 @@ Product language such as “should” is not a legal requirement unless a cited 
 ## Current phase
 
 The first phase establishes the evidence baseline, reuse decisions and testable architecture hypotheses. Start with the [platform vision](01-vision/platform-vision.md), [target architecture](08-architecture/target-architecture.md), [reuse strategy](08-architecture/reuse-strategy.md), [capability map](09-product-roadmap/capability-map.md), and [open gaps](09-product-roadmap/gaps.md).
+
+For the issuance product, see [Issuance as a Service](05-eudi-services/issuance-as-a-service.md), the [issuer product model](05-eudi-services/issuer-product-model.md), [issuer onboarding](05-eudi-services/issuer-onboarding.md), [issuance service architecture](08-architecture/issuance-service-architecture.md), and [incremental MVP](09-product-roadmap/issuance-mvp.md).

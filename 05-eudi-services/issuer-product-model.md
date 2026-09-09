@@ -22,6 +22,10 @@ erDiagram
   ISSUANCE_POLICY ||--|| SUSPENSION_REVOCATION_POLICY : includes
   ISSUANCE_POLICY ||--|| LIFECYCLE_POLICY : includes
   CREDENTIAL_TYPE }o--|| DELEGATION_PROFILE : delegates_with
+  ISSUER }o--|| PROVIDER_OPERATING_PROFILE : operates_under
+  PROVIDER_OPERATING_PROFILE }o--|| LEGAL_PROVIDER : identifies
+  PROVIDER_OPERATING_PROFILE }o--|| KEY_OPERATOR : authorizes
+  PROVIDER_OPERATING_PROFILE }o--o{ TRUST_EVIDENCE : substantiates
   CREDENTIAL_TYPE }o--|| SIGNING_CONFIGURATION : signs_with
   CREDENTIAL_TYPE }o--|| TRUST_CONFIGURATION : trusts_with
   CREDENTIAL_TYPE }o--|| STATUS_CONFIGURATION : tracks_with
@@ -38,7 +42,7 @@ erDiagram
 |---|---|
 | Tenant | Security and commercial isolation boundary containing issuers, configurations, connections, policies, transactions, audit and administrators |
 | Organisation | Legal/operational customer entity represented within a tenant; not necessarily the legal Attestation Provider |
-| Issuer | Configured issuing context and identifier used for a set of Credential Types; legal role remains [OPEN] |
+| Issuer | Configured technical issuing context and identifier used for a set of Credential Types; its legal provider binding is explicit in the Provider Operating Profile |
 | Authentic Source | External authoritative system or accountable data source for specific facts |
 | Authentic Source Connector | Technical adapter and credentials used to query/subscribe/import from an Authentic Source; never the authority itself |
 | Credential Type | Versioned product blueprint describing semantics, policies, dependencies and supported formats |
@@ -53,6 +57,10 @@ erDiagram
 | Suspension / Revocation Policy | Determines triggers, authorization, status transition and reinstatement rules |
 | Lifecycle Policy | Coordinates update, renewal, suspension, revocation, expiry and reinstatement triggers/actions |
 | Delegation Profile | Assigns each lifecycle responsibility to customer, platform or hybrid workflow |
+| Provider Operating Profile | `[PRODUCT-HYPOTHESIS]` Regime-specific constraint and evidence binding for legal provider, technical operator, cryptographic identity, key operator, source relationship, trust/registration state, approval and revocation authority |
+| Legal Provider | The EAA trust service provider, eligible/notified PuB public body, or Article 22-listed QEAA QTSP; distinct from tenant and technical Issuer configuration |
+| Key Operator | Actor and controlled service allowed to exercise the selected K1-K4 signing route; operation alone does not determine legal provider status |
+| Trust Evidence | Versioned external evidence such as scheme membership, CAB report, notification, trusted-list/Commission-list/LoTE state, access/registration certificate and qualified certificate chain |
 | Issuance Transaction | Immutable-history process instance using snapshotted policy/configuration versions and source evidence references |
 | Credential | The issued cryptographic artifact and lifecycle record produced for a Subject; distinct from its Credential Type blueprint |
 | Subject | Person or entity about whom the credential makes claims; represented by privacy-preserving references where possible |
@@ -78,9 +86,10 @@ Credential Type
   ├── Eligibility + Issuance + Approval Policies
   ├── Validity + Renewal + Suspension / Revocation + Lifecycle Policies
   ├── Delegation Profile
+  ├── Provider Operating Profile (regime + authority + trust evidence)
   └── Credential Format(s) + Trust + Signing + Status Configurations
 ```
 
 ## Regulatory caution
 
-`[OPEN] Requires legal/regulatory analysis.` Delegation of technical execution, eligibility evaluation or approval does not by itself determine the legal Attestation Provider or transfer Authentic Source status. EAA, PuB-EAA and QEAA models require a separate role-and-liability analysis.
+`[REGULATORY]` Delegation of technical execution, eligibility evaluation or approval does not by itself determine the legal Attestation Provider or transfer Authentic Source status. PuB-EAA requires an eligible public-sector provider and public-body qualified signature/seal; QEAA requires an appropriately listed QTSP. `[OPEN]` Particular outsourcing and key-operation arrangements still require scheme, national, CAB and supervisory validation. See the [operating-model analysis](attestation-provider-operating-models.md).

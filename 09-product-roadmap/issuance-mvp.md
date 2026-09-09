@@ -45,6 +45,6 @@ Production readiness separately addresses HA/DR, formal security architecture, H
 - No production claim, qualification or certification is an MVP outcome.
 - No general-purpose rules engine is selected.
 - No commitment is made to SOAP, database, event or batch connectors in MVP 1.
-- `[OPEN] Requires legal/regulatory analysis.` Technical execution does not settle the legal Attestation Provider for EAA, PuB-EAA or QEAA.
+- `[REGULATORY]` Technical execution does not settle the legal Attestation Provider: PuB-EAA remains with an eligible/notified public-sector body and QEAA with the appropriately listed QTSP. `[OPEN]` Each concrete outsourcing, signing/key and scheme arrangement still requires the validation recorded in the [operating-model analysis](../05-eudi-services/attestation-provider-operating-models.md).
 
 See the [issuance architecture](../08-architecture/issuance-service-architecture.md) and [gaps](gaps.md).

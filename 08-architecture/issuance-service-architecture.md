@@ -16,6 +16,7 @@ flowchart TB
     AUD["Audit and evidence"]
   end
   ORCH["Issuance orchestrator"]
+  PROVIDER["Attestation Provider Adapter"]
   ADAPTER["Platform EUDI adapter / anti-corruption layer"]
   EUDIPLO["EUDIPLO — wrapped protocol engine"]
   PROTO["OpenID4VCI / credential formats / wallet"]
@@ -27,7 +28,8 @@ flowchart TB
   APP --> ORCH
   LIFE --> ORCH
   ORCH --> AUD
-  ORCH --> ADAPTER
+  ORCH --> PROVIDER
+  PROVIDER --> ADAPTER
   ADAPTER --> EUDIPLO
   EUDIPLO --> PROTO
 ```
@@ -38,7 +40,7 @@ EUDIPLO provides protocol capability. The platform owns business orchestration. 
 
 For each transaction, the orchestrator resolves and snapshots the Credential Type, policies, Delegation Profile, mappings and security configurations. It then creates work for the assigned actor, verifies hand-off evidence, applies timeouts/retries, and invokes the EUDI adapter only after approval conditions are satisfied.
 
-The EUDI adapter translates canonical platform commands/results into EUDIPLO APIs and events. It owns compatibility mapping, error normalization and contract tests, allowing the protocol engine to be upgraded or replaced without exposing it to customers.
+The Attestation Provider Adapter resolves the regime-specific legal provider, technical operator, trust identity, K1-K4 signing route, approval/revocation authority and external evidence before protocol execution. The EUDI adapter then translates authorised canonical commands/results into EUDIPLO APIs and events. It owns compatibility mapping, error normalization and contract tests, allowing the protocol engine to be upgraded or replaced without exposing it to customers.
 
 ## Authentic Source connectivity
 
@@ -84,4 +86,4 @@ Isolation must cover issuer identity/metadata, signing keys, trust/status config
 | Platform-driven | Validity period reaches expiry/renewal window | Versioned schedule and deterministic policy |
 | Hybrid | Source change creates a revocation approval task | Separation of duties, deadline and escalation |
 
-See [Issuance as a Service](../05-eudi-services/issuance-as-a-service.md), [product model](../05-eudi-services/issuer-product-model.md), [EUDIPLO assessment](../05-eudi-services/eudiplo-assessment.md), and [MVP](../09-product-roadmap/issuance-mvp.md).
+See [Attestation Provider architecture](attestation-provider-architecture.md), [Issuance as a Service](../05-eudi-services/issuance-as-a-service.md), [product model](../05-eudi-services/issuer-product-model.md), [EUDIPLO assessment](../05-eudi-services/eudiplo-assessment.md), and [MVP](../09-product-roadmap/issuance-mvp.md).

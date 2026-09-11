@@ -635,9 +635,9 @@ describe("trust anchor publication — ARF §6.3.2.4, ETSI TS 119 602", () => {
   it("labels a TEST list inside the signed payload, where it cannot be stripped", () => {
     const body = buildTrustAnchorListBody(publication());
     const lote = (body as { LoTE: TrustListBody }).LoTE;
-    expect(lote.ListAndSchemeInformation.SchemeName[0].value).toContain(
-      TEST_SCHEME_NAME_PREFIX,
-    );
+    const schemeName = lote.ListAndSchemeInformation.SchemeName[0];
+    expect(schemeName, "the list must carry a scheme name").toBeDefined();
+    expect(schemeName?.value).toContain(TEST_SCHEME_NAME_PREFIX);
     // And says plainly what it is not.
     expect(JSON.stringify(lote.ListAndSchemeInformation.SchemeTypeCommunityRules)).toMatch(
       /NOT a list notified under Topic 31/i,
@@ -647,11 +647,13 @@ describe("trust anchor publication — ARF §6.3.2.4, ETSI TS 119 602", () => {
   it("produces the same shape the platform already consumes", () => {
     // Producer and consumer share a reader, which is the cheapest way to keep them honest.
     const body = buildTrustAnchorListBody(publication()) as { LoTE: TrustListBody };
-    const service =
-      body.LoTE.TrustedEntitiesList[0].TrustedEntityServices[0].ServiceInformation;
-    expect(service.ServiceTypeIdentifier).toMatch(/Issuance$/);
-    expect(service.ServiceDigitalIdentity.X509Certificates[0].val).toBe("MIIBdummybase64");
-    expect(service.ServiceStatus).toBe("granted");
+    const entity = body.LoTE.TrustedEntitiesList[0];
+    expect(entity, "the list must carry a trusted entity").toBeDefined();
+    const service = entity?.TrustedEntityServices[0]?.ServiceInformation;
+    expect(service, "the entity must carry a service").toBeDefined();
+    expect(service?.ServiceTypeIdentifier).toMatch(/Issuance$/);
+    expect(service?.ServiceDigitalIdentity.X509Certificates[0]?.val).toBe("MIIBdummybase64");
+    expect(service?.ServiceStatus).toBe("granted");
   });
 
   it("refuses an anchor with no attestation types, because that is a blanket authorisation", () => {

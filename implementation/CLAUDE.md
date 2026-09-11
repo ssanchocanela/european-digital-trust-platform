@@ -19,7 +19,7 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 |---|---|---|
 | Phase 0 — investigation, no product code | `implementation/platform-v0` | **STOP**, summary, await approval ← *complete* |
 | Milestone 1 — foundations + Verification as a Service | `implementation/platform-v0` | PR 1, then **STOP** ← *complete* |
-| Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 |
+| Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 ← *complete* |
 
 ### Milestone 2 starts with an investigation, and with a checkpoint of its own
 
@@ -275,11 +275,27 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     PostgreSQL's `detail`, which embeds the offending values. And an unhandled throw logs its
     message and a capped stack — through the redactor, which strips denied keys — because a 500
     that logs only `{"errorName":"Error"}` cannot be diagnosed. Both found by running the stack.
-16. **The dev environment collapses three ARF trust domains.** The seven WRPAC, WRPRC and PIDProviders
-    anchors are byte-identical. The `TrustResolver` must keep the domains separate regardless, and
-    must support both ETSI TS 119 612 Trusted Lists and ETSI TS 119 602 LoTEs — `EW-PIO-01-029`
-    (`OIA_15b`).
-
+16. **Issuer trust is two separate gates, and neither is satisfied.** (a) ARF §6.6.2.2, pre-issuance
+    provider authentication: the engine publishes the registration certificate as `issuer_info` but
+    produces **no `signed_metadata`**, which the pinned wallet requires — so a Wallet cannot
+    authenticate the provider. (b) ARF §6.3.2.4, attestation signature trust: anchors come from the
+    **Rulebook**, optionally from an ETSI TS 119 602 list that is **not** a Topic 31 notified list —
+    which is why the platform may publish one, `TEST` only. `CredentialType.rulebook` is trust
+    configuration, not a label. Never claim either gate.
+    [`docs/issuer-trust-model.md`](docs/issuer-trust-model.md).
+17. **On the issuance side, four engine payload shapes are accepted-then-wrong.** `usageType` is
+    `attestation` not `signing`; `credentialClaims` is a tagged union (`{type: "inline", claims}`);
+    `registrationCertificate` needs `enabled` *and* `mode: "import"`; `authorizationServers` is a
+    discriminated union on `type` and an entry without it is silently ignored; the id `built-in` is
+    reserved. A test asserting only "the call succeeded" would pass on four of them.
+    `docs/interop-findings.md` A14.
+18. **The engine tenant must be created with every role it will ever need.** Roles cannot be widened
+    afterwards — `PATCH /api/tenant/{id}` rejects a `roles` key — and a tenant cannot grant its
+    clients roles it lacks. `docs/interop-findings.md` A16.
+19. **The dev environment collapses *four* ARF trust domains**, not three: `PubEAAProviders` carries
+    the same seven byte-identical anchors as `PIDProviders` and `WRPACProviders`. The lists also roll
+    over, so anything reading one must honour `NextUpdate` — `verify-access-certificate-chain.sh`
+    fetches live and reports freshness.
 ---
 
 ## 7. Trust environment

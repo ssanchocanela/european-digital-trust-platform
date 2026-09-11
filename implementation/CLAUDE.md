@@ -50,6 +50,15 @@ Verify against the pinned release `Wallet/Demo_Version=2026.09.42-Demo_Build=42`
 **Then STOP and report**, before building the issuance flow. If it is a blocker, say so plainly and
 state what a real test needs; do not design around it silently and do not simulate success (§8).
 
+**Done, 11 September 2026 — and it is a blocker (B7).** Issuer trust is ETSI LoTE-based, resolved
+per `VerificationContext`; for a non-qualified EAA the pinned build has no trust list, no
+classification and an `ENFORCE` default, so `evaluateIssuerTrust` throws. The mechanism is absent by
+design. Full record, the smallest wallet modification, and the finding that *Check Registration
+Certificates* is one **runtime preference (default off)** gating **both** the issuer and verifier
+registration checks: [`docs/milestone-2-issuer-trust.md`](docs/milestone-2-issuer-trust.md). Test M2
+issuance with that switch in **both** positions and report both — one build suffices, since it is a
+preference.
+
 Commit in small, reviewable steps. **Never commit secrets** — only `.env.example`.
 
 The repository root also contains an untracked `sources/` tree of PDFs, `.docx` and `.msg` files,

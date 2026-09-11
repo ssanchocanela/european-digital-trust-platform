@@ -93,6 +93,27 @@ export class EngineClient {
    * caller that passes a prefixed path would otherwise produce `/api/api/...` and a 404, so
    * an already-prefixed path is rejected rather than silently doubled.
    */
+  /**
+   * An **unauthenticated** GET against the engine's wallet-facing *protocol* API.
+   *
+   * Separate from `request` because the protocol document is not under `MANAGEMENT_PREFIX` and is
+   * not token-protected — a Wallet reaches it with no credentials, which is exactly the point when
+   * the question is "what would a Wallet see". Used for the Credential Issuer metadata that trust
+   * gate (a) depends on.
+   */
+  async fetchProtocol<T>(path: string): Promise<T> {
+    const res = await this.rawFetch("GET", path, undefined, undefined);
+    if (!res.ok) throw await this.toEngineError(res);
+    const text = await res.text();
+    if (text.length === 0) {
+      throw PlatformError.engine(
+        "engine_empty_response",
+        "The verification engine returned an empty protocol document.",
+      );
+    }
+    return JSON.parse(text) as T;
+  }
+
   async request<T>(
     engineTenantRef: string,
     method: Method,

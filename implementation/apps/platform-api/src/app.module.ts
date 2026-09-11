@@ -9,12 +9,22 @@ import {
 } from "./http/controllers.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
 import {
+  IssuanceConfigurationController,
+  IssuanceController,
+} from "./http/issuance.controllers.js";
+import {
   API_KEY_REPOSITORY,
   CLOCK_TOKEN,
   CONFIG_TOKEN,
+  ISSUANCE_REPOSITORY,
+  ISSUANCE_SERVICE,
+  ISSUER_PORT,
+  ISSUER_PROVISIONING_PORT,
   LOGGER_TOKEN,
   POLICY_SERVICE,
   PRESENTATION_SERVICE,
+  REGISTERED_CONNECTORS,
+  REGISTERED_EVALUATORS,
   REGISTRATION_SERVICE,
   VERIFIER_PORT,
   VERIFIER_PROVISIONING_PORT,
@@ -37,6 +47,8 @@ export class AppModule {
         TenantController,
         PolicyController,
         PresentationController,
+        IssuanceConfigurationController,
+        IssuanceController,
         HealthController,
       ],
       providers: [
@@ -50,6 +62,14 @@ export class AppModule {
         { provide: POLICY_SERVICE, useValue: deps.services.policies },
         { provide: PRESENTATION_SERVICE, useValue: deps.services.presentations },
         { provide: WEBHOOK_SERVICE, useValue: deps.services.webhooks },
+        { provide: ISSUANCE_REPOSITORY, useValue: deps.repositories.issuance },
+        { provide: ISSUER_PORT, useValue: deps.issuer },
+        { provide: ISSUER_PROVISIONING_PORT, useValue: deps.issuerProvisioning },
+        { provide: ISSUANCE_SERVICE, useValue: deps.services.issuances },
+        // Names only. Policy validation refuses an unknown evaluator or connector at publication,
+        // so a typo fails while a reviewer is present rather than while a User is waiting.
+        { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },
+        { provide: REGISTERED_CONNECTORS, useValue: [...deps.registry.connectors.keys()] },
         ApiKeyGuard,
         PlatformErrorFilter,
       ],

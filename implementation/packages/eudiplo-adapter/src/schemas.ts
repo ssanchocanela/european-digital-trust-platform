@@ -79,3 +79,38 @@ export const engineSessionConfigSchema = z
     cleanupMode: z.string().optional(),
   })
   .passthrough();
+
+/**
+ * The engine's credential-offer response.
+ *
+ * Shaped like the verifier offer response — `{uri, session}` — which is convenient but not
+ * guaranteed, so it is parsed rather than assumed.
+ */
+export const engineIssuerOfferResponseSchema = z
+  .object({
+    uri: z.string().min(1),
+    session: z.string().min(1),
+  })
+  .passthrough();
+
+/**
+ * The Wallet-facing Credential Issuer metadata, as much of it as trust gate (a) needs.
+ *
+ * `passthrough` because the document is large and mostly irrelevant here; what matters is whether
+ * it carries `issuer_info` (the registration certificate, ARF §6.6.2.2) and whether it carries
+ * `signed_metadata`, which is what lets a Wallet authenticate the document itself.
+ *
+ * `signed_metadata` is declared `nullish` rather than omitted deliberately: the engine at the
+ * pinned version never emits it, and parsing for it is how that stays visible rather than becoming
+ * an assumption. See `docs/issuer-trust-model.md`.
+ */
+export const engineCredentialIssuerMetadataSchema = z
+  .object({
+    credential_issuer: z.string().min(1),
+    credential_configurations_supported: z.record(z.string(), z.unknown()).nullish(),
+    issuer_info: z
+      .array(z.object({ format: z.string(), data: z.string() }).passthrough())
+      .nullish(),
+    signed_metadata: z.string().nullish(),
+  })
+  .passthrough();

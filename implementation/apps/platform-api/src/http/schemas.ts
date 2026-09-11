@@ -266,3 +266,144 @@ export type ProvisionInstanceBody = z.infer<typeof provisionInstanceSchema>;
 export type CreatePolicyBody = z.infer<typeof createPolicySchema>;
 export type CreatePolicyVersionBody = z.infer<typeof createPolicyVersionSchema>;
 export type CreatePresentationBody = z.infer<typeof createPresentationSchema>;
+
+// --- Milestone 2: Issuance as a Service -------------------------------------------------
+
+const localisedTextSchema = z.object({
+  lang: z.string().min(2).max(16),
+  value: z.string().min(1),
+});
+
+export const createAttestationProviderSchema = z
+  .object({
+    organisationId: z.string().uuid(),
+    registrarAssignedIdentifier: z.string().min(1).max(200),
+    registrar: z.string().min(1).max(200).optional(),
+    trustEnvironment: z.enum(["TEST", "PRODUCTION"]).default("TEST"),
+  })
+  .strict();
+
+/**
+ * Provisions the Attestation Provider: its engine tenant, signing key, and optionally the
+ * registration certificate published in the Credential Issuer metadata (trust gate a).
+ *
+ * The key arrives as a JWK and the chain as PEM because that is what the engine's import endpoint
+ * accepts. Both are handled in memory; the platform keeps only the opaque key-binding reference.
+ */
+export const provisionAttestationProviderSchema = z
+  .object({
+    engineTenantRef: z.string().min(1).max(200),
+    signingCertificate: z.object({
+      privateKeyJwk: z.record(z.string(), z.unknown()),
+      certificateChain: z.array(z.string().min(1)).min(1),
+    }),
+    /** ARF §6.6.2.2. Absent in V0 (blocker B3); the omission is reported, never faked. */
+    registrationCertificateJwt: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const createCredentialTypeSchema = z
+  .object({
+    attestationProviderId: z.string().uuid(),
+    name: z.string().min(1).max(200),
+    format: z.enum(["dc+sd-jwt", "mso_mdoc"]),
+    vct: z.string().min(1).max(500).optional(),
+    doctype: z.string().min(1).max(500).optional(),
+    /**
+     * Trust configuration, not documentation: ARF §6.3.2.4 makes the Rulebook the source of trust
+     * anchors for verifying a non-qualified EAA's signature.
+     */
+    rulebook: z.object({
+      identifier: z.string().min(1).max(500),
+      version: z.string().min(1).max(50),
+      publicationUri: z.string().url().optional(),
+      anchorSource: z
+        .enum(["RULEBOOK_ONLY", "RULEBOOK_AND_PUBLISHED_LIST"])
+        .default("RULEBOOK_ONLY"),
+    }),
+    claims: z
+      .array(
+        z.object({
+          path: z.array(z.string().min(1)).min(1),
+          display: z.array(localisedTextSchema).min(1),
+          mandatory: z.boolean().default(true),
+          valueType: z.enum(["string", "number", "boolean", "date"]),
+        }),
+      )
+      .min(1),
+    display: z.array(localisedTextSchema).min(1),
+    validitySeconds: z.number().int().positive(),
+    statusMechanism: z.enum(["TOKEN_STATUS_LIST", "NONE"]).default("TOKEN_STATUS_LIST"),
+    requiresKeyBinding: z.boolean().default(true),
+  })
+  .strict();
+
+export const createIssuancePolicySchema = z
+  .object({
+    credentialTypeId: z.string().uuid(),
+    name: z.string().min(1).max(200),
+  })
+  .strict();
+
+export const createIssuancePolicyVersionSchema = z
+  .object({
+    credentialTypeId: z.string().uuid(),
+    purpose: z.array(localisedTextSchema).min(1),
+    eligibilityRule: z.object({
+      evaluator: z.string().min(1).max(100),
+      parameters: z.record(z.string(), z.unknown()).default({}),
+    }),
+    authenticSource: z.object({
+      connector: z.string().min(1).max(100),
+      parameters: z.record(z.string(), z.unknown()).default({}),
+    }),
+    holderBinding: z.enum(["KEY_BOUND", "BEARER"]).default("KEY_BOUND"),
+    flow: z.enum(["PRE_AUTHORIZED_CODE", "AUTHORIZATION_CODE"]).default("PRE_AUTHORIZED_CODE"),
+    credentialValiditySeconds: z.number().int().positive(),
+    statusPolicy: z.object({
+      statusListEnabled: z.boolean().default(true),
+      suspensionAllowed: z.boolean().default(false),
+    }),
+    retentionPolicy: z
+      .object({
+        transactionLifetimeSeconds: z.number().int().positive().default(300),
+        resultRetentionSeconds: z.number().int().positive().default(86_400),
+      })
+      .default({ transactionLifetimeSeconds: 300, resultRetentionSeconds: 86_400 }),
+    /** The §7.3 stretch goal: require a PID presentation first, reusing a verification policy. */
+    eligibilityPresentationPolicyId: z.string().uuid().optional(),
+    publish: z.boolean().default(false),
+  })
+  .strict();
+
+export const createIssuanceSchema = z
+  .object({
+    policyId: z.string().uuid(),
+    /**
+     * A **lookup key** for the authentic source, never attribute values.
+     *
+     * A client that could pass values directly would make the platform an attestation laundry,
+     * issuing claims nobody authoritative asserted.
+     */
+    subjectReference: z.string().min(1).max(200),
+    businessReference: z.string().min(1).max(200).optional(),
+    callbackUrl: z.string().url().optional(),
+  })
+  .strict();
+
+export const changeCredentialStatusSchema = z
+  .object({
+    /** `VALID` is only reachable from `SUSPENDED`: revocation is irreversible (`VCR_04`). */
+    status: z.enum(["VALID", "SUSPENDED", "REVOKED"]),
+  })
+  .strict();
+
+export type CreateAttestationProviderBody = z.infer<typeof createAttestationProviderSchema>;
+export type ProvisionAttestationProviderBody = z.infer<
+  typeof provisionAttestationProviderSchema
+>;
+export type CreateCredentialTypeBody = z.infer<typeof createCredentialTypeSchema>;
+export type CreateIssuancePolicyBody = z.infer<typeof createIssuancePolicySchema>;
+export type CreateIssuancePolicyVersionBody = z.infer<typeof createIssuancePolicyVersionSchema>;
+export type CreateIssuanceBody = z.infer<typeof createIssuanceSchema>;
+export type ChangeCredentialStatusBody = z.infer<typeof changeCredentialStatusSchema>;

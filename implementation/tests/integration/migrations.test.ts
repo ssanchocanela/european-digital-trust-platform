@@ -63,11 +63,18 @@ describe("migrations", () => {
     );
     const tables = rows.map((r) => r.table_name).sort();
 
-    // Presentation content — VP tokens, credentials, disclosed claim values — has no table.
-    // That absence is the guarantee in ADR 0004, so it is asserted rather than assumed: a
-    // future migration adding one would fail here.
+    // Content has no table, on **either** side.
+    //
+    // Presentation content — VP tokens, credentials, disclosed claim values — and issuance content
+    // — attribute values fetched from an authentic source — are both absent. That absence is the
+    // guarantee in ADR 0004 and §7.5 of the V0 plan, so it is asserted rather than assumed: a
+    // future migration adding a table for either would fail here.
+    //
+    // `issued_credentials` is metadata and a status reference; it holds no attribute values. The
+    // column-level assertion below is what keeps that true as the table evolves.
     expect(tables).toEqual(
       [
+        // Milestone 1 — verification
         "access_certificates",
         "api_keys",
         "audit_events",
@@ -85,8 +92,60 @@ describe("migrations", () => {
         "schema_migrations", // created and owned by the migrator, not by the schema
         "tenants",
         "webhook_deliveries",
+        // Milestone 2 — issuance
+        "attestation_providers",
+        "credential_types",
+        "issuance_policies",
+        "issuance_policy_versions",
+        "issuance_transaction_transitions",
+        "issuance_transactions",
+        "issued_credentials",
+        "trust_anchor_publications",
       ].sort(),
     );
+  });
+
+  it("keeps issued_credentials free of anything that could hold an attribute value", async () => {
+    // The table is the one place an issuance leaves a durable trace, so its columns are pinned.
+    // A migration adding `claims`, `attributes`, `payload` or similar would fail here — which is
+    // the point: §7.5 says attribute values are never persisted, and a schema is where that
+    // promise is either kept or quietly broken.
+    const { rows } = await pool.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = $1",
+      ["issued_credentials"],
+    );
+    const columns = rows.map((r) => r.column_name).sort();
+
+    expect(columns).toEqual(
+      [
+        "credential_type_id",
+        "engine_session_ref",
+        "expires_at",
+        "id",
+        "issuance_policy_id",
+        "issuance_policy_version",
+        "issuance_transaction_id",
+        "issued_at",
+        "status",
+        "status_changed_at",
+        "status_list_index",
+        "status_list_uri",
+        "tenant_id",
+      ].sort(),
+    );
+
+    // And no column whose name suggests a value store, as a second line of defence for when
+    // somebody adds a column and updates the list above without thinking about what it holds.
+    //
+    // Reference columns are exempt by shape: a `*_id` or `*_ref` names a row elsewhere, it does not
+    // contain an attribute. Without that exemption `credential_type_id` trips the check, which is a
+    // false positive that would teach the next person to delete the assertion rather than fix it.
+    const contentWords = ["claim", "attribute", "payload", "disclosed", "sd_jwt", "value"];
+    const suspicious = columns.filter(
+      (c) =>
+        !c.endsWith("_id") && !c.endsWith("_ref") && contentWords.some((w) => c.includes(w)),
+    );
+    expect(suspicious, "issued_credentials must hold no attribute values").toEqual([]);
   });
 
   it("is idempotent: a second run applies nothing", async () => {

@@ -1,11 +1,18 @@
+import type { AuthenticSourceConnector, EligibilityEvaluator } from "@edtp/domain";
+import type { EudiIssuerPort, EudiIssuerProvisioningPort } from "@edtp/eudi-issuer-port";
 import type { EudiVerifierPort, EudiVerifierProvisioningPort } from "@edtp/eudi-verifier-port";
-import { EngineClient, EudiploVerifierAdapter } from "@edtp/eudiplo-adapter";
+import {
+  EngineClient,
+  EudiploIssuerAdapter,
+  EudiploVerifierAdapter,
+} from "@edtp/eudiplo-adapter";
 import {
   ApiKeyRepository,
   AuditRepository,
   createDatabase,
   type Database,
   type DatabaseHandle,
+  IssuanceRepository,
   PolicyRepository,
   RegistrationRepository,
   TransactionRepository,
@@ -16,6 +23,12 @@ import type { PlatformConfig } from "./config.js";
 import { BackgroundJobs } from "./jobs/background.jobs.js";
 import { Logger } from "./logging/logger.js";
 import { AuditService } from "./modules/audit/audit.service.js";
+import {
+  AlwaysEligibleEvaluator,
+  FixtureAuthenticSourceConnector,
+  MinimumAgeEligibilityEvaluator,
+} from "./modules/issuances/fixture-connector.js";
+import { IssuanceService } from "./modules/issuances/issuance.service.js";
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
@@ -43,15 +56,27 @@ export interface Dependencies {
     readonly audit: AuditRepository;
     readonly apiKeys: ApiKeyRepository;
     readonly deliveries: WebhookDeliveryRepository;
+    readonly issuance: IssuanceRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
+  readonly issuer: EudiIssuerPort;
+  readonly issuerProvisioning: EudiIssuerProvisioningPort;
+  /**
+   * Named implementations registered at startup — not a rules engine, not an expression language.
+   * Exposed so policy validation can refuse an unknown name at publication rather than at issuance.
+   */
+  readonly registry: {
+    readonly connectors: ReadonlyMap<string, AuthenticSourceConnector>;
+    readonly evaluators: ReadonlyMap<string, EligibilityEvaluator>;
+  };
   readonly services: {
     readonly audit: AuditService;
     readonly registration: RegistrationService;
     readonly policies: PolicyService;
     readonly presentations: PresentationService;
     readonly webhooks: WebhookService;
+    readonly issuances: IssuanceService;
   };
   readonly jobs: BackgroundJobs;
 }
@@ -64,6 +89,9 @@ export interface BuildOptions {
   /** Substituted by the integration suite so the business layer runs with no engine. */
   readonly verifier?: EudiVerifierPort & Partial<EudiVerifierProvisioningPort>;
   readonly provisioning?: EudiVerifierProvisioningPort;
+  /** Substituted by the integration suite so issuance runs with no engine. */
+  readonly issuer?: EudiIssuerPort & Partial<EudiIssuerProvisioningPort>;
+  readonly issuerProvisioning?: EudiIssuerProvisioningPort;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -79,14 +107,15 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     audit: new AuditRepository(db),
     apiKeys: new ApiKeyRepository(db),
     deliveries: new WebhookDeliveryRepository(db),
+    issuance: new IssuanceRepository(db),
   };
 
   // One adapter instance serves every engine tenant: it is stateless, and the client
   // resolves per-tenant credentials on demand (ADR 0002 Decision 3).
-  const adapter = options.verifier
-    ? undefined
-    : new EudiploVerifierAdapter(
-        new EngineClient({
+  const engineClient =
+    options.verifier && options.issuer
+      ? undefined
+      : new EngineClient({
           baseUrl: config.ENGINE_BASE_URL,
           clock,
           requestTimeoutMs: config.ENGINE_REQUEST_TIMEOUT_MS,
@@ -103,14 +132,36 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             },
           },
           ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-        }),
-      );
+        });
+
+  // One adapter instance per side serves every engine tenant: both are stateless, and the shared
+  // client resolves per-tenant credentials on demand (ADR 0002 Decision 3).
+  const adapter = options.verifier
+    ? undefined
+    : new EudiploVerifierAdapter(engineClient as EngineClient);
+  const issuerAdapter = options.issuer
+    ? undefined
+    : new EudiploIssuerAdapter(engineClient as EngineClient);
 
   const verifier: EudiVerifierPort = options.verifier ?? (adapter as EudiploVerifierAdapter);
   const provisioning: EudiVerifierProvisioningPort =
     options.provisioning ??
     (adapter as EudiploVerifierAdapter | undefined) ??
     (options.verifier as unknown as EudiVerifierProvisioningPort);
+
+  const issuer: EudiIssuerPort = options.issuer ?? (issuerAdapter as EudiploIssuerAdapter);
+  const issuerProvisioning: EudiIssuerProvisioningPort =
+    options.issuerProvisioning ??
+    (issuerAdapter as EudiploIssuerAdapter | undefined) ??
+    (options.issuer as unknown as EudiIssuerProvisioningPort);
+
+  // Registered by name at startup, so a policy naming an unknown one is refused at publication.
+  const connectors = new Map<string, AuthenticSourceConnector>();
+  for (const c of [new FixtureAuthenticSourceConnector()]) connectors.set(c.name, c);
+  const evaluators = new Map<string, EligibilityEvaluator>();
+  for (const e of [new MinimumAgeEligibilityEvaluator(), new AlwaysEligibleEvaluator()]) {
+    evaluators.set(e.name, e);
+  }
 
   const audit = new AuditService(repositories.audit, clock);
   const webhooks = new WebhookService(
@@ -147,6 +198,17 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     config.PLATFORM_PUBLIC_URL,
   );
 
+  const issuances = new IssuanceService(
+    repositories.issuance,
+    issuer,
+    issuerProvisioning,
+    connectors,
+    evaluators,
+    audit,
+    clock,
+    logger,
+  );
+
   const jobs = new BackgroundJobs(
     presentations,
     webhooks,
@@ -164,7 +226,10 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     repositories,
     verifier,
     provisioning,
-    services: { audit, registration, policies, presentations, webhooks },
+    issuer,
+    issuerProvisioning,
+    registry: { connectors, evaluators },
+    services: { audit, registration, policies, presentations, webhooks, issuances },
     jobs,
   };
 };

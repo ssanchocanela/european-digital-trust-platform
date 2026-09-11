@@ -8,7 +8,7 @@ they are separate in the domain model, separate in the port, and separately test
 |---|---|---|
 | Question | "Is this Attestation Provider who it says it is, *before* I ask for a credential?" | "Is the signature on this attestation one I should trust?" |
 | ARF | **§6.6.2.2** — pre-issuance provider authentication | **§6.3.2.4** — attestation signature trust |
-| Mechanism | Access + registration certificates in **signed** Credential Issuer metadata (OpenID4VCI, ETSI TS 119 472-3) | Trust anchors from the **attestation Rulebook**, optionally a list published per **ETSI TS 119 602** |
+| Mechanism | **One JWS.** The metadata is signed with the provider's **access certificate**, which travels in the signature's `x5c` header, and the registration certificate sits in `issuer_info` inside the signed payload (OpenID4VCI 12.2.3; ETSI TS 119 472-3 V1.1.1 clauses 4.2.1–4.2.3) | Trust anchors from the **attestation Rulebook**, optionally a list published per **ETSI TS 119 602** |
 | When | Before the credential request | At verification, by whoever receives the attestation |
 | V0 status | **Partly supported, blocked on `signed_metadata`** | **Modelled and publishable (TEST); no notified list exists for a non-qualified EAA** |
 
@@ -21,8 +21,8 @@ Everything below was verified against the running EUDIPLO v7.6.0 container
 
 ### What the engine does support
 
-The registration certificate **is** publishable in the Credential Issuer metadata. The engine emits
-it as:
+The registration certificate **is** publishable in the Credential Issuer metadata — in the unsigned
+document. The engine emits it as:
 
 ```json
 "issuer_info": [{ "format": "registration_cert", "data": "<jwt>" }]
@@ -38,7 +38,17 @@ contract tests:
 | `enabled` is separately load-bearing | Without it the certificate is stored and **silently never published** — the worst kind of failure |
 | The adapter reads it back from the **well-known document** | Not from the management API. The question is what a Wallet receives, and Milestone 1 found the engine storing a certificate it then declined to publish |
 
+**With a caveat added on 11 September 2026, after reading the profile.** `ISS-MDATA-REG_CERT-4.2.3-02`
+requires `issuer_info` at the **top level of the signed JWT payload**. The engine puts it in the
+unsigned JSON document, and there is no signed payload for it to be in. So "publishable" is accurate
+about the document and **not** about the profile: the certificate is present where a curious client can
+read it, and absent from the place a conformant Wallet looks.
+
 ### What it does not — and this is the blocker
+
+This section originally described the missing signature as one narrow gap, separable from the
+certificates. **That was wrong, and the correction matters**: the profile makes the signature the
+*carrier* of both certificates, so the gap is not narrow — it is the mechanism.
 
 **`signed_metadata` is not produced.** The term has **zero occurrences** in the engine's compiled
 source. It is the OpenID4VCI mechanism by which a Wallet authenticates the metadata *document
@@ -50,8 +60,23 @@ configureIssuerTrust {
 }
 ```
 
-So a Wallet cannot authenticate this provider before issuance, whatever certificates the metadata
-carries. The platform reports the conjunction rather than implying success:
+So a Wallet cannot authenticate this provider before issuance — and there is no "whatever
+certificates the metadata carries" escape, because the access certificate's only conformant home is the
+`x5c` header of the signature that does not exist (**G8**), and the registration certificate's is the
+payload of the same JWS.
+
+Three further facts about the pinned wallet, all read from its source:
+
+| | |
+|---|---|
+| The `x5c` chain is validated against **`VerificationContext.WalletRelyingPartyAccessCertificate`** | `EtsiCertificateChainTrust` — the **same** trust context as a verifier's access certificate. So the **Q1a chain check gates gate (a) too**, and one access certificate from the RP Registration Service may serve both roles |
+| `RequireSigned` **gates the issuer registration-certificate check** | `IssuerCreator`: `issuerRegistration?.takeIf { issuerMetadataPolicy is IssuerMetadataPolicy.RequireSigned }`. Under `PreferSigned` or `IgnoreSigned` the check is silently skipped, with a log line saying so — **even with the Wallet's own *Check Registration Certificates* preference on** |
+| The default is already `RequireSigned` | `IssuerTrustConfigBuilder` defaults to `MetadataPolicyMode.REQUIRE`; the explicit `requireSignedMetadata()` in the reference app is belt and braces |
+
+The second of those has a sharp consequence for testing: **`RPRC_22a`/`RPRC_23` cannot be exercised at
+all until the metadata is signed.** A wallet modified to tolerate unsigned metadata stops checking the
+registration certificate, so the two cannot be tested independently — which is the opposite of what the
+W0 test matrix assumed. The platform reports the conjunction rather than implying success:
 
 ```
 GET /v1/tenants/{t}/attestation-providers/{p}/provider-authentication
@@ -68,7 +93,9 @@ that points at this document**, not a silent change in what the platform claims.
 
 Three routes, in rough order of cost:
 
-1. **Upstream**: the engine signs its metadata. An issue is drafted (not filed) at
+1. **Upstream**: the engine signs its metadata with an `access`-usage key chain, `x5c` in the header,
+   `issuer_info` in the payload. **One change closes G1, G8 and the `issuer_info` placement problem.**
+   An issue covering all three is drafted (not filed) at
    [`upstream/eudiplo-signed-metadata.md`](upstream/eudiplo-signed-metadata.md).
 2. **In front of the engine**: the platform serves the metadata itself, signing it with the
    attestation key. Means owning an OpenID4VCI surface, which is exactly what the engine exists to
@@ -161,6 +188,10 @@ modification is deliberately not built here.**
 Gate (a) would still need `ignoreSignedMetadata()` or an engine that signs, so a full issuance test
 needs a decision on both gates, not one.
 
+And note what the downgrade costs beyond gate (a): under anything other than `RequireSigned` the wallet
+stops checking the issuer's registration certificate entirely. So a WD-2 run cannot evidence
+`RPRC_22a`/`RPRC_23` either, in **either** position of the *Check Registration Certificates* preference.
+
 ## PID during issuance: the issuer becomes a relying party
 
 The §7.3 stretch goal — requiring a PID presentation as the authorization step of an issuance, reusing
@@ -196,7 +227,8 @@ why the flag stays off until a wallet test passes.
 
 | Claim | Status |
 |---|---|
-| Registration certificate publishable in metadata | **Verified** against the engine |
+| Registration certificate publishable in metadata | **Verified** against the engine — in the **unsigned** document. Not in the profile-required place (`ISS-MDATA-REG_CERT-4.2.3-02`) |
+| Access certificate publishable in metadata | **No.** No field exists, and its conformant home is the missing signature's `x5c` header — gap **G8**, one fix with G1 |
 | Credential Issuer metadata signed | **No** — engine does not support it |
 | `§6.6.2.2` provider authentication satisfied | **No.** Not claimed |
 | Rulebook reference modelled and enforced | **Yes** |

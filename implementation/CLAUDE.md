@@ -303,11 +303,20 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     [`docs/test-session-gateway.md`](docs/test-session-gateway.md), run its negative checks before any
     wallet interaction, and treat a `401` on an `/api/*` probe as a failure — it proves the endpoint
     is reachable. A tunnel is hand-started, open only during a session, synthetic data only.
-21. **Gate (a) is short of *two* things, not one.** Besides `signed_metadata` (G1), the engine has
-    **nowhere to put the Attestation Provider's access certificate** — `IssuanceConfig` has no such
-    field and `issuer_info` only ever carries `format: "registration_cert"` — while ARF §6.6.2.2
-    expects both certificates in the metadata. That is **G8**. Obtain the access certificate at
-    registration anyway: PID-during-issuance uses one, and that path works.
+21. **Gate (a) is one mechanism, and G1 and G8 are one fix.** ETSI TS 119 472-3 V1.1.1 routes all of
+    it through a single JWS: the metadata **shall** be signed (`ISS-MDATA-4.2.1-01`), the signing
+    certificate **shall be the access certificate** (`-02`), it travels in the `x5c` protected header
+    (`ISS-MDATA-ACC_CERT-4.2.2-01/-02`), and `issuer_info` sits at the **top level of the signed
+    payload** (`ISS-MDATA-REG_CERT-4.2.3-02`). So the access certificate has no separate home — it *is*
+    the signer — and the registration certificate the engine publishes today is in the unsigned
+    document, which is the wrong place. Three consequences: the **Q1a chain check gates gate (a) too**
+    (the wallet validates that chain with `VerificationContext.WalletRelyingPartyAccessCertificate`,
+    the same anchors as a verifier's); the metadata signing key must be **`access`**-usage, not the
+    attestation key; and **`RPRC_22a`/`RPRC_23` are untestable until the metadata is signed**, because
+    `IssuerCreator` applies the issuer registration-certificate check only under `RequireSigned`, so
+    WD-2 silently switches it off whatever the wallet's *Check Registration Certificates* preference
+    says. Obtain the access certificate at registration regardless: PID-during-issuance uses one, and
+    that path works.
 22. **The EDTP test wallet is a modified build, and its identity is deliberate.** `applicationId`
     `eu.europa.ec.euidi.edtptest`, our own signing key (`OU=TEST ONLY`), a banner on every screen, and
     `BuildConfig.EDTP_DEVIATIONS` naming what is compiled in. Every deviation defaults to upstream
@@ -423,7 +432,7 @@ migrations up from an empty database.
 |---|---|
 | Phase 0 findings, blockers, open questions | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) |
 | Test wallet: build tooling, deviation register, install + first PID sheet | [`tools/test-wallet/`](tools/test-wallet/) — and [`docs/test-wallet-plan.md`](docs/test-wallet-plan.md) for the W0 investigation it was built from |
-| Public exposure for a phone test, and the G7 evaluation | [`docs/test-session-gateway.md`](docs/test-session-gateway.md) |
+| Public exposure for a phone test, and the G7 evaluation | [`docs/test-session-gateway.md`](docs/test-session-gateway.md) — the allow-list governs both deployments; [`docs/test-session-vm.md`](docs/test-session-vm.md) is the disposable-VM alternative, recommended for any recorded result |
 | Certificates, when they arrive; then the first VaaS run | [`docs/certificate-intake-runbook.md`](docs/certificate-intake-runbook.md), [`docs/vaas-official-wallet-run-sheet.md`](docs/vaas-official-wallet-run-sheet.md) |
 | Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |

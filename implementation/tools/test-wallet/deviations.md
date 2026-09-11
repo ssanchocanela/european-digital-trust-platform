@@ -87,9 +87,27 @@ Gate (a), ARF §6.6.2.2. Point:
 `configureIssuerTrust { requireSignedMetadata() }` → `preferSignedMetadata()` or
 `ignoreSignedMetadata()`, in the same per-flavour `WalletCoreConfigImpl`.
 
-**Try `preferSignedMetadata()` first.** It accepts unsigned metadata while still validating a
-signature when one is present, so the relaxation is narrower than `ignoreSignedMetadata()`. Use the
-narrowest that works.
+**`preferSignedMetadata()` is the narrower of the two** — it accepts unsigned metadata while still
+validating a signature when one is present — so prefer it. But be clear that it buys less than it looks
+like it does, for the reason below.
+
+### What this deviation silently switches off as well
+
+Read from `IssuerCreator` in wallet-core 0.30.2:
+
+```kotlin
+val registrationCertificatePolicy = issuerRegistration
+    ?.takeIf { issuerMetadataPolicy is IssuerMetadataPolicy.RequireSigned }
+```
+
+**The issuer registration-certificate check runs only under `RequireSigned`.** Under `PreferSigned` *or*
+`IgnoreSigned` it is skipped, with a log line saying so — and the Wallet's own *Check Registration
+Certificates* preference does not bring it back.
+
+So a run with WD-2 on cannot evidence `AS-AP-44-005` (`RPRC_22a`) or `AS-AP-44-007` (`RPRC_23`) in
+either position of that preference. Those two become testable only when the engine signs its metadata,
+which is the one change that also closes G1 and G8. That is a matrix correction, not a footnote — see
+the test matrix in `../../docs/test-wallet-plan.md`.
 
 Rules attached to this one, and they are not negotiable:
 

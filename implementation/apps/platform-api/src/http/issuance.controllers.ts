@@ -177,10 +177,25 @@ export class IssuanceConfigurationController {
       credentialIssuer: evidence.credentialIssuer,
       registrationCertificatePresent: evidence.registrationCertificatePresent,
       metadataSigned: evidence.metadataSigned,
+      accessCertificateInSignedMetadata: evidence.accessCertificateInSignedMetadata,
+      registrationCertificateInSignedPayload: evidence.registrationCertificateInSignedPayload,
       credentialConfigurationIds: evidence.credentialConfigurationIds,
-      // The honest assessment, returned rather than implied.
+      // The honest assessment, returned rather than implied — and all three conditions, not two.
+      //
+      // ETSI TS 119 472-3 V1.1.1 makes gate (a) one mechanism: the metadata is signed
+      // (`ISS-MDATA-4.2.1-01`) by the provider's **access certificate** (`-02`), which travels in the
+      // `x5c` protected header (`ISS-MDATA-ACC_CERT-4.2.2-01/-02`), and the registration certificate
+      // sits in `issuer_info` at the top level of that signed payload
+      // (`ISS-MDATA-REG_CERT-4.2.3-02`). A registration certificate in the *unsigned* document does
+      // not satisfy it.
+      //
+      // All four flags are false at the pinned engine version, so today this would be false however
+      // it were written. It is written in full so that an engine release adding `signed_metadata`
+      // cannot make this claim true while the access certificate is still missing.
       walletCanAuthenticateProvider:
-        evidence.registrationCertificatePresent && evidence.metadataSigned,
+        evidence.metadataSigned &&
+        evidence.accessCertificateInSignedMetadata &&
+        evidence.registrationCertificateInSignedPayload,
     };
   }
 

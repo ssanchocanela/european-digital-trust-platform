@@ -253,13 +253,22 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     const issuerInfo = metadata.issuer_info ?? [];
     const registrationCert = issuerInfo.find((i) => i.format === "registration_cert");
 
+    // `signed_metadata` is the OpenID4VCI (clause 12.2.3) mechanism by which a Wallet authenticates
+    // the metadata document itself, and ETSI TS 119 472-3 routes both certificates through it. The
+    // engine at the pinned version does not emit it, so everything derived from it is false — but it
+    // is derived rather than hard-coded, so a release that adds support is reported accurately.
+    const signed =
+      typeof metadata.signed_metadata === "string"
+        ? inspectSignedMetadata(metadata.signed_metadata)
+        : undefined;
+
     return {
       credentialIssuer: metadata.credential_issuer,
       registrationCertificatePresent: registrationCert !== undefined,
       ...(registrationCert?.data ? { registrationCertificateJwt: registrationCert.data } : {}),
-      // `signed_metadata` is the OpenID4VCI mechanism a Wallet uses to authenticate the metadata
-      // document itself. Reported as observed; the engine at the pinned version does not emit it.
-      metadataSigned: typeof metadata.signed_metadata === "string",
+      metadataSigned: signed !== undefined,
+      accessCertificateInSignedMetadata: signed?.hasX5c ?? false,
+      registrationCertificateInSignedPayload: signed?.hasIssuerInfo ?? false,
       credentialConfigurationIds: Object.keys(
         metadata.credential_configurations_supported ?? {},
       ),
@@ -352,3 +361,61 @@ const toEngineStatus = (status: CredentialStatus): number => {
 
 /** Re-exported so the composition root can name the claims type without importing the domain. */
 export type { SourceAttributes };
+
+/**
+ * What a Wallet can learn from a `signed_metadata` JWS without verifying it.
+ *
+ * Deliberately does not verify the signature: that is a Wallet's job with trust anchors we do not
+ * hold, and claiming otherwise would be the kind of false assurance this endpoint exists to avoid.
+ * It reports only whether the two things ETSI TS 119 472-3 requires are structurally present —
+ * `x5c` in the protected header (`ISS-MDATA-ACC_CERT-4.2.2-01/-02`) and `issuer_info` at the top
+ * level of the payload (`ISS-MDATA-REG_CERT-4.2.3-02`).
+ *
+ * Returns `undefined` for anything that is not a decodable compact JWS, so a malformed value is
+ * reported as "not signed" rather than throwing inside a read-only diagnostic endpoint.
+ */
+export const inspectSignedMetadata = (
+  jws: string,
+): { hasX5c: boolean; hasIssuerInfo: boolean } | undefined => {
+  const parts = jws.split(".");
+  if (parts.length !== 3) {
+    return undefined;
+  }
+  const [encodedHeader, encodedPayload] = parts;
+  if (encodedHeader === undefined || encodedPayload === undefined) {
+    return undefined;
+  }
+  const header = decodeJsonSegment(encodedHeader);
+  const payload = decodeJsonSegment(encodedPayload);
+  if (header === undefined || payload === undefined) {
+    return undefined;
+  }
+  const x5c = header["x5c"];
+  const issuerInfo = payload["issuer_info"];
+  return {
+    hasX5c: Array.isArray(x5c) && x5c.length > 0,
+    // `ISS-MDATA-REG_CERT-4.2.3-04` says one element **may** carry the registration certificate, so
+    // an `issuer_info` array that carries none does not satisfy what gate (a) needs. Checked for the
+    // element, not merely for the array.
+    hasIssuerInfo:
+      Array.isArray(issuerInfo) &&
+      issuerInfo.some(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as Record<string, unknown>)["format"] === "registration_cert",
+      ),
+  };
+};
+
+const decodeJsonSegment = (segment: string): Record<string, unknown> | undefined => {
+  try {
+    const json = Buffer.from(segment, "base64url").toString("utf8");
+    const parsed: unknown = JSON.parse(json);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};

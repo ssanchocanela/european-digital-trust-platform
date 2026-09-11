@@ -117,6 +117,22 @@ export interface ProviderAuthenticationEvidence {
    * pinned version does not produce it — see `docs/issuer-trust-model.md` gate (a).
    */
   readonly metadataSigned: boolean;
+  /**
+   * True when the signed metadata's protected header carries an `x5c` chain — the provider's access
+   * certificate, which ETSI TS 119 472-3 V1.1.1 `ISS-MDATA-4.2.1-02` requires to be the signing
+   * certificate and `ISS-MDATA-ACC_CERT-4.2.2-01/-02` require in the header.
+   *
+   * Necessarily false when there is no signed metadata, because the header is the **only** conformant
+   * place for this certificate: there is no separate metadata field for it. That is why gate (a) has
+   * one fix and not two.
+   */
+  readonly accessCertificateInSignedMetadata: boolean;
+  /**
+   * True when `issuer_info` is at the top level of the **signed** payload, per
+   * `ISS-MDATA-REG_CERT-4.2.3-02` — not merely present in the unsigned document, which is where the
+   * engine puts it today.
+   */
+  readonly registrationCertificateInSignedPayload: boolean;
   /** The credential configuration identifiers the metadata advertises. */
   readonly credentialConfigurationIds: readonly string[];
 }

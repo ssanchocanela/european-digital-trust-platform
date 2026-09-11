@@ -23,9 +23,15 @@ import { beforeAll, describe, expect, it } from "vitest";
  *
  * **Gate (a), ARF §6.6.2.2 — pre-issuance provider authentication.** A Wallet authenticates the
  * Attestation Provider *before* requesting a credential, from the Credential Issuer metadata. So the
- * test fetches the well-known document, unauthenticated, exactly as a Wallet does, and reports two
- * independent facts: whether the registration certificate is there (`issuer_info`) and whether the
- * metadata itself is signed (`signed_metadata`).
+ * test fetches the well-known document, unauthenticated, exactly as a Wallet does.
+ *
+ * Gate (a) is **one mechanism, not two halves** — an earlier version of this comment had that wrong.
+ * ETSI TS 119 472-3 V1.1.1 routes all of it through a single JWS: the metadata is signed
+ * (`ISS-MDATA-4.2.1-01`) by the provider's access certificate (`-02`), which travels in the `x5c`
+ * protected header (`ISS-MDATA-ACC_CERT-4.2.2-01/-02`), with `issuer_info` at the top level of the
+ * signed payload (`ISS-MDATA-REG_CERT-4.2.3-02`). So the test reports four facts and asserts each
+ * separately, so that a release adding the signature without the certificate cannot read as a closed
+ * gate.
  *
  * **Gate (b), ARF §6.3.2.4 — attestation signature trust.** Anchors come from the Rulebook, and
  * optionally from an ETSI TS 119 602 list. What the adapter controls is whether the attestation
@@ -329,6 +335,20 @@ describe("issuance contract against a real engine (skipped when none is reachabl
       evidence.metadataSigned,
       "if this now passes, EUDIPLO has gained signed_metadata support: update docs/issuer-trust-model.md",
     ).toBe(false);
+
+    // And the two things the signature is the carrier for, per ETSI TS 119 472-3 V1.1.1: the access
+    // certificate in the `x5c` protected header (`ISS-MDATA-ACC_CERT-4.2.2-01/-02`) and the
+    // registration certificate inside the signed payload (`ISS-MDATA-REG_CERT-4.2.3-02`). Both are
+    // necessarily false while there is no signature, and both are asserted separately so a release
+    // that adds signing without the access certificate cannot look like a closed gate.
+    expect(
+      evidence.accessCertificateInSignedMetadata,
+      "signed metadata now carries x5c: gap G8 may be closed — re-read docs/eudiplo-integration.md §10B",
+    ).toBe(false);
+    expect(
+      evidence.registrationCertificateInSignedPayload,
+      "issuer_info is now inside the signed payload: re-read the G2 placement note in §10B",
+    ).toBe(false);
   }, 60_000);
 
   it("publishes the registration certificate in the metadata when one is held", async () => {
@@ -356,9 +376,17 @@ describe("issuance contract against a real engine (skipped when none is reachabl
     );
     expect(body.iss).toBe("urn:edtp:TEST-PLACEHOLDER:NOT-ISSUED-BY-ANY-REGISTRAR");
 
-    // Even with the certificate published, a Wallet still cannot fully authenticate the provider,
-    // because the metadata is unsigned. Stated as a conjunction so neither half is forgotten.
-    expect(evidence.registrationCertificatePresent && evidence.metadataSigned).toBe(false);
+    // Even with the certificate published, a Wallet still cannot authenticate the provider, because
+    // the metadata is unsigned — and because `ISS-MDATA-REG_CERT-4.2.3-02` wants this certificate at
+    // the top level of the *signed* payload, not in the unsigned document where it sits. So what this
+    // test verifies is that the engine publishes it somewhere readable, which is not the same as
+    // publishing it conformantly.
+    expect(evidence.registrationCertificateInSignedPayload).toBe(false);
+    expect(
+      evidence.metadataSigned &&
+        evidence.accessCertificateInSignedMetadata &&
+        evidence.registrationCertificateInSignedPayload,
+    ).toBe(false);
   }, 90_000);
 
   it("PID-during-issuance: the nested presentation request is decodable, as far as a wallet would get", async () => {

@@ -316,13 +316,21 @@ most valuable evidence available and the reason the chain check comes first.
 |---|---|---|---|---|---|
 | I1 | Test | **on** | **off** | off | **Expected failure at gate (a)**: the wallet refuses our issuer for unsigned metadata. **This is the evidence for G1** — a deliberate, recorded failure, not a broken test |
 | I2 | Test | **on** | **on** | off | Full issuance completes. Labelled: modified wallet, WD-1 + WD-2, gate (a) bypassed not satisfied |
-| I3 | Test | on | on | **on** | Issuer registration certificate validated → expect refusal or warning. `RPRC_22a`/`RPRC_23` make a valid certificate a precondition for the Wallet to request issuance at all (blocker B3) |
+| I3 | Test | on | on | **on** | ~~Issuer registration certificate validated~~ — **corrected: nothing happens.** The check runs only under `RequireSigned`, so WD-2 switches it off whatever this preference says. Run it anyway and record that the log says it was skipped: that *is* the evidence. `RPRC_22a`/`RPRC_23` become testable only once the engine signs its metadata |
 | I4 | Test | **off** | on | off | **Expected failure at gate (b)**: no trust list for our EAA type, `evaluateIssuerTrust` throws. **Evidence that WD-1 is load-bearing** |
 | I5 | Test | on | on | off | Revocation: issue, revoke via the platform, re-present → status check fails |
 
 **I1 and I4 are designed to fail**, and their value is exactly that: I1 demonstrates G1 from the wallet
 side, I4 demonstrates that the §6.3.2.4 mechanism is really being used rather than bypassed. A matrix
 where everything passes would prove less.
+
+> **Correction to I3, from reading wallet-core 0.30.2 after this plan was written.** The issuer
+> registration-certificate check is gated on `RequireSigned`
+> (`IssuerCreator`: `issuerRegistration?.takeIf { issuerMetadataPolicy is IssuerMetadataPolicy.RequireSigned }`).
+> So WD-2 disables it in either form, and the *Check Registration Certificates* preference cannot
+> re-enable it. `RPRC_22a`/`RPRC_23` and gate (a) are **not independently testable**: the single engine
+> change that signs the metadata (closing G1 and G8 together) is what unblocks both. The assumption
+> behind I3 — that the two could be varied separately — was wrong.
 
 ### PID during issuance — only after the above
 

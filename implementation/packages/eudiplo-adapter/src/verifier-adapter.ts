@@ -183,11 +183,23 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
 
     const jwt = plan.relyingPartyContext.registrationCertificateJwt;
     if (jwt) {
-      // `registrationCert.jwt` uses a certificate we already hold, with no registrar
-      // call. The engine still validates its expiry and checks that it authorises every
-      // credential in the DCQL query — the engine-side half of the over-asking
-      // prevention in ADR 0005 Decision 2.
-      body.registrationCert = { jwt };
+      // `registrationCertImportJwt` attaches a certificate we already hold, with no registrar
+      // call to issue one. The engine validates it and checks that it authorises every
+      // credential in the DCQL query — the engine-side half of the over-asking prevention in
+      // ADR 0005 Decision 2; it refuses a certificate with no authorised-credentials claim.
+      //
+      // **The field name and its type were both wrong here.** This sent
+      // `registrationCert: { jwt }`, which `PresentationConfigCreateDto` rejects outright —
+      // it declares `additionalProperties: false`, so the engine answers
+      // `unrecognized key(s) "registrationCert"` with a 400. The defect was invisible because
+      // V0 holds no certificate, so the branch never executed. Verified empirically against
+      // v7.6.0 on 11 September 2026; see `docs/interop-findings.md` A12.
+      //
+      // A second trap: the engine's own OpenAPI document declares this field as
+      // `{type: "array", items: {type: "string"}}`, but its zod validator wants a **string**
+      // and rejects an array with `expected string, received array`. The validator is the
+      // authority, as CLAUDE.md §6 item 10 says of this engine generally.
+      body.registrationCertImportJwt = jwt;
     }
     // With no registration certificate the request goes without one. V0 has no reachable
     // provider (blocker B3); the omission is reported upward, never faked.

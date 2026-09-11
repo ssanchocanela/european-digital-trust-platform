@@ -325,6 +325,94 @@ default.
 | Wallet interaction | **Not attempted.** Needs the chain check (§8.1), a public HTTPS origin and a wallet |
 | Official Reference Implementation build | **Unverified** |
 
+## 8A. The registration certificate, and the warnings to expect without one
+
+**Verified against EUDIPLO v7.6.0 on 11 September 2026.** A presentation request from V0 carries
+**no registration certificate**, and it is worth being precise about why and about what a Wallet
+will do.
+
+### What the request object actually contains
+
+The signed request object was fetched from its `request_uri` and decoded. Its claims are
+`response_type`, `client_id`, `response_uri`, `response_mode`, `nonce`, `dcql_query`,
+`client_metadata`, `state`, `aud`, `exp`, `iat` — and **no registration-certificate claim** of any
+spelling. The engine emits it as **`verifier_info`** (the earlier OpenID4VP draft name, not
+`verifier_attestations`), shaped
+`[{ format: "registration_cert", data: "<jwt>" }]`.
+
+### Why it is absent, in order of discovery
+
+| | |
+|---|---|
+| 1 | **The adapter's field name was wrong** — now fixed. It sent `registrationCert: { jwt }`; the engine's `PresentationConfigCreateDto` declares `additionalProperties: false` and answers 400 `unrecognized key(s) "registrationCert"`. The correct field is **`registrationCertImportJwt`**, and despite the engine's OpenAPI declaring it an array its validator requires a **string** |
+| 2 | **The certificate must carry an authorised-credentials claim**, or the engine refuses it: `Registration certificate has no authorized credentials`. This is the engine-side equivalent of the `RPRC_21` check, and the reason the placeholder generator takes `--vct` and `--claim` |
+| 3 | **The engine emits it only when a registrar is configured for the tenant.** `oid4vp.service.js` guards the claim with `presentationConfig.registration_cert && await registrarService.isEnabledForTenant(tenantId)`; `isEnabledForTenant` is `!!config`; and `saveConfig` calls `testCredentials` **before** saving, so the registrar must be reachable and must authenticate |
+
+Point 3 is the one that matters: **`RPRC_19` cannot be satisfied through this engine at this
+version without a reachable registrar service**, no matter what the platform does. Holding a valid
+certificate is not sufficient. Recorded as `A12` and `A13` in
+[`interop-findings.md`](interop-findings.md).
+
+### The TEST placeholder
+
+Until a real certificate is available, one can be minted for exercising the code path:
+
+```bash
+node scripts/make-test-registration-certificate.mjs \
+  --service age-gate --vct urn:eudi:pid:1 --claim birthdate
+```
+
+**It is not a registration certificate.** It is a self-signed JWT issued by nobody, whose `iss` is
+`urn:edtp:TEST-PLACEHOLDER:NOT-ISSUED-BY-ANY-REGISTRAR` so that anything logging or displaying the
+issuer shows what it is. `TEST` only, and never evidence of conformance —
+`EW-DM-44-023` (`RPRC_19`) is satisfied only by a certificate from an authorised Provider of
+registration certificates, and V0 has none (blocker B3).
+
+### Warnings to expect from a Wallet
+
+`EW-DM-44-019` (`RPRC_17`) is explicit about the absent case:
+
+> A Wallet Unit SHALL verify the format, authenticity, and validity of the registration certificate
+> it received … **If the certificate is absent**, malformed, inauthentic, or expired, the Wallet
+> Unit SHALL, when asking for User approval according to `RPA_07`, **warn the User that it could
+> not obtain or validate the information registered about the Relying Party and its Service**. In
+> addition, the Wallet Provider SHALL determine, based on its risk analysis and security policy,
+> whether and under which conditions the Wallet Unit will allow the User to approve the
+> presentation.
+
+So with V0 as it stands, **expect an approval screen carrying that warning**, and expect that
+whether approval is permitted at all is the Wallet Provider's policy decision, not ours. A test run
+that shows the warning is behaving correctly; it is evidence the Wallet is doing its job, not
+evidence of a platform defect.
+
+Two related points:
+
+- `EW-DM-44-027` (`RPRC_21`) produces a **different** warning — "the Relying Party is requesting
+  more information than it has registered" — when requested attributes exceed the certificate's
+  list. V0 cannot trigger that one while it sends no certificate at all, and the platform already
+  refuses over-asking at policy publication, two layers earlier.
+- `RPRC_17` carries a timing note worth knowing: *"The requirement for Wallet Units to verify and
+  validate registration certificates only applies as of 24 months after entry into force of the
+  Regulation amending CIR 2024/2982."* That is the most likely reason the shipped Reference Wallet
+  ships **Check Registration Certificates off by default** — so a default-configuration test may
+  show no warning at all. **Test with the switch in both positions and report both**, exactly as
+  §7 requires for issuance. A passing run with the switch off is not evidence that `RPRC_19` is met.
+
+### Status
+
+| Item | State |
+|---|---|
+| Platform carries `IntendedUse` → `RegistrationCertificate` → compiler → `VerificationPlan` → adapter | **Implemented**, and validated: the compiler rejects a certificate bound to another intended use or already expired |
+| Adapter sends it to the engine | **Implemented and verified** against v7.6.0 (`registrationCertImportJwt`) |
+| Engine puts it in the request object | **Blocked** — needs a registrar configured for the tenant (A13) |
+| A real certificate | **Not held.** Blocker B3 |
+| `RPRC_19` | **NOT satisfied**, and not claimed |
+
+`tests/adapter/registration-certificate.test.ts` holds the line: it asserts the engine accepts the
+certificate, asserts the honest omission when none is held, and its request-object assertion
+**skips with a logged reason** when no registrar is configured — turning green by itself once one
+is, and failing if a registrar is configured and the claim is still missing.
+
 ## 9. Planned next: the W3C Digital Credentials API
 
 Scheduled as **the iteration after Milestone 1**, and it is what actually resolves the cross-device

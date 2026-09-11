@@ -258,6 +258,72 @@ sees a warning.
 
 ---
 
+## 10A. Engine schema lifecycle — **development default, with an upgrade warning**
+
+The engine's database needs `DB_SYNCHRONIZE=true` to come up at all on an empty database, and
+`false` for everything after that. Getting this wrong in either direction breaks something, so it
+is worth stating precisely. All of this was verified against the pinned v7.6.0 image on
+11 September 2026.
+
+### What the engine actually does
+
+It **does** have migrations — 45 of them under `dist/database/migrations/`, run on start because
+`DB_MIGRATIONS_RUN` defaults to true. So migrations are its supported mechanism for *evolving* a
+schema, which is what `v7.3.0`'s changelog note about "the session columns that no migration ever
+created" is about.
+
+What it does **not** have is a migration that creates the initial schema.
+`BaselineMigration1740000000000` is, in full, a branch and two log lines:
+
+```js
+const tables = await queryRunner.getTables(["tenant_entity"]);
+if (tables.length > 0) {
+  console.log("[Migration] Existing database detected. Marking baseline as complete.");
+  return;
+}
+console.log("[Migration] Fresh database detected. Schema will be created by TypeORM synchronize.");
+console.log("[Migration] Ensure DB_SYNCHRONIZE=true is set for initial setup.");
+```
+
+It creates nothing by design. Every later migration then finds no tables and skips, and the engine
+crash-loops at bootstrap on `relation "client_entity" does not exist`.
+
+`DB_SYNCHRONIZE` itself defaults to **true**, and its own description is unambiguous about the
+other half:
+
+> Enable TypeORM schema synchronization. **Set to false in production after initial setup and rely
+> on migrations instead.**
+
+### The two phases
+
+| Phase | `ENGINE_DB_SYNCHRONIZE` | Why |
+|---|---|---|
+| First start, empty database | `true` | Nothing else can create the schema |
+| Every start after that | **`false`** | The engine's own instruction. Migrations carry it forward |
+
+`docker-compose.yml` defaults to `${ENGINE_DB_SYNCHRONIZE:-true}` so that a first
+`docker compose up` works out of the box. **That default is a development convenience, not a
+recommendation.**
+
+> ⚠️ **Upgrade warning.** Leaving `DB_SYNCHRONIZE=true` means TypeORM reconciles the live schema
+> against the entity definitions on **every** start. On a project shipping releases roughly weekly
+> — six in 27 days at the time of Phase 0, including a CommonJS-to-ESM migration — that is how a
+> database silently diverges between two deployments, or loses a column to an entity rename that a
+> migration would have handled deliberately. It also means the engine's own migrations never run
+> against a schema they expect, so a later migration can fail in ways that are hard to unpick.
+> **Set it to `false` in `.env` immediately after the first successful start**, and treat any
+> engine upgrade as a reviewed change with a database backup, exactly as the digest pin intends.
+
+### Why this does not reach the platform's own database
+
+Two separate PostgreSQL instances, which is one of the reasons ADR 0001 and ADR 0004 chose that
+split. The platform's database has **no** auto-synchronisation anywhere, no code path that creates a
+table outside a checked-in migration, and a checksum-verifying migrator that treats an edited
+applied migration as a hard failure. The engine's schema management cannot reach it.
+
+An upstream issue is **drafted but not filed** at
+[`docs/upstream/eudiplo-baseline-migration.md`](upstream/eudiplo-baseline-migration.md).
+
 ## 11. Adoption gates still open
 
 [`eudiplo-assessment.md`](../../05-eudi-services/eudiplo-assessment.md) set six gates. Gate 1

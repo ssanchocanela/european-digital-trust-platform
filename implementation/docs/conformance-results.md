@@ -99,6 +99,10 @@ engine returns to a wallet on the error path.
 
 ## Next run, faithful profile
 
+**Now prepared in full:** [`conformance-faithful-profile.md`](conformance-faithful-profile.md) —
+the three setup steps, the two configuration keys that were wrong twice, the 11 remaining verifier
+modules with what each one asserts, and the egress decision. Summarised here:
+
 Three changes, in order of value:
 
 1. **Configure the suite's issuer certificate as an engine trust anchor**, so failure #4 becomes a

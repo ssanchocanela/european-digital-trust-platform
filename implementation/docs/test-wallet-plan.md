@@ -1,7 +1,28 @@
 # Test wallet plan — Phase W0 investigation
 
-**Investigation only. Nothing has been built, patched or signed.** This is the W0 deliverable; the
-STOP is at the end.
+**This was the W0 deliverable: investigation only.** It is kept as written, because the plan is what
+the build was judged against.
+
+> **W1 status, added afterwards.** The renamed-identity build exists and the sheets are written.
+> `tools/test-wallet/` holds the three patches, `build.sh` and the deviation register; the APK is
+> `eu.europa.ec.euidi.edtptest`, signed with our own key, **no deviation compiled in**, and two builds
+> from the same inputs were byte-identical. What W1 did **not** do is run anything on a phone — the one
+> question this document could not answer is answered by
+> [`../tools/test-wallet/INSTALL-AND-PID.md`](../tools/test-wallet/INSTALL-AND-PID.md), which is
+> prepared and not yet run.
+>
+> | | |
+> |---|---|
+> | Build tooling and deviation register | [`../tools/test-wallet/README.md`](../tools/test-wallet/README.md), [`deviations.md`](../tools/test-wallet/deviations.md) |
+> | Install and first PID | [`INSTALL-AND-PID.md`](../tools/test-wallet/INSTALL-AND-PID.md) |
+> | Public exposure design | [`test-session-gateway.md`](test-session-gateway.md) |
+> | Certificates, when they arrive | [`certificate-intake-runbook.md`](certificate-intake-runbook.md) |
+> | First VaaS run, official wallet | [`vaas-official-wallet-run-sheet.md`](vaas-official-wallet-run-sheet.md) |
+>
+> One thing the build corrected about §5 below: the layout here proposed a `flavour/` directory copied
+> in by `build.sh`. It turned out the three per-flavour source sets can simply be **copied from
+> `demo`**, because with every deviation off their content is upstream's — so no upstream Kotlin is
+> duplicated into this repository at all.
 
 A modified Android wallet, built from the official EUDI Reference Implementation, so the platform can
 be tested end to end. Every result it produces is labelled as coming from a **modified** build, never

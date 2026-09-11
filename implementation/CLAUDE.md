@@ -296,6 +296,23 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     the same seven byte-identical anchors as `PIDProviders` and `WRPACProviders`. The lists also roll
     over, so anything reading one must honour `NextUpdate` — `verify-access-certificate-chain.sh`
     fetches live and reports freshness.
+20. **A tunnel in front of the engine publishes its Management API.** The engine serves the Protocol
+    API unprefixed and the Management API under `/api` **on the same port**, so exposing port 3000 for
+    a phone exposes `POST /api/key-chain/import` and every tenant route, protected only by a
+    client-credentials secret. Never tunnel a whole port: use the default-deny path allow-list in
+    [`docs/test-session-gateway.md`](docs/test-session-gateway.md), run its negative checks before any
+    wallet interaction, and treat a `401` on an `/api/*` probe as a failure — it proves the endpoint
+    is reachable. A tunnel is hand-started, open only during a session, synthetic data only.
+21. **Gate (a) is short of *two* things, not one.** Besides `signed_metadata` (G1), the engine has
+    **nowhere to put the Attestation Provider's access certificate** — `IssuanceConfig` has no such
+    field and `issuer_info` only ever carries `format: "registration_cert"` — while ARF §6.6.2.2
+    expects both certificates in the metadata. That is **G8**. Obtain the access certificate at
+    registration anyway: PID-during-issuance uses one, and that path works.
+22. **The EDTP test wallet is a modified build, and its identity is deliberate.** `applicationId`
+    `eu.europa.ec.euidi.edtptest`, our own signing key (`OU=TEST ONLY`), a banner on every screen, and
+    `BuildConfig.EDTP_DEVIATIONS` naming what is compiled in. Every deviation defaults to upstream
+    behaviour and `build.sh` **refuses** a deviation flag it cannot honestly honour. Never write "the
+    Reference Wallet" about a result from it, and never commit or publish the APK.
 ---
 
 ## 7. Trust environment
@@ -405,6 +422,10 @@ migrations up from an empty database.
 | | |
 |---|---|
 | Phase 0 findings, blockers, open questions | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) |
+| Test wallet: build tooling, deviation register, install + first PID sheet | [`tools/test-wallet/`](tools/test-wallet/) — and [`docs/test-wallet-plan.md`](docs/test-wallet-plan.md) for the W0 investigation it was built from |
+| Public exposure for a phone test, and the G7 evaluation | [`docs/test-session-gateway.md`](docs/test-session-gateway.md) |
+| Certificates, when they arrive; then the first VaaS run | [`docs/certificate-intake-runbook.md`](docs/certificate-intake-runbook.md), [`docs/vaas-official-wallet-run-sheet.md`](docs/vaas-official-wallet-run-sheet.md) |
+| Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
 | ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |

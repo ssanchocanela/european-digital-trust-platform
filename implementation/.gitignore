@@ -17,3 +17,14 @@ coverage/
 hash_pid*
 *hash_pid*
 access-certificate*
+
+# Test wallet (W1). The upstream wallet is cloned at a pinned tag into a working directory
+# that is never committed — no wallet source lives in this repository. The APK and the
+# signing keystore are likewise never committed: the APK is a modified reference build that
+# must not be distributed, and the keystore is a secret.
+tools/test-wallet/upstream/
+tools/test-wallet/out/
+*.apk
+*.aab
+*.keystore
+*.jks

@@ -17,12 +17,49 @@ BASE_URL="${BASE_URL:-http://localhost:3100}"
 ADMIN_KEY="${PLATFORM_ADMIN_API_KEY:?set PLATFORM_ADMIN_API_KEY}"
 ENGINE_TENANT_REF="${ENGINE_TENANT_REF:-root}"
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "jq is required." >&2
-  exit 1
-fi
+for tool in jq curl node openssl; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required." >&2; exit 1; }
+done
+
+# A run-unique suffix.
+#
+# The Relying Party identifier is unique per `(registrar_assigned_identifier,
+# trust_environment)` — index `relying_parties_identifier_key` — so a fixed identifier makes the
+# script succeed exactly once per database and fail on every later run. It is a *Registrar*-
+# assigned value in reality, so varying it here is faithful to the model rather than a fudge.
+RUN_ID="${RUN_ID:-$(openssl rand -hex 4)}"
 
 note() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
+
+# --- failure accounting -----------------------------------------------------------------
+#
+# `set -e` does not fire on a failed HTTP call, because curl exits 0 on a 4xx/5xx response.
+# Without explicit accounting the script printed "created successfully" after a 500, which is
+# exactly the kind of false success CLAUDE.md section 8 forbids. Every step is checked.
+FAILURES=0
+FAILED_STEPS=""
+
+# Fails the step when the response carries an `error` field, or lacks an expected field.
+check() {
+  local label=$1 response=$2 expect=${3:-}
+  local err
+  err=$(echo "$response" | jq -r '.error // empty' 2>/dev/null || true)
+  if [ -n "$err" ]; then
+    printf '\033[31m  STEP FAILED: %s -> %s\033[0m\n' "$label" "$err"
+    FAILURES=$((FAILURES + 1)); FAILED_STEPS="${FAILED_STEPS}\n  - ${label}: ${err}"
+    return 1
+  fi
+  if [ -n "$expect" ]; then
+    local v
+    v=$(echo "$response" | jq -r ".${expect} // empty" 2>/dev/null || true)
+    if [ -z "$v" ] || [ "$v" = "null" ]; then
+      printf '\033[31m  STEP FAILED: %s -> no %s in the response\033[0m\n' "$label" "$expect"
+      FAILURES=$((FAILURES + 1)); FAILED_STEPS="${FAILED_STEPS}\n  - ${label}: missing ${expect}"
+      return 1
+    fi
+  fi
+  return 0
+}
 
 api() {
   local method=$1 path=$2 key=$3 body=${4:-}
@@ -42,6 +79,7 @@ api GET /health "$ADMIN_KEY" | jq .
 note "1. Create the tenant (the only route the administrative key may use)"
 TENANT=$(api POST /v1/tenants "$ADMIN_KEY" '{"name":"Smoke Test Retailer"}')
 echo "$TENANT" | jq '{tenantId, name}'
+check "1. create tenant" "$TENANT" tenantId || true
 TENANT_ID=$(echo "$TENANT" | jq -r .tenantId)
 # Shown once and stored only as a hash.
 TENANT_KEY=$(echo "$TENANT" | jq -r .apiKey)
@@ -56,19 +94,21 @@ ORG=$(api POST "/v1/tenants/$TENANT_ID/organisations" "$TENANT_KEY" '{
   ]
 }')
 echo "$ORG" | jq .
+check "2. register organisation" "$ORG" organisationId || true
 ORG_ID=$(echo "$ORG" | jq -r .organisationId)
 
 note "3. Register the Relying Party (TEST; the identifier is Registrar-assigned)"
 RP=$(api POST "/v1/tenants/$TENANT_ID/relying-parties" "$TENANT_KEY" "$(cat <<JSON
 {
   "organisationId": "$ORG_ID",
-  "registrarAssignedIdentifier": "NLNHR.12345678",
+  "registrarAssignedIdentifier": "NLNHR.${RUN_ID}",
   "registrar": "NL-Registrar-Sandbox",
   "trustEnvironment": "TEST"
 }
 JSON
 )")
 echo "$RP" | jq .
+check "3. register relying party" "$RP" relyingPartyId || true
 RP_ID=$(echo "$RP" | jq -r .relyingPartyId)
 
 note "4. Register the Relying Party Service"
@@ -83,6 +123,7 @@ SVC=$(api POST "/v1/tenants/$TENANT_ID/rp-services" "$TENANT_KEY" "$(cat <<JSON
 JSON
 )")
 echo "$SVC" | jq '{serviceId, serviceIdentifier, serviceTradeName}'
+check "4. register service" "$SVC" serviceId || true
 SVC_ID=$(echo "$SVC" | jq -r .serviceId)
 
 note "5. Register the intended use (purpose and privacy policy are shown to the User)"
@@ -99,6 +140,7 @@ USE=$(api POST "/v1/tenants/$TENANT_ID/rp-services/$SVC_ID/intended-uses" "$TENA
   ]
 }')
 echo "$USE" | jq .
+check "5. register intended use" "$USE" intendedUseId || true
 USE_ID=$(echo "$USE" | jq -r .intendedUseId)
 
 note "6. Record the registration certificate slot (no JWT available in V0 — blocker B3)"
@@ -108,27 +150,54 @@ JSON
 )" | jq .
 
 note "7. Provision the Relying Party Instance and import the access certificate"
-echo "Using a development key pair. For a wallet-trusted certificate see"
-echo "scripts/import-access-certificate.sh and docs/reference-wallet-testing.md."
+echo "Using a self-signed DEVELOPMENT key pair and certificate, generated now. No wallet"
+echo "trusts it — AS-WP-06-005 (RPA_04) admits only Access CA anchors from the notified"
+echo "LoTEs. For a wallet-trusted certificate see scripts/verify-access-certificate-chain.sh"
+echo "and docs/reference-wallet-testing.md."
+
+# The key and the certificate must be the same key pair: the engine validates the leaf
+# against the imported private key and rejects a mismatch. Generating the certificate from
+# the very key whose JWK is sent is the only way to guarantee that.
+#
+# This replaces a literal "REPLACE-WITH-A-REAL-ACCESS-CERTIFICATE" placeholder, which is not
+# valid base64 and which the engine therefore refused with
+# `Invalid leaf certificate: PEM routines::bad base64 decode`. The step had never succeeded;
+# the failure was invisible because the script did not check step outcomes.
+CERT_DIR=$(mktemp -d); chmod 700 "$CERT_DIR"
+trap 'rm -rf "$CERT_DIR"' EXIT
+openssl ecparam -name prime256v1 -genkey -noout -out "$CERT_DIR/key.pem" 2>/dev/null
+openssl pkcs8 -topk8 -nocrypt -in "$CERT_DIR/key.pem" -out "$CERT_DIR/key8.pem" 2>/dev/null
+openssl req -new -x509 -key "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" -days 2 \
+  -subj "/CN=Smoke Test Age Gate/O=Development only/C=NL" \
+  -addext "subjectAltName=DNS:localhost" 2>/dev/null
+chmod 600 "$CERT_DIR"/*.pem
+
 DEV_JWK=$(node -e '
-const { generateKeyPairSync, createPublicKey } = require("node:crypto");
-const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-process.stdout.write(JSON.stringify(privateKey.export({ format: "jwk" })));
-')
+const { readFileSync } = require("node:fs");
+const { createPrivateKey } = require("node:crypto");
+const key = createPrivateKey(readFileSync(process.argv[1], "utf8"));
+process.stdout.write(JSON.stringify(key.export({ format: "jwk" })));
+' "$CERT_DIR/key8.pem")
+DEV_CHAIN=$(node -e '
+const { readFileSync } = require("node:fs");
+process.stdout.write(JSON.stringify([readFileSync(process.argv[1], "utf8")]));
+' "$CERT_DIR/cert.pem")
+
 INSTANCE=$(api POST "/v1/tenants/$TENANT_ID/rp-services/$SVC_ID/instance" "$TENANT_KEY" "$(cat <<JSON
 {
   "engineTenantRef": "$ENGINE_TENANT_REF",
   "trustEnvironment": "TEST",
   "accessCertificate": {
     "privateKeyJwk": $DEV_JWK,
-    "certificateChain": ["-----BEGIN CERTIFICATE-----\nREPLACE-WITH-A-REAL-ACCESS-CERTIFICATE\n-----END CERTIFICATE-----"],
+    "certificateChain": $DEV_CHAIN,
     "subject": "CN=Smoke Test Age Gate",
-    "issuer": "CN=Development Access CA"
+    "issuer": "CN=Smoke Test Age Gate"
   }
 }
 JSON
 )")
 echo "$INSTANCE" | jq .
+check "7. provision relying party instance" "$INSTANCE" || true
 
 note "8. Create the presentation policy"
 POLICY=$(api POST "/v1/tenants/$TENANT_ID/presentation-policies" "$TENANT_KEY" "$(cat <<JSON
@@ -141,6 +210,7 @@ POLICY=$(api POST "/v1/tenants/$TENANT_ID/presentation-policies" "$TENANT_KEY" "
 JSON
 )")
 echo "$POLICY" | jq .
+check "8. create policy" "$POLICY" policyId || true
 POLICY_ID=$(echo "$POLICY" | jq -r .policyId)
 
 note "9. Publish a policy version"
@@ -187,6 +257,7 @@ PRESENTATION=$(api POST /v1/presentations "$TENANT_KEY" "$(cat <<JSON
 JSON
 )")
 echo "$PRESENTATION" | jq .
+check "10. create presentation" "$PRESENTATION" presentationId || true
 PRESENTATION_ID=$(echo "$PRESENTATION" | jq -r .presentationId)
 
 note "11. Read the transaction"
@@ -195,10 +266,21 @@ api GET "/v1/presentations/$PRESENTATION_ID" "$TENANT_KEY" | jq .
 note "12. Tenant isolation: the administrative key is refused on a tenant route"
 api GET "/v1/tenants/$TENANT_ID" "$ADMIN_KEY" | jq '{error, message}'
 
-cat <<'SUMMARY'
+if [ "$FAILURES" -gt 0 ]; then
+  printf '\n\033[31m=========================================================================\033[0m\n'
+  printf '\033[31m%d step(s) FAILED:\033[0m' "$FAILURES"
+  printf '%b\n' "$FAILED_STEPS"
+  printf '\033[31mThe configuration chain did NOT complete. Nothing above should be read as a\npassing end-to-end run.\033[0m\n'
+  printf '\033[31m=========================================================================\033[0m\n'
+  exit 1
+fi
+
+cat <<'EOF'
 
 =========================================================================
-The configuration chain and the transaction were created successfully.
+The configuration chain and the transaction were created successfully, and every step
+was checked rather than assumed: the script exits non-zero if any response carries an
+error or omits the identifier the next step needs.
 
 NOT demonstrated by this script:
   * a wallet interaction. It needs a wallet, a public HTTPS origin, and an access
@@ -209,4 +291,4 @@ NOT demonstrated by this script:
 Both are blockers B1 and B5 in docs/phase-0-findings.md. docs/reference-wallet-testing.md
 has the manual steps.
 =========================================================================
-SUMMARY
+EOF

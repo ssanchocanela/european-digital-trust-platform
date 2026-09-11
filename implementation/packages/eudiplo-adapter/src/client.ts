@@ -47,6 +47,21 @@ type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 const isIdempotent = (method: Method): boolean =>
   method === "GET" || method === "PUT" || method === "DELETE";
 
+/**
+ * Prefix for every **management** route on the engine.
+ *
+ * The engine serves two OpenAPI documents on the same port: the wallet-facing *Protocol API*
+ * at `/docs-json`, whose routes are unprefixed, and the *Management API* at `/api/docs-json`,
+ * whose routes are **all** under `/api`. `GET /health` belongs to the protocol document and is
+ * therefore unprefixed; everything the platform calls with a token belongs to the management
+ * document and is not.
+ *
+ * Applied centrally in `request` rather than written into each call site. Verified empirically
+ * against the pinned v7.6.0 image on 11 September 2026: with the prefix missing, every
+ * management call returns `404` — see `docs/interop-findings.md` A10.
+ */
+const MANAGEMENT_PREFIX = "/api";
+
 export class EngineClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
@@ -71,12 +86,25 @@ export class EngineClient {
     }
   }
 
+  /**
+   * An authenticated call to the engine's Management API.
+   *
+   * `path` is the management route **without** the `/api` prefix, which this method adds. A
+   * caller that passes a prefixed path would otherwise produce `/api/api/...` and a 404, so
+   * an already-prefixed path is rejected rather than silently doubled.
+   */
   async request<T>(
     engineTenantRef: string,
     method: Method,
     path: string,
     body?: unknown,
   ): Promise<T> {
+    if (path.startsWith(`${MANAGEMENT_PREFIX}/`)) {
+      throw PlatformError.engine(
+        "engine_route_double_prefixed",
+        "A management route was passed with its prefix already applied.",
+      );
+    }
     const token = await this.accessToken(engineTenantRef);
     let lastError: unknown;
 
@@ -89,7 +117,7 @@ export class EngineClient {
         await new Promise((r) => setTimeout(r, delay + Math.floor(Math.random() * 100)));
       }
       try {
-        const res = await this.rawFetch(method, path, body, token);
+        const res = await this.rawFetch(method, `${MANAGEMENT_PREFIX}${path}`, body, token);
         if (res.status === 401 || res.status === 403) {
           // The cached token may have been revoked. Drop it so the next call re-auths,
           // but do not retry here: a genuine authorisation failure must surface.
@@ -185,7 +213,7 @@ export class EngineClient {
     const creds = await this.options.credentials.resolve(engineTenantRef);
     const res = await this.rawFetch(
       "POST",
-      "/api/oauth2/token",
+      `${MANAGEMENT_PREFIX}/oauth2/token`,
       {
         grant_type: "client_credentials",
         client_id: creds.clientId,

@@ -18,8 +18,37 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 | Phase | Branch | Ends with |
 |---|---|---|
 | Phase 0 — investigation, no product code | `implementation/platform-v0` | **STOP**, summary, await approval ← *complete* |
-| Milestone 1 — foundations + Verification as a Service | `implementation/platform-v0` | PR 1, then **STOP** |
+| Milestone 1 — foundations + Verification as a Service | `implementation/platform-v0` | PR 1, then **STOP** ← *complete* |
 | Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 |
+
+### Milestone 2 starts with an investigation, and with a checkpoint of its own
+
+**The first task of Milestone 2 is to re-verify how the pinned Reference Wallet release decides to
+trust an issuer of a non-qualified EAA — before any issuance code is written.** Decided at the
+Milestone 1 review.
+
+The reason this cannot wait: the verification side already proved that the shipped wallet build
+accepts only anchors from the notified Access CA LoTEs and ships no preregistered escape hatch
+(`AS-WP-06-005` / `RPA_04`, blocker B1). The issuance side has its own, *different* trust path — a
+Non-Qualified EAA Provider is trusted through whatever the build resolves for issuer trust, which is
+not the WRPAC LoTE — and nothing in Phase 0 verified it. Assuming it resolves the way verification
+does would be exactly the "terminology similarity does not prove conformance" error in §2.
+
+Verify against the pinned release `Wallet/Demo_Version=2026.09.42-Demo_Build=42` and Wallet Core
+`v0.30.2`, in the source, not by inference:
+
+1. Which trust mechanism the build uses for an attestation **issuer** — the dev
+   `PubEAAProviders` LoTE, a separate issuer trust store, the OpenID4VCI issuer metadata, or
+   nothing at all — and whether a non-qualified EAA is treated differently from a PID.
+2. Whether a development issuer can be trusted without modifying the build, and if not, what the
+   smallest modification is.
+3. Whether *Check Registration Certificates* being off by default changes what is actually
+   exercised, given that `AS-AP-44-005` (`RPRC_22a`) and `AS-AP-44-007` (`RPRC_23`) make a valid
+   registration certificate a precondition for the Wallet to request issuance at all — which V0
+   does not have (blocker B3).
+
+**Then STOP and report**, before building the issuance flow. If it is a blocker, say so plainly and
+state what a real test needs; do not design around it silently and do not simulate success (§8).
 
 Commit in small, reviewable steps. **Never commit secrets** — only `.env.example`.
 
@@ -219,7 +248,25 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     into `packages/domain`. Note also that ARF 3.0.0 still carries a residual "`age_over_*` … if
     present" note for attributes the PID Rulebook removed — a baseline inconsistency logged in
     `docs/interop-findings.md` D7. Follow the Rulebook.
-13. **The dev environment collapses three ARF trust domains.** The seven WRPAC, WRPRC and PIDProviders
+13. **The engine's management API is under `/api`; only `/health` is not.** EUDIPLO serves two
+    OpenAPI documents on one port — the wallet-facing Protocol API at `/docs-json` (unprefixed)
+    and the Management API at `/api/docs-json` (all routes under `/api`). `EngineClient.request`
+    applies the prefix centrally, so adapter call sites write the unprefixed path and a path that
+    already carries it is rejected rather than doubled. Getting this wrong produces a `404` on
+    every management call and nothing else. `docs/interop-findings.md` A10.
+14. **The engine's `root` client cannot serve a Relying Party Instance,** and the engine does not
+    create its own schema from migrations. Root's token carries `roles: ["tenants:manage"]` and
+    `tenant_id: null`; a usable credential comes from `POST /api/tenant`, which returns a
+    per-tenant admin client. And `DB_SYNCHRONIZE` must be **true** for the engine's database or it
+    crash-loops on `relation "client_entity" does not exist` — its migrations transform an existing
+    schema and never create one. Both confined to the engine's own separate database.
+    `docs/interop-findings.md` A9 and A11.
+15. **A database constraint violation is a client error, not a server error.** PostgreSQL class 23
+    codes are translated in `error.filter.ts`: `23505` to a `409` naming the **constraint**, never
+    PostgreSQL's `detail`, which embeds the offending values. And an unhandled throw logs its
+    message and a capped stack — through the redactor, which strips denied keys — because a 500
+    that logs only `{"errorName":"Error"}` cannot be diagnosed. Both found by running the stack.
+16. **The dev environment collapses three ARF trust domains.** The seven WRPAC, WRPRC and PIDProviders
     anchors are byte-identical. The `TrustResolver` must keep the domains separate regardless, and
     must support both ETSI TS 119 612 Trusted Lists and ETSI TS 119 602 LoTEs — `EW-PIO-01-029`
     (`OIA_15b`).

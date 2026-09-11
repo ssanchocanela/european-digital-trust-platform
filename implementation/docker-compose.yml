@@ -73,8 +73,23 @@ services:
       DB_DATABASE: ${ENGINE_DB_NAME:-eudiplo}
       DB_SSL: "false"
       DB_MIGRATIONS_RUN: "true"
-      # Never true: the platform relies on explicit migrations, not implicit schema sync.
-      DB_SYNCHRONIZE: "false"
+      # `true`, and not by preference — the engine gives no alternative.
+      #
+      # Verified empirically on 11 September 2026 against the pinned v7.6.0 image: on a fresh
+      # database the engine's own migration runner logs
+      #
+      #   [Migration] Fresh database detected. Schema will be created by TypeORM synchronize.
+      #   [Migration] Ensure DB_SYNCHRONIZE=true is set for initial setup.
+      #
+      # and every migration then skips with "table not found". Its migrations transform an
+      # existing schema; they never create one. With `false` the engine crash-loops at bootstrap
+      # on `relation "client_entity" does not exist`. Recorded as `docs/interop-findings.md` A9.
+      #
+      # This does not weaken the platform's own migration discipline. It applies to the
+      # **engine's** database, which is a separate PostgreSQL instance precisely so the engine's
+      # schema management cannot reach the platform's (ADR 0001, ADR 0004). The platform's own
+      # database still has no auto-synchronisation anywhere and never will.
+      DB_SYNCHRONIZE: ${ENGINE_DB_SYNCHRONIZE:-true}
       # --- retention and logging: ADR 0004 makes these mandatory, not advisory -------------
       # The engine's own defaults retain disclosed claims for 24 hours. The platform also sets
       # the per-tenant session config through the API when it provisions an instance; these

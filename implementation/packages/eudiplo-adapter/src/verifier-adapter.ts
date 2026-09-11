@@ -29,14 +29,19 @@ import {
  * places (`docs/interop-findings.md` section A). Routes used:
  *
  * ```
- * POST   /verifier/config     create or replace a presentation configuration
- * POST   /verifier/offer      create a presentation request
- * GET    /session/:id         read status and, once settled, the result
- * DELETE /session/:id         cancel, and purge the engine-side session
- * PUT    /session-config      apply retention settings (provisioning)
- * POST   /key-chain/import    import an access certificate (provisioning)
- * GET    /health
+ * POST   /api/verifier/config     create or replace a presentation configuration
+ * POST   /api/verifier/offer      create a presentation request
+ * GET    /api/session/:id         read status and, once settled, the result
+ * DELETE /api/session/:id         cancel, and purge the engine-side session
+ * PUT    /api/session-config      apply retention settings (provisioning)
+ * POST   /api/key-chain/import    import an access certificate (provisioning)
+ * GET    /health                  protocol API, deliberately unprefixed
  * ```
+ *
+ * The `/api` prefix is added by `EngineClient.request`, so the paths written below omit it.
+ * Management routes live under `/api`; `/health` belongs to the wallet-facing protocol
+ * document and does not. Getting this wrong produces a `404` on every management call and
+ * nothing else — `docs/interop-findings.md` A10.
  *
  * The adapter is **stateless**. Every method that addresses an existing session takes
  * an `EngineSessionHandle` carrying both the session and its engine tenant, because the

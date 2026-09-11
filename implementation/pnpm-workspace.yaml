@@ -6,7 +6,16 @@ packages:
 # binaries) are allowed one. The two denials are analytics pings, not builds.
 allowBuilds:
   # Unpacks the bundled PostgreSQL binaries used by the integration suite.
+  #
+  # One entry per platform, not just the developer's own. `embedded-postgres` resolves a
+  # platform-specific optional dependency, so a list containing only `darwin-arm64` fails the
+  # Docker build with `ERR_PNPM_IGNORED_BUILDS` on `linux-arm64` — which is how this was found.
+  # Listing a platform that is never installed is harmless; omitting one breaks that platform.
   '@embedded-postgres/darwin-arm64': true
+  '@embedded-postgres/darwin-x64': true
+  '@embedded-postgres/linux-arm64': true
+  '@embedded-postgres/linux-x64': true
+  '@embedded-postgres/windows-x64': true
   '@nestjs/core': false
   '@scarf/scarf': false
   esbuild: true

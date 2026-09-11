@@ -54,7 +54,7 @@ git config core.hooksPath .githooks
 | `pnpm build` | Compile every package and the app |
 | `pnpm test` | Unit tests (146) — pure logic, always runnable |
 | `pnpm test:integration` | Integration tests (69) — real PostgreSQL, real repositories and services, fake verifier port |
-| `pnpm test:adapter` | Adapter contract tests — **skipped** unless an engine container is reachable |
+| `pnpm test:adapter` | Adapter contract tests (10) — **skipped** unless an engine container is reachable; **all 10 verified passing** against EUDIPLO v7.6.0 on 11 September 2026 |
 | `pnpm boundaries` | Fails if the engine leaks outside `packages/eudiplo-adapter` |
 | `pnpm confidentiality` | Fails if any committed path or citation touches `sources/` |
 | `pnpm db:generate` | Regenerate the migration SQL from the schema |
@@ -64,9 +64,14 @@ To run the adapter suite against a real engine:
 ```bash
 docker compose up -d eudiplo
 ENGINE_BASE_URL=http://localhost:3000 \
-  ENGINE_TENANT_CREDENTIALS='root=root:your-secret' \
+  ENGINE_TENANT_CREDENTIALS='<tenant>=<tenant>-admin:<secret>' \
   pnpm test:adapter
 ```
+
+**Not `root`.** The engine's root client is a tenant-*management* credential — its token carries
+`tenant_id: null` — and is refused on every tenant-scoped route. Create an engine tenant with
+`POST /api/tenant` and use the per-tenant admin client it returns; `.env.example` has the exact
+commands, and [`docs/interop-findings.md`](docs/interop-findings.md) A11 explains why.
 
 ## Layout
 

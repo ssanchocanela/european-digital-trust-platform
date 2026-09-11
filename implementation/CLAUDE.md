@@ -186,9 +186,10 @@ Each of these contradicts a plausible assumption, including assumptions in the o
    or log it (the revocation index is an `ISSU_35` unique element).
 9. **ARF discourages redirect-based cross-device flows.** `EW-PIO-01-016` (`OIA_08c`) says Wallet Units
    SHOULD NOT support them; `EW-PIO-01-017` (`OIA_08d`) obliges a Relying Party that uses one to
-   implement mitigations. A QR carrying `openid4vp://` is exactly that. `SAME_DEVICE` is the V0
-   tested path; `QR` is flagged with the unmet obligation in `security-limitations.md`. Open
-   question Q5 — **user decision pending.**
+   implement mitigations. A QR carrying `openid4vp://` is exactly that. **Decided:** `SAME_DEVICE` is
+   the tested V0 path and the default; `QR` stays in the API surface but is flagged, audited on use,
+   and its unmet `OIA_08d` obligation is recorded in `docs/security-limitations.md`. Never present the
+   `QR` path as conformant or as the demonstrated flow.
 10. **EUDIPLO's documentation diverges from its code in at least seven places.** Write the adapter
     against the source and the OpenAPI document. Known: `POST /client` not `/clients`; no
     `PATCH …/status-list/{listId}/entry/{index}` route; `/issuers/:tenantId/chained-as/*` not
@@ -245,11 +246,24 @@ and `ClientIdScheme.X509Hash`, always enforces access-certificate trust, and acc
 (`AS-WP-06-005`, `RPA_04`). A self-signed access certificate cannot work, and `Preregistered` is not
 enabled in the shipped build.
 
-- **Path A (preferred):** enrol at `https://registry.serviceproviders.eudiw.dev/`, import the PKCS#12.
-  Requires an account — open question Q1.
-- **Path B (fallback):** build the wallet from source with `Preregistered` or a custom reader trust
-  store. This is a **modified wallet**. If used, label it as such everywhere and never report it as an
-  official-wallet result.
+- **Path A (preferred for production):** enrol at `https://registry.serviceproviders.eudiw.dev/`,
+  import the PKCS#12. Still worth pursuing; if an account arrives, the certificate is imported the
+  same way and no platform code changes.
+- **Path B — chosen for Milestone 1 at the Phase 0 checkpoint:** build the wallet from the Reference
+  Implementation with a platform-operated development Access CA in its reader trust store
+  (`configureReaderTrustStore(context, R.raw.…)`, which takes precedence over the ETSI store).
+
+**Path B produces a MODIFIED wallet, not the official Reference Wallet.** That is an approved V0
+decision, not a licence to blur the distinction. Therefore, without exception:
+
+- every report, document, test name, log line and PR statement says "self-built Reference
+  Implementation wallet" or "modified wallet" — never "the Reference Wallet" unqualified;
+- the result against an **official** build remains **unverified**, and
+  `docs/reference-wallet-testing.md` and the PR description must say so explicitly;
+- the development Access CA is `TEST`-only, never added to any `PRODUCTION` trust configuration, and
+  is listed in `docs/security-limitations.md`;
+- test *Check Registration Certificates* in both positions and report both, since V0 has no
+  registration certificate (blocker B3).
 
 A related honesty requirement: the Reference Wallet ships *Check Registration Certificates* **off**, so
 a passing V0 demo exercises the access-certificate trust layer only, not the registration layer. Test
@@ -294,6 +308,6 @@ migrations up from an empty database.
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
 | ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation. 0006 (hosted instance vs intermediary) is blocked on Q2; 0007–0008 are Milestone 2 |
 
-Open questions Q1–Q9 are in `phase-0-findings.md` §8. **Q5 (the QR flow) needs a user decision.**
-Q1 (an RP Registration Service account) gates the end-to-end demo. Q2 (legal qualification) gates
-`PRODUCTION`.
+Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
+checkpoint** (Path B self-built wallet; `SAME_DEVICE` tested). Q2 (legal qualification) gates
+`PRODUCTION`. Q3 and Q4 are Milestone 2 concerns. Q6–Q9 remain open.

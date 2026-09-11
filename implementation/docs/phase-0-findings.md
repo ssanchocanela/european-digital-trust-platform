@@ -895,7 +895,7 @@ open question Q3.
 
 | # | Blocker | Evidence | Effect | Mitigation |
 |---|---|---|---|---|
-| **B1** | No wallet-trusted access certificate for a self-hosted verifier | WRPAC LoTE contains only 7 EUDIW anchors; `AS-WP-06-005` (`RPA_04`); RI enables only `X509SanDns`/`X509Hash` | The official RI build will refuse a self-signed verifier. **Blocks the §6.9 end-to-end flow.** | Path A (§5.5): enrol at `registry.serviceproviders.eudiw.dev`, import the P12 via `POST /key-chain/import`. Fallback Path B, labelled as a modified build. Needs an account — Q1 |
+| **B1** | No wallet-trusted access certificate for a self-hosted verifier | WRPAC LoTE contains only 7 EUDIW anchors; `AS-WP-06-005` (`RPA_04`); RI enables only `X509SanDns`/`X509Hash` | The **official** RI build will refuse a self-hosted verifier. | **Accepted and mitigated at the Phase 0 checkpoint:** Milestone 1 uses **Path B** — a self-built wallet from the Reference Implementation with a platform-operated development Access CA added to its reader trust store. This is a **modified wallet** and every report must say so. The official-build result remains **unverified**; Path A closes it |
 | **B2** | EUDIPLO's only registrar preset is not on the dev WRPAC LoTE | `registrar.component.ts` preset `https://sandbox.eudi-wallet.org/api`; no `DE` entry in WRPAC LoTE | EUDIPLO's built-in enrolment cannot produce a wallet-trusted certificate | Out-of-band enrolment + key-chain import; do **not** model the registrar client as the platform's enrolment path in V0 |
 | **B3** | No registration certificate provider reachable for V0 | RP Registration Service documents PKCS#12 RPAC only; WRPRC LoTE has only the 7 EUDIW anchors | Only one of the two ARF trust layers can be exercised. Tolerable because the RI ships registration checking **off** | Support `registrationCert.jwt` passthrough so a real RPRC can be dropped in later; state in `traceability.md` that `RPRC_19`/`RPRC_21` are **not** demonstrated end to end |
 | **B4** | M2 issuance depends on the RI's registration switch being off | `RPRC_22a`/`RPRC_23`; RI `configureIssuerRegistrationPolicy` | Turning the switch on breaks M2 issuance with no RPRC | Test M2 with the switch in **both** positions and report both results honestly |
@@ -909,11 +909,11 @@ open question Q3.
 
 | # | Question | Why it matters | How to resolve |
 |---|---|---|---|
-| **Q1** | How does a developer obtain an account at `registry.serviceproviders.eudiw.dev`, and is its Access CA one of the 7 WRPAC anchors? | Decides whether B1 is closable without a custom wallet build | Request access; on receipt, verify the P12 chain against the decoded WRPAC anchors before any other work |
+| ~~**Q1**~~ | ~~How does a developer obtain an account at `registry.serviceproviders.eudiw.dev`?~~ | — | **RESOLVED** at the Phase 0 checkpoint: Milestone 1 proceeds on **Path B**, a self-built wallet from the EUDI Reference Implementation with a platform-operated development Access CA in its reader trust store. Path A remains the preferred production route and is still worth pursuing in parallel; if an account arrives, the same access certificate is imported the same way and no platform code changes |
 | **Q2** | Is the platform's hosted-RP-Instance profile a GDPR processor or an Article 5b(10) intermediary? | `RPI_01`–`RPI_10` impose registration, display and no-storage duties if intermediary | Legal and registrar confirmation. Already open in `gaps.md`; recorded in `knowledge-alignment.md`. **Not resolvable technically** |
 | **Q3** | Which provider can issue an Attestation Provider registration certificate for a `TEST` EAA? | B4 | Ask the EUDIW reference-environment maintainers; inspect the WRPRC LoTE for any non-EUDIW entity |
 | **Q4** | Does EUDIPLO's CWT status-list encoding satisfy Annex 2 of the amended CIR 2024/2979? | `VCR_11` for mdoc; `VCR_12` requires both mechanisms of a checking RP | Read CIR 2024/2979 Annex 2 against `@owf/token-status-list`. Not on the V0 path (V0 issues SD-JWT VC) but must not be claimed |
-| **Q5** | Should V0 offer the QR / cross-device flow at all, given `OIA_08c` and the `OIA_08d` mitigation duty? | Changes the §6.7 API surface and `security-limitations.md` | §6.2 recommendation; **user decision requested** |
+| ~~**Q5**~~ | ~~Should V0 offer the QR / cross-device flow, given `OIA_08c` and the `OIA_08d` mitigation duty?~~ | — | **RESOLVED** at the Phase 0 checkpoint: `SAME_DEVICE` is the tested V0 path; `QR` stays in the API surface, flagged, with the unmet `OIA_08d` obligation in `security-limitations.md`. See ADR 0005 Decision 6 |
 | **Q6** | How should the platform pin TS documents, given neither TS repo is tagged? | §1.1; `traceability.md` integrity | Proposal: record *(TS internal version + repo commit SHA + retrieval date)* per citation |
 | **Q7** | Does an intermediary need a separate access certificate **per intermediated RP**? | The prompt §5.1 asserts it; `RPI_06` does not say so | Read ETSI TS 119 475 and TS5 `servedWRPServices`. Out of V0 scope; do not assert either way |
 | **Q8** | What is the current RI ↔ EUDIPLO compatibility status? | EUDIPLO's matrix is 6.5 months stale; the RI "forces Wallet attestation" | Empirical test once B1/B5 are cleared. Until then the honest answer is "unverified" |
@@ -929,6 +929,11 @@ open question Q3.
 3. **Target the Android Reference Wallet** `2026.09.42-Demo_Build=42`. §5.1.
 4. **VaaS scenario: PID as SD-JWT VC (`urn:eudi:pid:1`) from `issuer.eudiw.dev`**, requesting
    `["birthdate"]` with a `DERIVED_CLAIMS` boolean result. §6.1, §6.3.
+4a. **`SAME_DEVICE` is the tested V0 interaction**; `QR` is present but flagged. Resolved at the
+   Phase 0 checkpoint. ADR 0005 Decision 6.
+4b. **Milestone 1 interoperates with a self-built Reference-Implementation wallet** (Path B),
+   trusting a platform-operated development Access CA. Resolved at the Phase 0 checkpoint. Every
+   report must label it a modified wallet; the official build stays unverified.
 5. **Access certificates enter EUDIPLO by import, not by registrar enrolment**, in V0. §5.5, B2.
 6. **Polling is the default result-delivery path** from EUDIPLO; webhook is an optimisation on an
    internal network with a platform-side bearer secret and platform-side idempotency. §4.8.

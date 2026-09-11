@@ -1,0 +1,109 @@
+# Security limitations
+
+**V0 is not production-ready.** Every shortcut is listed here, with what it would take to close
+it. Nothing on this list is a bug to be filed; each is a deliberate V0 choice, and the list is
+the deliverable.
+
+No ARF or Technical Specification conformance is claimed.
+
+---
+
+## 1. Authentication and authorisation
+
+| # | Limitation | Closing it |
+|---|---|---|
+| A1 | **One static API key per tenant**, presented as a bearer token. No rotation, no scopes, no expiry, no per-operation authorisation. | OAuth 2.0 client credentials with short-lived tokens, scopes per operation, and key rotation |
+| A2 | The bootstrap **administrative key is a single static environment value**. It can create tenants. | A separate administrative plane with its own identity provider and audit |
+| A3 | No rate limiting anywhere. A valid key can create unbounded transactions. | Per-tenant quotas and rate limits at the edge |
+| A4 | No account lockout or anomaly detection on repeated authentication failures. | Failure counting and alerting |
+
+Mitigations already in place: only a SHA-256 hash of each key is stored, with a short non-secret
+prefix for the indexed lookup; comparison is constant-time; the administrative key is **refused**
+on every tenant-scoped route, so it cannot act as a tenant (asserted by the smoke script).
+
+## 2. Secrets
+
+| # | Limitation | Closing it |
+|---|---|---|
+| S1 | The **per-service webhook signing secret is stored in plain text** in `relying_party_services.webhook_secret`. A database dump yields forgeable callbacks. | A managed secret store, or envelope encryption with a KMS-held key |
+| S2 | Engine client credentials arrive through `ENGINE_TENANT_CREDENTIALS`, a single environment variable holding every engine tenant's secret. | Per-instance secrets from a secret store, fetched on demand |
+| S3 | The engine's `ENCRYPTION_KEY_SOURCE` is left at `env`, which derives its at-rest key from `MASTER_SECRET`. The engine documents this as development-only. | `vault`, `aws` or `azure`, so the key is only ever in RAM |
+| S4 | No secret rotation procedure for any of the above. | Rotation runbooks and dual-key windows |
+
+## 3. Key material and trust
+
+| # | Limitation | Closing it |
+|---|---|---|
+| K1 | **Access-certificate private keys live in the engine key store**, by default database-encrypted. The platform holds only an opaque reference, so it has no key of its own to protect — but the engine does. | The engine's PKCS#11 or cloud-KMS providers, with per-tenant non-exportable keys |
+| K2 | **Milestone 1 interoperates with a self-built Reference Implementation wallet** trusting a platform-operated development Access CA (Path B, approved at the Phase 0 checkpoint). That CA is `TEST`-only and is trusted by no production wallet. | An access certificate from an Access CA on the relevant notified LoTE (Path A) |
+| K3 | **Trust-anchor management is not implemented.** `EW-PIO-01-028` (`OIA_15a`) obliges a Relying Party to download the latest Trusted Lists and LoTEs, propagate added anchors to every Relying Party Instance and **remove** invalidated or expired ones. V0 delegates trust validation to the engine and does none of this. | A platform-owned trust-resolution service with refresh, propagation, revocation monitoring and fail-closed behaviour |
+| K4 | **No registration certificate is available** (blocker B3), so `EW-DM-44-023` (`RPRC_19`) is not satisfied. Each transaction records that it was sent without one. | A reachable provider of registration certificates |
+| K5 | The reference environment publishes **byte-identical trust anchors** for PID Providers, access-certificate providers and registration-certificate providers. The platform's model keeps the domains separate, but nothing in V0 verifies that a production environment does. | Per-domain anchor configuration and a test that rejects cross-domain inference |
+
+## 4. Protocol and flow
+
+| # | Limitation | Closing it |
+|---|---|---|
+| P1 | **The `QR` interaction type does not satisfy `EW-PIO-01-017` (`OIA_08d`).** ARF says Wallet Units SHOULD NOT support redirect-based cross-device flows (`EW-PIO-01-016`, `OIA_08c`), and obliges a Relying Party that uses one to implement mitigations for the challenges in ARF §4.4.3.1. V0 implements none. `SAME_DEVICE` is the tested path; requesting `QR` emits a `platform.interaction.cross_device_requested` audit event so the use is visible. | Either the W3C Digital Credentials API path with the `EW-PIO-01-020` (`OIA_08g`) proximity check, or the §4.4.3.1 mitigations |
+| P2 | `DECLINED_BY_USER` is **best-effort**. `AS-WP-06-017` (`RPA_11`) requires a Wallet Unit, on user denial, to behave as if the credential did not exist, so a denial is not reliably distinguishable from non-possession. Its absence never implies consent. | Nothing to close: this is the specified wallet behaviour |
+| P3 | Out of scope for V0: W3C Digital Credentials API flows, ISO/IEC 18013-5 proximity presentation, and the Article 5b(10) intermediary profile. | Separate milestones |
+| P4 | mdoc status checking is **not claimed**. `AS-AP-07-019` (`VCR_11`) requires the mechanism in Annex 2 of the amended CIR 2024/2979; whether the engine's CWT status-list encoding satisfies it is unverified (open question Q4). V0 verifies SD-JWT VC, covered by `AS-AP-07-020` (`VCR_11a`). | Read CIR 2024/2979 Annex 2 against the engine's implementation |
+
+## 5. Privacy
+
+| # | Limitation | Closing it |
+|---|---|---|
+| V1 | The **engine retains disclosed claims** for the configured session window. Minimised to the transaction lifetime and anonymised on cleanup, but not eliminated. See `privacy.md` §8. | Engine-side support for discarding content at verification time |
+| V2 | **`cleanupMode: anonymize` completeness is unverified.** That it nulls every content-bearing field is taken from the engine's documentation and entities, not from an empirical test. | An adapter-contract test asserting the fields are null after cleanup |
+| V3 | No DPIA, no data-residency controls, no data-subject-request tooling. | A separate privacy workstream |
+
+## 6. Operations
+
+| # | Limitation | Closing it |
+|---|---|---|
+| O1 | **Single instance assumed.** Background jobs run in-process on a timer with an in-process re-entrancy guard, so two replicas would both run them. The delivery queue uses `FOR UPDATE SKIP LOCKED` and would be safe, but expiry and purge would duplicate work. | Leader election, or advisory-lock-guarded jobs |
+| O2 | No HA, no DR, no backup or restore procedure, no tested rollback. | A productionisation workstream |
+| O3 | No metrics and no tracing. Structured logs only. | OpenTelemetry, SLOs, alerting |
+| O4 | **The engine's admin API and web client are a full administrative surface.** Compose binds them to `127.0.0.1` and the platform reaches the engine over the internal network only. Exposing that port publicly — which a tunnel for a phone test does — exposes the admin API. | A reverse proxy that exposes only the wallet-facing paths |
+| O5 | The engine is pinned by digest, but there is no automated upgrade gate beyond the adapter-contract suite, which is skipped when no container is present. | The contract suite as a required CI job against a real container |
+
+## 7. Input handling
+
+In place: every request body is parsed by a zod schema with `.strict()`, so unknown fields are
+rejected rather than ignored; all database access is parameterised through the query builder, and
+no SQL is built by string interpolation; a statement timeout is set at the pool level; callback
+URLs must be HTTPS and must **exactly** match an entry registered on the Relying Party Service,
+which is the SSRF control; correlation ids from a request header are length- and
+character-restricted because they reach the logs; webhook error bodies are truncated before
+storage.
+
+| # | Limitation | Closing it |
+|---|---|---|
+| I1 | No request body size limit beyond the framework default. | An explicit limit at the edge |
+| I2 | The imported certificate chain is **not validated** against an expected CA, nor checked for expiry, at provisioning time. The compiler checks `notAfter` only when the platform recorded one. | Chain validation on import, with the expected anchors configured per environment |
+| I3 | No CSRF protection on the unauthenticated wallet-return route. It is deliberately inert — it reveals nothing and changes no state — but it is reachable. | Remove it in favour of a front-end-owned return page |
+
+## 8. Supply chain
+
+| # | Limitation | Closing it |
+|---|---|---|
+| C1 | No dependency scanning or secret scanning in CI yet. The V0 plan requires both. | `pnpm audit` as a CI job, plus secret-scanning configuration |
+| C2 | No SBOM. | Generate and publish one per build |
+| C3 | Build scripts are opt-in via `allowBuilds` in `pnpm-workspace.yaml`, and the two analytics postinstall scripts (`@nestjs/core`, `@scarf/scarf`) are **explicitly denied** — a small positive, not a complete control. | Review the full dependency and licence tree |
+
+---
+
+## What V0 does get right
+
+Worth stating, so the list above is read as scope rather than as neglect:
+
+- Content has **no table**. The privacy guarantee is structural, and a test scans every table to
+  prove it.
+- The log redaction deny-list **fails the build** if a denied key survives.
+- Tenant isolation is a query predicate, not a later authorisation check, and cross-tenant
+  rejection is asserted for reads, writes, results, audit events and the signing secret.
+- The protocol engine is confined to one package by a CI boundary check.
+- Migrations are checksum-verified, transactional per file, and serialised by an advisory lock so
+  two replicas starting together cannot race.
+- The engine session window is applied **before** any session is created, so none can exist under
+  the engine's 24-hour default.

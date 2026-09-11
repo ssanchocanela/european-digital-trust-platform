@@ -1,8 +1,8 @@
 # ADR 0005 — Presentation policy abstraction and minimisation-first compilation
 
-- **Status:** DRAFT (Phase 0), awaiting approval
+- **Status:** ACCEPTED (Phase 0 checkpoint, 11 September 2026)
 - **Date:** 11 September 2026
-- **Contains a decision the user should review explicitly:** Decision 6 (the cross-device QR flow).
+- **Decision 6 resolved by the user at the Phase 0 checkpoint:** `SAME_DEVICE` is the tested V0 path.
 
 ## Context
 
@@ -210,7 +210,25 @@ source value; the logs contain no source value (the deny-list test covers `birth
 `birth_date`); and a policy requesting `birthdate` against an intended use that registered only
 `["place_of_birth"]` is rejected with 422.
 
-## Decision 6 — The cross-device QR flow: ARF discourages it. **User decision requested.**
+## Decision 6 — `SAME_DEVICE` is the tested V0 path; `QR` is flagged
+
+**Resolved by the user at the Phase 0 checkpoint: use `SAME_DEVICE` as the tested V0 path.**
+
+Therefore:
+
+- `POST /v1/presentations` accepts an optional `interactionType` of `SAME_DEVICE` (the default) or
+  `QR`. The response's `interaction.type` echoes what was used.
+- `SAME_DEVICE` returns EUDIPLO's `uri` — the variant that carries the post-completion redirect — and
+  is the flow covered by the end-to-end target, the smoke script and
+  [`reference-wallet-testing.md`](../reference-wallet-testing.md).
+- `QR` returns EUDIPLO's `crossDeviceUri`. It stays in the API surface because removing it would
+  force a breaking change later, but it is **flagged**: the `OIA_08d` mitigation obligation is unmet
+  in V0 and is recorded in [`security-limitations.md`](../security-limitations.md). The API
+  documentation says so, and requesting it emits a `platform.interaction.cross_device_requested`
+  audit event so its use is visible rather than silent.
+- No V0 claim is made that the `QR` path satisfies `EW-PIO-01-017` (`OIA_08d`).
+
+### Why ARF discourages the cross-device redirect flow
 
 The prompt's §6.7 response shape is `interaction: { type: "QR" | "SAME_DEVICE", uri }` and §6.9
 describes a QR flow. Two HLRs bear on that directly:
@@ -227,14 +245,9 @@ Party — i.e. on the platform. The sanctioned cross-device path is the W3C Digi
 the proximity check in `EW-PIO-01-020` (`OIA_08g`), which the prompt's §6.7 puts **out of scope** for
 V0 and which the RI feature matrix marks `n/a`.
 
-**Recommendation.** Keep both `interaction.type` values in the API surface; make `SAME_DEVICE` the
-documented, tested and demonstrated V0 path; expose `QR` as available-but-flagged, with the unmet
-`OIA_08d` mitigation obligation recorded in `security-limitations.md` and the API documentation. This
-costs nothing to implement — EUDIPLO returns both `uri` and `crossDeviceUri` from
-`POST /verifier/offer` — and it avoids presenting as the primary demo a flow the baseline discourages.
-
-**This is the user's call**, because it changes which flow the §6.9 end-to-end target demonstrates.
-Open question Q5.
+Implementing both costs nothing — EUDIPLO returns both `uri` and `crossDeviceUri` from
+`POST /verifier/offer` — so the decision above keeps the surface while moving the demonstrated flow to
+the one the baseline does not discourage.
 
 ## Consequences
 
@@ -252,7 +265,8 @@ Open question Q5.
   multi-valued.
 - **Negative.** `DERIVED_CLAIMS` is on the critical path for the flagship V0 scenario rather than
   being an optional extra, so it must be correct in Milestone 1 rather than deferred.
-- **Open (Q5).** Whether V0 demonstrates `QR`, `SAME_DEVICE`, or both.
+- **Negative (accepted).** The `QR` path remains reachable but untested and non-conformant with
+  `OIA_08d`. Recorded in `security-limitations.md` and surfaced as an audit event rather than removed.
 
 ## Status of claims
 

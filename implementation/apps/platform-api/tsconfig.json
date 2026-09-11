@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "src", "outDir": "dist" },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/domain" },
+    { "path": "../../packages/persistence" },
+    { "path": "../../packages/eudi-verifier-port" },
+    { "path": "../../packages/eudi-issuer-port" },
+    { "path": "../../packages/eudiplo-adapter" }
+  ]
+}

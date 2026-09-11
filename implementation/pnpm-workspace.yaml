@@ -1,0 +1,12 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Build scripts are opt-in. Only packages that genuinely need a postinstall (native
+# binaries) are allowed one. The two denials are analytics pings, not builds.
+allowBuilds:
+  # Unpacks the bundled PostgreSQL binaries used by the integration suite.
+  '@embedded-postgres/darwin-arm64': true
+  '@nestjs/core': false
+  '@scarf/scarf': false
+  esbuild: true

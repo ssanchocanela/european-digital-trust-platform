@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    // The tests import workspace packages by name. Vitest resolves those aliases to source at
+    // run time (vitest.config.ts); tsc needs the same mapping to check them.
+    "baseUrl": ".",
+    "paths": {
+      "@edtp/shared": ["packages/shared/src/index.ts"],
+      "@edtp/domain": ["packages/domain/src/index.ts"],
+      "@edtp/eudi-verifier-port": ["packages/eudi-verifier-port/src/index.ts"],
+      "@edtp/eudi-issuer-port": ["packages/eudi-issuer-port/src/index.ts"],
+      "@edtp/persistence": ["packages/persistence/src/index.ts"],
+      "@edtp/eudiplo-adapter": ["packages/eudiplo-adapter/src/index.ts"]
+    }
+  },
+  // The packages are included rather than referenced, because with `paths` pointing at source a
+  // project reference would make tsc demand built declarations that `pnpm typecheck` has not
+  // produced yet when this runs.
+  "include": ["tests/**/*.ts", "packages/*/src/**/*.ts", "apps/*/src/**/*.ts"]
+}

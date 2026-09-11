@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Confidentiality guard, run against the staged set before every commit.
+#
+# Rejects any staged path under sources/ and any staged file that cites the internal material
+# there. Public instruments — Regulations, Implementing Regulations, ARF sections — are fine and
+# necessary; local internal files are not.
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# CI runs the same script, so the hook is convenience rather than the only line of defence.
+set -euo pipefail
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node is not on PATH, so the confidentiality guard could not run." >&2
+  echo "pre-commit: install Node or run 'node implementation/scripts/check-confidentiality.mjs --staged' manually." >&2
+  exit 1
+fi
+
+node "$(git rev-parse --show-toplevel)/implementation/scripts/check-confidentiality.mjs" --staged

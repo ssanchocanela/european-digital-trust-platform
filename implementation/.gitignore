@@ -1,0 +1,30 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+# Trust material and authentication secrets, per the Phase 0 checkpoint decision.
+# The RP Registration Service delivers a PKCS#12 and its password, and its login yields a
+# hash_pid. All three are secrets: local files or .env only, never committed.
+*.p12
+*.pfx
+*.key
+*.pem
+!**/fixtures/*.pub.pem
+hash_pid*
+*hash_pid*
+access-certificate*
+
+# Test wallet (W1). The upstream wallet is cloned at a pinned tag into a working directory
+# that is never committed — no wallet source lives in this repository. The APK and the
+# signing keystore are likewise never committed: the APK is a modified reference build that
+# must not be distributed, and the keystore is a secret.
+tools/test-wallet/upstream/
+tools/test-wallet/out/
+*.apk
+*.aab
+*.keystore
+*.jks

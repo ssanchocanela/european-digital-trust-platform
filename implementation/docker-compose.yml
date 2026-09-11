@@ -1,0 +1,166 @@
+# European Digital Trust Platform V0 — local environment.
+#
+# `docker compose up` starts the platform API, its PostgreSQL, a **separate** PostgreSQL for
+# the wrapped engine, and the engine itself pinned by digest.
+#
+# Two deliberate choices:
+#
+#   * Two PostgreSQL instances. The engine persists disclosed claims on its session rows for
+#     the configured TTL, so sharing one database would put that content inside the platform's
+#     own database and let a future change read it directly. ADR 0001 and ADR 0004.
+#   * The engine is pinned by **digest**, not by tag. It ships releases roughly weekly — six
+#     in 27 days at the time of Phase 0, including a CommonJS-to-ESM migration between two of
+#     them — so `:latest` would make an upgrade an accident rather than a reviewed change.
+#
+# The engine's admin API and web client are NOT published to the host beyond localhost. See
+# docs/security-limitations.md.
+
+name: edtp-v0
+
+services:
+  platform-db:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    environment:
+      POSTGRES_USER: ${PLATFORM_DB_USER:-edtp}
+      POSTGRES_PASSWORD: ${PLATFORM_DB_PASSWORD:?set PLATFORM_DB_PASSWORD in .env}
+      POSTGRES_DB: ${PLATFORM_DB_NAME:-edtp_platform}
+    # Bound to localhost only: an exposed development database is a standing invitation.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - platform-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLATFORM_DB_USER:-edtp} -d ${PLATFORM_DB_NAME:-edtp_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  engine-db:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    environment:
+      POSTGRES_USER: ${ENGINE_DB_USER:-eudiplo}
+      POSTGRES_PASSWORD: ${ENGINE_DB_PASSWORD:?set ENGINE_DB_PASSWORD in .env}
+      POSTGRES_DB: ${ENGINE_DB_NAME:-eudiplo}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - engine-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ENGINE_DB_USER:-eudiplo} -d ${ENGINE_DB_NAME:-eudiplo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # EUDIPLO v7.6.0, pinned by digest. Verified against its source at commit 3b2a9e7.
+  eudiplo:
+    image: ghcr.io/openwallet-foundation/eudiplo:7.6.0@sha256:8dd60a2fe38f7c6f91b6a3c4003182fbb1a3659a5a7a697166ad0f0c5120c667
+    restart: unless-stopped
+    depends_on:
+      engine-db:
+        condition: service_healthy
+    environment:
+      # Drives every wallet-facing URL. For a physical phone this must be the public HTTPS
+      # origin of the tunnel or test host, not localhost — see docs/reference-wallet-testing.md.
+      PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:3000}
+      MASTER_SECRET: ${ENGINE_MASTER_SECRET:?set ENGINE_MASTER_SECRET in .env}
+      AUTH_CLIENT_ID: ${ENGINE_CLIENT_ID:-root}
+      AUTH_CLIENT_SECRET: ${ENGINE_CLIENT_SECRET:?set ENGINE_CLIENT_SECRET in .env}
+      DB_TYPE: postgres
+      DB_HOST: engine-db
+      DB_PORT: "5432"
+      DB_USERNAME: ${ENGINE_DB_USER:-eudiplo}
+      DB_PASSWORD: ${ENGINE_DB_PASSWORD}
+      DB_DATABASE: ${ENGINE_DB_NAME:-eudiplo}
+      DB_SSL: "false"
+      DB_MIGRATIONS_RUN: "true"
+      # The engine has a **two-phase** schema lifecycle, and this is phase one.
+      #
+      # It ships 45 migrations, so migrations are its mechanism for *evolving* a schema — but
+      # `BaselineMigration1740000000000` deliberately creates nothing. On a fresh database it logs
+      #
+      #   [Migration] Fresh database detected. Schema will be created by TypeORM synchronize.
+      #   [Migration] Ensure DB_SYNCHRONIZE=true is set for initial setup.
+      #
+      # and returns. So the initial schema can only come from TypeORM synchronisation; with
+      # `false` on an empty database the engine crash-loops on
+      # `relation "client_entity" does not exist`. Verified against v7.6.0 on 11 September 2026.
+      #
+      # **Phase two: set this to `false` once the schema exists.** That is the engine's own
+      # instruction — its `DB_SYNCHRONIZE` description reads "Set to false in production after
+      # initial setup and rely on migrations instead." Leaving it `true` lets TypeORM alter the
+      # schema to match entity definitions on every start, which on an engine shipping releases
+      # weekly is how a database silently diverges or loses a column.
+      #
+      # `true` is the default here only because a first `docker compose up` must work. For
+      # anything longer-lived, put `ENGINE_DB_SYNCHRONIZE=false` in `.env` after the first start.
+      # See docs/eudiplo-integration.md §"Engine schema lifecycle" and interop-findings A9.
+      #
+      # None of this weakens the platform's own migration discipline: it applies to the
+      # **engine's** database, a separate PostgreSQL instance precisely so the engine's schema
+      # management cannot reach the platform's (ADR 0001, ADR 0004). The platform's own database
+      # has no auto-synchronisation anywhere and never will.
+      DB_SYNCHRONIZE: ${ENGINE_DB_SYNCHRONIZE:-true}
+      # --- retention and logging: ADR 0004 makes these mandatory, not advisory -------------
+      # The engine's own defaults retain disclosed claims for 24 hours. The platform also sets
+      # the per-tenant session config through the API when it provisions an instance; these
+      # globals make the floor safe even before that happens.
+      SESSION_TTL: "300"
+      SESSION_CLEANUP_MODE: anonymize
+      SESSION_TIDY_UP_INTERVAL: "300"
+      # Session logs are a second content store. Keep them off.
+      LOG_SESSION_STORE: "off"
+      LOG_ENABLE_HTTP_LOGGER: "false"
+      LOG_ENABLE_SESSION_LOGGER: "false"
+      LOG_LEVEL: ${ENGINE_LOG_LEVEL:-warn}
+      # Audit retention defaults to disabled, i.e. unbounded growth. Bound it explicitly.
+      AUDIT_LOG_RETENTION_DAYS: "30"
+      AUDIT_LOG_MAX_ENTRIES_PER_TENANT: "5000"
+      OTEL_SDK_DISABLED: "true"
+    # Bound to localhost. The engine's admin API must not be reachable from outside the host;
+    # when a phone needs to reach it, put a tunnel in front of this port deliberately.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - engine-config:/app/config
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  platform-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      eudiplo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgresql://${PLATFORM_DB_USER:-edtp}:${PLATFORM_DB_PASSWORD}@platform-db:5432/${PLATFORM_DB_NAME:-edtp_platform}
+      DATABASE_SSL: "false"
+      PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:?set PLATFORM_ADMIN_API_KEY in .env}
+      PLATFORM_PUBLIC_URL: ${PLATFORM_PUBLIC_URL:-http://localhost:3100}
+      # The engine is reached over the internal compose network only.
+      ENGINE_BASE_URL: http://eudiplo:3000
+      ENGINE_TENANT_CREDENTIALS: ${ENGINE_TENANT_CREDENTIALS:?set ENGINE_TENANT_CREDENTIALS in .env}
+      JOB_INTERVAL_MS: "15000"
+    ports:
+      - "127.0.0.1:3100:3100"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  platform-db-data:
+  engine-db-data:
+  engine-config:

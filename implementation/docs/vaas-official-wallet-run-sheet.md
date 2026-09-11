@@ -64,10 +64,23 @@ certificate, and **check the issuer**. If it does not say the CA that actually i
 or the tunnel provider's CA — the connection is being intercepted. That one check takes ten seconds and
 saves a whole session.
 
+### A personal, unmanaged phone removes the third row
+
+The silent case needs a proxy CA in the device trust store, which is something device management does.
+On a personal, unmanaged phone the worst outcome is the **second** row: TLS fails loudly on an
+intercepting network, and nothing is mistakenly recorded as a pass. Worth knowing, because it changes
+what the network choice is *for* — on an unmanaged device it is about not wasting a session, not about
+the validity of the result.
+
+It does not make the choice irrelevant. An unmanaged phone on an intercepting Wi-Fi still cannot
+complete the flow. Mobile data remains the easy default, and the record still says which network was
+used, because "it failed" and "it failed because the network intercepted TLS" are different findings.
+
 ### Two rules that follow
 
 1. **Never install a proxy CA on the test phone.** It would convert the obvious failure into the silent
-   one, and every subsequent trust result from that device would be worthless.
+   one, and every subsequent trust result from that device would be worthless. On an unmanaged device
+   this is the only way the silent case can arise, so it is entirely within the operator's control.
 2. **`EDTP_JAVA_TRUSTSTORE` is build-machine-only.** It exists so the Gradle wrapper can download
    through a corporate proxy on the *laptop*, where nothing about trust is being tested. It has no phone
    equivalent and must never acquire one: the phone's trust store is the thing under test.

@@ -160,6 +160,66 @@ services:
       retries: 12
       start_period: 20s
 
+  # --- web interface, both optional ---------------------------------------------------------
+  #
+  # Start them explicitly: `docker compose up -d operator-console test-start`. Neither is needed to run
+  # the platform, and the start page should be up only during a test session.
+  #
+  # Both reuse the platform image — the build compiles the whole workspace — so there is nothing extra
+  # to build and nothing to keep in step.
+
+  operator-console:
+    image: edtp-v0-platform-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "apps/operator-console/dist/main.js"]
+    restart: unless-stopped
+    depends_on:
+      platform-api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3200"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PLATFORM_API_BASE_URL: http://platform-api:3100
+      CONSOLE_TENANT_API_KEY: ${CONSOLE_TENANT_API_KEY:?set CONSOLE_TENANT_API_KEY in .env}
+      CONSOLE_OPERATOR_PASSWORD: ${CONSOLE_OPERATOR_PASSWORD:?set CONSOLE_OPERATOR_PASSWORD in .env}
+      CONSOLE_SESSION_SECRET: ${CONSOLE_SESSION_SECRET:?set CONSOLE_SESSION_SECRET in .env}
+      START_TOKEN_SECRET: ${START_TOKEN_SECRET:?set START_TOKEN_SECRET in .env}
+      # Unset means cross-device (QR) only, which needs no page of ours.
+      TEST_START_PUBLIC_URL: ${TEST_START_PUBLIC_URL:-}
+      PLATFORM_COMMIT: ${PLATFORM_COMMIT:-}
+      ENGINE_IMAGE_DIGEST: ${ENGINE_IMAGE_DIGEST:-}
+      # Bound to every interface *inside* the container; the publish line below is what keeps it local.
+      # This is the one legitimate reason the console's own refusal to bind off-localhost is overridden.
+      CONSOLE_BIND_HOST: "0.0.0.0"
+      CONSOLE_ALLOW_NON_LOCAL_BIND: "true"
+    # A management surface. Published to localhost only, and never added to the gateway allow-list —
+    # docs/test-session-gateway.md §1c.
+    ports:
+      - "127.0.0.1:3200:3200"
+
+  test-start:
+    image: edtp-v0-platform-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "apps/test-start/dist/main.js"]
+    # Not `unless-stopped`: this is the publicly reachable process and it should be up only while a test
+    # session is. A restart policy that survives a reboot is the opposite of that.
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      TEST_START_PORT: "3201"
+      # The only secret it holds. It has NO platform API credential, by design: it cannot create, read or
+      # enumerate anything, only verify a token the console signed and offer the link inside it.
+      START_TOKEN_SECRET: ${START_TOKEN_SECRET:?set START_TOKEN_SECRET in .env}
+    # Published on all interfaces, because the gateway in front of it is what restricts access. Do not
+    # publish this without the allow-list and its negative checks.
+    ports:
+      - "3201:3201"
+
 volumes:
   platform-db-data:
   engine-db-data:

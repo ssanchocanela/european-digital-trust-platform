@@ -1,12 +1,35 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/shared" },
-    { "path": "./packages/domain" },
-    { "path": "./packages/eudi-verifier-port" },
-    { "path": "./packages/eudi-issuer-port" },
-    { "path": "./packages/persistence" },
-    { "path": "./packages/eudiplo-adapter" },
-    { "path": "./apps/platform-api" }
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/domain"
+    },
+    {
+      "path": "./packages/eudi-verifier-port"
+    },
+    {
+      "path": "./packages/eudi-issuer-port"
+    },
+    {
+      "path": "./packages/persistence"
+    },
+    {
+      "path": "./packages/eudiplo-adapter"
+    },
+    {
+      "path": "./packages/start-token"
+    },
+    {
+      "path": "./apps/platform-api"
+    },
+    {
+      "path": "./apps/operator-console"
+    },
+    {
+      "path": "./apps/test-start"
+    }
   ]
 }

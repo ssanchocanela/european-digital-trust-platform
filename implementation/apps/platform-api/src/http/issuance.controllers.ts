@@ -18,7 +18,7 @@ import {
   REGISTERED_EVALUATORS,
   WEBHOOK_ENDPOINT_REPOSITORY,
 } from "../tokens.js";
-import { assertTenantMatches, Ctx, type RequestContext } from "./auth.js";
+import { assertTenantMatches, assertUuidPathParam, Ctx, type RequestContext } from "./auth.js";
 import {
   changeCredentialStatusSchema,
   createAttestationProviderSchema,
@@ -391,6 +391,7 @@ export class IssuanceController {
   @Get("issuances/:issuanceId")
   @ApiOperation({ summary: "Read an issuance transaction" })
   async get(@Ctx() ctx: RequestContext, @Param("issuanceId") issuanceId: string) {
+    assertUuidPathParam("issuanceId", issuanceId);
     return this.issuances.get(ctx.tenantId, issuanceId);
   }
 
@@ -402,6 +403,7 @@ export class IssuanceController {
     @Ctx() ctx: RequestContext,
     @Param("issuedCredentialId") issuedCredentialId: string,
   ) {
+    assertUuidPathParam("issuedCredentialId", issuedCredentialId);
     return this.issuances.changeCredentialStatus({
       tenantId: ctx.tenantId,
       issuedCredentialId,
@@ -418,6 +420,7 @@ export class IssuanceController {
     @Param("issuedCredentialId") issuedCredentialId: string,
     @Body() body: unknown,
   ) {
+    assertUuidPathParam("issuedCredentialId", issuedCredentialId);
     const input = changeCredentialStatusSchema.parse(body);
     return this.issuances.changeCredentialStatus({
       tenantId: ctx.tenantId,

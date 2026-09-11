@@ -1,0 +1,19 @@
+{
+  "name": "@edtp/test-start",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@edtp/shared": "workspace:*",
+    "@edtp/start-token": "workspace:*",
+    "express": "5.1.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.3"
+  }
+}

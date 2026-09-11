@@ -15,6 +15,7 @@ import {
   ADMIN_ONLY,
   AdminOnly,
   assertTenantMatches,
+  assertUuidPathParam,
   Ctx,
   Public,
   type RequestContext,
@@ -424,6 +425,7 @@ export class PresentationController {
   @Get(":presentationId")
   @ApiOperation({ summary: "Read a presentation transaction and its result" })
   async get(@Ctx() ctx: RequestContext, @Param("presentationId") presentationId: string) {
+    assertUuidPathParam("presentationId", presentationId);
     const view = await this.presentations.get(
       ctx.tenantId,
       asId<"PresentationId">(presentationId),
@@ -436,6 +438,7 @@ export class PresentationController {
   @HttpCode(200)
   @ApiOperation({ summary: "Cancel a presentation transaction" })
   async cancel(@Ctx() ctx: RequestContext, @Param("presentationId") presentationId: string) {
+    assertUuidPathParam("presentationId", presentationId);
     const view = await this.presentations.cancel(
       ctx.tenantId,
       asId<"PresentationId">(presentationId),
@@ -455,6 +458,9 @@ export class PresentationController {
   @Public()
   @ApiExcludeEndpoint()
   async walletReturn(@Param("presentationId") presentationId: string) {
+    // Unauthenticated and reached by a browser, so the least validated surface of the three — and the
+    // one most likely to be poked at.
+    assertUuidPathParam("presentationId", presentationId);
     return {
       presentationId,
       message: "The wallet interaction is complete. Return to the application to continue.",

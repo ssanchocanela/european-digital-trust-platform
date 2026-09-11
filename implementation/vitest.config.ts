@@ -18,6 +18,12 @@ const workspaceAliases = {
   "@edtp/eudi-issuer-port": resolve(here, "packages/eudi-issuer-port/src/index.ts"),
   "@edtp/persistence": resolve(here, "packages/persistence/src/index.ts"),
   "@edtp/eudiplo-adapter": resolve(here, "packages/eudiplo-adapter/src/index.ts"),
+  "@edtp/start-token": resolve(here, "packages/start-token/src/index.ts"),
+  // The console is an application, not a library, so it has no barrel. Its individual modules are
+  // aliased by path so the escaping, the rendering and the one piece of state it holds can be tested
+  // without starting a server — which is also why those modules are pure functions.
+  "@edtp/operator-console": resolve(here, "apps/operator-console/src"),
+  "@edtp/platform-api": resolve(here, "apps/platform-api/src"),
 };
 
 /**

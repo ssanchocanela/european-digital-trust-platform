@@ -16,9 +16,12 @@
 #   exit 1  it does not. Record that, then fall back to the self-built wallet (Path B) with its
 #           development Access CA.
 #
-# The P12 and its password are secrets. This script reads the password from a prompt or from
-# $P12_PASSWORD, writes nothing outside a mode-700 temporary directory, and removes that directory
-# on exit. Nothing it prints contains key material.
+# The P12 and its password are secrets. The password is **never** a command-line argument, to
+# this script or to openssl: it is read from $P12_PASSWORD or from an interactive prompt, and
+# handed to openssl through the environment (`-passin env:`). `pass:` on an openssl argv would be
+# readable by any process on the machine through `ps`, which defeats the point of prompting.
+# The script writes nothing outside a mode-700 temporary directory, removes it on exit, and
+# nothing it prints contains key material.
 set -euo pipefail
 
 LOTE_URL="${LOTE_URL:-https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt}"
@@ -39,13 +42,14 @@ if [ "${1:-}" = "--pem" ]; then
 else
   P12="${1:?usage: verify-access-certificate-chain.sh <file.p12> | --pem <leaf.crt> [chain.crt]}"
   if [ -n "${P12_PASSWORD:-}" ]; then
-    PASS="$P12_PASSWORD"
+    EDTP_P12_PASSIN="$P12_PASSWORD"
   else
-    read -r -s -p "PKCS#12 passphrase: " PASS; echo
+    read -r -s -p "PKCS#12 passphrase: " EDTP_P12_PASSIN; echo
   fi
-  openssl pkcs12 -in "$P12" -clcerts -nokeys -passin pass:"$PASS" -out "$WORK/leaf.pem" 2>/dev/null
-  openssl pkcs12 -in "$P12" -cacerts -nokeys -passin pass:"$PASS" -out "$WORK/intermediates.pem" 2>/dev/null || true
-  unset PASS
+  export EDTP_P12_PASSIN
+  openssl pkcs12 -in "$P12" -clcerts -nokeys -passin env:EDTP_P12_PASSIN -out "$WORK/leaf.pem" 2>/dev/null
+  openssl pkcs12 -in "$P12" -cacerts -nokeys -passin env:EDTP_P12_PASSIN -out "$WORK/intermediates.pem" 2>/dev/null || true
+  unset EDTP_P12_PASSIN
 fi
 chmod 600 "$WORK"/*.pem 2>/dev/null || true
 

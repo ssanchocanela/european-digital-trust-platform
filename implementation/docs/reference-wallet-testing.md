@@ -115,9 +115,17 @@ documentation says it "must not be used to manage real Relying Party access cert
 #### A.4 Import
 
 ```bash
-TENANT_ID=<tenant-id> ./scripts/import-access-certificate.sh \
-  <service-id> <tenant-api-key> <engine-tenant-ref> rpac.p12
+export TENANT_ID=<tenant-id>
+export PLATFORM_TENANT_API_KEY=<tenant-api-key>   # secret: never an argument
+./scripts/import-access-certificate.sh <service-id> <engine-tenant-ref> rpac.p12
 ```
+
+The script prompts for the PKCS#12 passphrase, or takes it from `$P12_PASSWORD` for an unattended
+run. Neither the passphrase nor the API key is ever a command-line argument — not to the script and
+not to `openssl`, which is why both scripts use `-passin env:` rather than `-passin pass:`. An argv
+is readable by any process on the machine through `ps`, and lands in shell history besides, so
+prompting for a passphrase and then putting it on an `openssl` command line would defeat its own
+purpose.
 
 No platform code changes on this path.
 

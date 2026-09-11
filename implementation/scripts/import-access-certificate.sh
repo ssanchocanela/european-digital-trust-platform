@@ -2,7 +2,12 @@
 # Converts a PKCS#12 access certificate into the shape the platform's provisioning endpoint
 # accepts, and provisions the Relying Party Instance with it.
 #
-#   ./scripts/import-access-certificate.sh <service-id> <tenant-api-key> <engine-tenant-ref> <file.p12>
+#   TENANT_ID=<tenant-id> PLATFORM_TENANT_API_KEY=<key> \
+#     ./scripts/import-access-certificate.sh <service-id> <engine-tenant-ref> <file.p12>
+#
+# Neither the tenant API key nor the PKCS#12 passphrase is a command-line argument, to this
+# script or to openssl. Both are secrets, and an argv is readable by any process on the machine
+# through `ps` as well as landing in shell history.
 #
 # Why a conversion step exists: the engine's key-chain import endpoint takes an **EC private
 # key in JWK form** plus a certificate chain (leaf first, PEM), not a PKCS#12 blob. Its web
@@ -13,12 +18,12 @@
 # key-binding reference the engine returns.
 set -euo pipefail
 
-SERVICE_ID="${1:?usage: import-access-certificate.sh <service-id> <tenant-api-key> <engine-tenant-ref> <file.p12>}"
-TENANT_KEY="${2:?tenant API key}"
-ENGINE_TENANT_REF="${3:?engine tenant reference}"
-P12="${4:?path to the PKCS#12 file}"
+SERVICE_ID="${1:?usage: import-access-certificate.sh <service-id> <engine-tenant-ref> <file.p12>}"
+ENGINE_TENANT_REF="${2:?engine tenant reference}"
+P12="${3:?path to the PKCS#12 file}"
 BASE_URL="${BASE_URL:-http://localhost:3100}"
 TENANT_ID="${TENANT_ID:?set TENANT_ID}"
+TENANT_KEY="${PLATFORM_TENANT_API_KEY:?set PLATFORM_TENANT_API_KEY; it is a secret and must not be an argument}"
 
 for tool in openssl jq node curl; do
   command -v "$tool" >/dev/null 2>&1 || { echo "$tool is required." >&2; exit 1; }
@@ -28,13 +33,20 @@ WORK=$(mktemp -d)
 chmod 700 "$WORK"
 trap 'rm -rf "$WORK"' EXIT
 
-read -r -s -p "PKCS#12 passphrase: " P12_PASS
-echo
+if [ -n "${P12_PASSWORD:-}" ]; then
+  EDTP_P12_PASSIN="$P12_PASSWORD"
+else
+  read -r -s -p "PKCS#12 passphrase: " EDTP_P12_PASSIN
+  echo
+fi
+export EDTP_P12_PASSIN
 
-openssl pkcs12 -in "$P12" -nocerts -nodes -passin pass:"$P12_PASS" -out "$WORK/key.pem" 2>/dev/null
-openssl pkcs12 -in "$P12" -clcerts -nokeys -passin pass:"$P12_PASS" -out "$WORK/leaf.pem" 2>/dev/null
+# `-passin env:` rather than `pass:` — see the header. The variable is unset immediately after.
+openssl pkcs12 -in "$P12" -nocerts -nodes -passin env:EDTP_P12_PASSIN -out "$WORK/key.pem" 2>/dev/null
+openssl pkcs12 -in "$P12" -clcerts -nokeys -passin env:EDTP_P12_PASSIN -out "$WORK/leaf.pem" 2>/dev/null
 # CA certificates, if the P12 carries a chain. Leaf first is what the engine expects.
-openssl pkcs12 -in "$P12" -cacerts -nokeys -passin pass:"$P12_PASS" -out "$WORK/ca.pem" 2>/dev/null || true
+openssl pkcs12 -in "$P12" -cacerts -nokeys -passin env:EDTP_P12_PASSIN -out "$WORK/ca.pem" 2>/dev/null || true
+unset EDTP_P12_PASSIN
 chmod 600 "$WORK"/*.pem
 
 echo "Leaf certificate:"

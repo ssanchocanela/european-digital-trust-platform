@@ -324,6 +324,35 @@ applied migration as a hard failure. The engine's schema management cannot reach
 An upstream issue is **drafted but not filed** at
 [`docs/upstream/eudiplo-baseline-migration.md`](upstream/eudiplo-baseline-migration.md).
 
+## 10B. Engine gap register
+
+Every divergence between what the engine does and what the ARF or an ETSI specification requires,
+in one place, with the reference, the impact and whether a workaround exists. Populated from the
+running v7.6.0 container, not from its documentation.
+
+**None of these is worked around by rewriting or re-signing engine output.** Doing that would put the
+platform in front of the engine's protocol surface, which is what the wrapped-engine architecture
+exists to avoid, and would make the platform the author of artefacts it does not control. Where there
+is no workaround, the register says so and the requirement is not claimed.
+
+| # | Gap | Reference | Impact | Workaround | Upstream |
+|---|---|---|---|---|---|
+| **G1** | **Credential Issuer metadata is not signed.** `signed_metadata` has zero occurrences in the compiled source | ARF 3.0.0 **§6.6.2.2** expects the metadata to be signed and verified by the Wallet; OpenID4VCI defines `signed_metadata`; ETSI TS 119 472-3. The pinned wallet enforces it via `requireSignedMetadata()` → `IssuerMetadataPolicy.RequireSigned` | **Blocking.** Trust gate (a) cannot be satisfied, so a Wallet cannot authenticate the Attestation Provider before issuance. Part of blocker **B7** | **None, by choice.** Signing or rewriting the metadata in the platform is explicitly rejected: it would make the platform the author of the issuer's metadata and duplicate the engine's OpenID4VCI surface. A contract test asserts `metadataSigned === false` so a later release that adds support fails the test rather than silently changing what is claimed | [`eudiplo-signed-metadata.md`](upstream/eudiplo-signed-metadata.md) — drafted, **not filed** |
+| **G2** | **An imported registration certificate is never emitted as `verifier_info` without a configured live registrar.** `oid4vp.service.js` guards it with `registration_cert && isEnabledForTenant(tenant)`; `isEnabledForTenant` is `!!config`; `saveConfig` calls `testCredentials` before persisting | **`EW-DM-44-023` (`RPRC_19`)** — a Relying Party Instance SHALL include a single applicable registration certificate in each presentation request, by value, in proximity and remote flows | **Blocking.** `RPRC_19` is not satisfied and is not claimed. Expect `EW-DM-44-019` (`RPRC_17`) warnings from any Wallet that checks. **Inherited by PID-during-issuance**, because that makes the issuer a Relying Party | **None.** The platform side is complete and verified up to the engine's gate; the emission gate is the engine's. The contract test for it **skips with a logged reason** when no registrar is configured, so it turns green by itself if this is fixed | [`eudiplo-registration-cert-verifier-info.md`](upstream/eudiplo-registration-cert-verifier-info.md) — drafted, **not filed** |
+| **G3** | **OpenAPI document contradicts the runtime validator on five presentation-config fields.** `registrationCertImportJwt`, `registrationCertImportId`, `registrationCertBodyPrivacyPolicy`, `registrationCertBodySupportUri`, `registrationCertBodyIntermediary` are declared `{type: "array", items: {type: "string"}}`; the validator requires a **string** and rejects an array with `expected string, received array` | Not an ARF requirement — an engine-internal inconsistency. Matters because generated clients follow the document | **Low, once known.** A generated client emits a request the engine rejects. Found on first contact; would otherwise have surfaced only when a real certificate arrived | **Yes.** The adapter sends a string and a contract test pins it. The register exists so the next person does not re-derive this from the document | [`eudiplo-openapi-validator-mismatch.md`](upstream/eudiplo-openapi-validator-mismatch.md) — drafted, **not filed** |
+| **G4** | **No migration creates the initial schema.** `BaselineMigration` is a branch and two log lines; `DB_SYNCHRONIZE=true` is required for first boot | Not an ARF requirement. The engine's own `DB_SYNCHRONIZE` description says to set it false in production and rely on migrations — which cannot be followed from a clean start | **Operational.** A fresh deployment cannot be brought up by migrations alone | **Yes**, two-phase: `true` for the first start, `false` after. Documented in §10A with an upgrade warning | [`eudiplo-baseline-migration.md`](upstream/eudiplo-baseline-migration.md) — drafted, **not filed** |
+| **G5** | **Four issuance payload shapes are accepted-then-wrong**: `usageType` enum excludes `signing`; `credentialClaims` is a tagged union; `registrationCertificate` needs `enabled` *and* `mode`; `authorizationServers` is discriminated on `type` and an untagged entry is ignored | Not an ARF requirement — engine contract surface | **Low, once pinned.** A test asserting only "the call succeeded" passes on four of them, which is why they are pinned by contract tests that decode output | **Yes**, all five pinned by `tests/adapter/issuance-contract.test.ts`. `interop-findings.md` A14 | Not raised: these are contract details, not defects |
+| **G6** | **Engine tenant roles cannot be widened after creation.** `PATCH /api/tenant/{id}` rejects a `roles` key; a tenant cannot grant its clients roles it lacks | Not an ARF requirement | **Operational.** A tenant provisioned too narrowly must be recreated | **Yes.** Create the tenant with every role it will need; `.env.example` lists them. `interop-findings.md` A16 | Not raised: arguably correct behaviour |
+
+### How to read this register
+
+**G1 and G2 are the ones that matter.** They are the reason two ARF requirements are not satisfied, and
+neither has a workaround that does not compromise the architecture. G3–G6 are contract friction: real,
+worth recording so nobody re-derives them, and all handled.
+
+Nothing in this register has been filed upstream. Four drafts exist in
+[`upstream/`](upstream/); filing is a human decision, and each draft says so.
+
 ## 11. Adoption gates still open
 
 [`eudiplo-assessment.md`](../../05-eudi-services/eudiplo-assessment.md) set six gates. Gate 1

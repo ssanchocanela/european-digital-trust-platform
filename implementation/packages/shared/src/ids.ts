@@ -12,6 +12,8 @@ export type TenantId = Branded<string, "TenantId">;
 export type OrganisationId = Branded<string, "OrganisationId">;
 export type RelyingPartyId = Branded<string, "RelyingPartyId">;
 export type RelyingPartyServiceId = Branded<string, "RelyingPartyServiceId">;
+/** A tenant-scoped callback destination. Shared by verification and issuance. */
+export type WebhookEndpointId = Branded<string, "WebhookEndpointId">;
 export type IntendedUseId = Branded<string, "IntendedUseId">;
 export type RelyingPartyInstanceId = Branded<string, "RelyingPartyInstanceId">;
 export type RegistrationCertificateId = Branded<string, "RegistrationCertificateId">;
@@ -37,6 +39,8 @@ export const newOrganisationId = (): OrganisationId => asId<"OrganisationId">(ra
 export const newRelyingPartyId = (): RelyingPartyId => asId<"RelyingPartyId">(randomUUID());
 export const newRelyingPartyServiceId = (): RelyingPartyServiceId =>
   asId<"RelyingPartyServiceId">(randomUUID());
+export const newWebhookEndpointId = (): WebhookEndpointId =>
+  asId<"WebhookEndpointId">(randomUUID());
 export const newIntendedUseId = (): IntendedUseId => asId<"IntendedUseId">(randomUUID());
 export const newRelyingPartyInstanceId = (): RelyingPartyInstanceId =>
   asId<"RelyingPartyInstanceId">(randomUUID());

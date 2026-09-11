@@ -35,3 +35,7 @@ export const ISSUANCE_SERVICE = Symbol("IssuanceService");
 /** Names only, for policy validation at publication time. */
 export const REGISTERED_EVALUATORS = Symbol("RegisteredEvaluators");
 export const REGISTERED_CONNECTORS = Symbol("RegisteredConnectors");
+/** The shared callback destination repository, used by both verification and issuance. */
+export const WEBHOOK_ENDPOINT_REPOSITORY = Symbol("WebhookEndpointRepository");
+/** Feature flag: PID-during-issuance. Off until a wallet test passes. */
+export const FEATURE_PID_DURING_ISSUANCE = Symbol("FeaturePidDuringIssuance");

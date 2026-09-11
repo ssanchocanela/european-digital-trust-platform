@@ -299,6 +299,12 @@ export const provisionAttestationProviderSchema = z
     }),
     /** ARF §6.6.2.2. Absent in V0 (blocker B3); the omission is reported, never faked. */
     registrationCertificateJwt: z.string().min(1).optional(),
+    /**
+     * HTTPS allow-list for issuance callbacks. Creates the shared webhook endpoint — the same
+     * kernel object a Relying Party Service references, so signing, retry and SSRF checks are the
+     * Milestone 1 ones unchanged.
+     */
+    callbackUrlAllowList: z.array(z.string().url()).min(1).optional(),
   })
   .strict();
 

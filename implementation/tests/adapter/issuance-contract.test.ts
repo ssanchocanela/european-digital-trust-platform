@@ -37,10 +37,19 @@ const baseUrl = process.env.ENGINE_BASE_URL;
 const credentialsRaw = process.env.ENGINE_TENANT_CREDENTIALS;
 
 let adapter: EudiploIssuerAdapter | undefined;
+let client: EngineClient | undefined;
 let reachable = false;
 let engineTenantRef = "root";
 let signingKeyBindingRef = "";
 let testRegistrationCertificateJwt = "";
+/**
+ * A separate **access**-usage key chain for the nested presentation request.
+ *
+ * Deliberately not the attestation key: a presentation request is authenticated with an access
+ * certificate, and reusing the attestation-signing key would put one key in two roles — the same
+ * separation `assertTrustListSigningKey` enforces for published trust lists.
+ */
+let accessKeyBindingRefForPresentation = "";
 
 const decodeSegment = (segment: string): Record<string, unknown> => {
   const padded = segment + "=".repeat((4 - (segment.length % 4)) % 4);
@@ -124,7 +133,7 @@ beforeAll(async () => {
   if (eq <= 0 || colon <= eq + 1) return;
   engineTenantRef = credentialsRaw.slice(0, eq);
 
-  const client = new EngineClient({
+  client = new EngineClient({
     baseUrl,
     clock: systemClock,
     requestTimeoutMs: 20_000,
@@ -166,6 +175,37 @@ beforeAll(async () => {
     certificateChain: [cert],
   });
   signingKeyBindingRef = imported.keyBindingRef;
+
+  // A distinct access-usage chain for the nested presentation request.
+  const { privateKey: accessKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const accessPem = accessKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const accessCert = execFileSync(
+    "openssl",
+    [
+      "req",
+      "-new",
+      "-x509",
+      "-key",
+      "/dev/stdin",
+      "-days",
+      "2",
+      "-subj",
+      "/CN=edtp-issuance-contract-access/O=Development only/C=EU",
+    ],
+    { input: accessPem },
+  ).toString();
+  const accessImported = await client.request<{ id: string }>(
+    engineTenantRef,
+    "POST",
+    "/key-chain/import",
+    {
+      key: accessKey.export({ format: "jwk" }),
+      usageType: "access",
+      description: "issuance contract test, nested presentation (development, self-signed)",
+      crt: [accessCert],
+    },
+  );
+  accessKeyBindingRefForPresentation = accessImported.id;
 
   // The TEST placeholder, minted by the same script the documentation points at.
   testRegistrationCertificateJwt = execFileSync(process.execPath, [
@@ -319,6 +359,96 @@ describe("issuance contract against a real engine (skipped when none is reachabl
     // Even with the certificate published, a Wallet still cannot fully authenticate the provider,
     // because the metadata is unsigned. Stated as a conjunction so neither half is forgotten.
     expect(evidence.registrationCertificatePresent && evidence.metadataSigned).toBe(false);
+  }, 90_000);
+
+  it("PID-during-issuance: the nested presentation request is decodable, as far as a wallet would get", async () => {
+    if (!reachable || !adapter) return;
+
+    // The §7.3 stretch goal. The engine exposes it as an `oid4vp` authorization server that names a
+    // presentation configuration, so the issuance's authorization step *is* an OpenID4VP exchange.
+    //
+    // No wallet is involved, so what can be checked is everything up to the point a wallet would
+    // take over: that the nested presentation configuration exists, that the engine serves a signed
+    // request object for it, and that the request object carries the DCQL, the certificate chain and
+    // the registration-certificate claim the verification side already asserts. Past that point —
+    // the wallet responding — needs a wallet, and this test says so rather than pretending.
+    const presentationPolicyId = `pid-eligibility-${Date.now()}`;
+    const presentationConfigId = `p-${presentationPolicyId}-v1`;
+
+    // The nested presentation configuration, created directly: the platform's verifier adapter does
+    // this from a verification policy, and reusing one is the point of the feature.
+    // Narrowed once rather than asserted at each use: the guard above already established it.
+    const engine = client;
+    if (!engine) return;
+
+    await engine.request(engineTenantRef, "POST", "/verifier/config", {
+      id: presentationConfigId,
+      dcql_query: {
+        credentials: [
+          {
+            id: "pid",
+            format: "dc+sd-jwt",
+            meta: { vct_values: ["urn:eudi:pid:1"] },
+            claims: [{ path: ["birthdate"] }],
+          },
+        ],
+      },
+      accessKeyChainId: accessKeyBindingRefForPresentation,
+    });
+
+    // An offer whose authorization step is that presentation.
+    const plan = {
+      ...planFor(),
+      eligibilityPresentationPolicyId: presentationPolicyId,
+    } as IssuancePlan;
+    await adapter.provisionCredentialConfiguration({ engineTenantRef, plan });
+
+    // The engine serves the nested request object at the presentation session's own endpoint, so the
+    // decodable artefact is reached through the presentation configuration rather than the offer.
+    const offer = await engine.request<{ uri: string; session: string }>(
+      engineTenantRef,
+      "POST",
+      "/verifier/offer",
+      { response_type: "uri", requestId: presentationConfigId },
+    );
+    const requestUri = new URL(
+      offer.uri.replace(/^openid4vp:\/\//, "https://placeholder/"),
+    ).searchParams.get("request_uri");
+    expect(requestUri, "the nested presentation must expose a request_uri").toBeTruthy();
+
+    const res = await fetch(requestUri as string);
+    expect(res.ok).toBe(true);
+    const payload = decodeSegment((await res.text()).trim().split(".")[1] as string);
+
+    // What a wallet would read, and what the platform therefore has to get right:
+    expect(payload.response_type).toBe("vp_token");
+    expect(String(payload.client_id)).toMatch(/^x509_hash:/);
+    expect(payload.response_mode).toBe("direct_post.jwt");
+    expect(payload.nonce).toBeTruthy();
+
+    // The DCQL asks for the PID date of birth — the eligibility input — and nothing more.
+    const dcql = payload.dcql_query as { credentials?: { meta?: { vct_values?: string[] } }[] };
+    expect(dcql.credentials?.[0]?.meta?.vct_values).toEqual(["urn:eudi:pid:1"]);
+    expect(JSON.stringify(dcql)).toContain("birthdate");
+
+    // The certificate chain is present, so a wallet could authenticate the requester.
+    const header = decodeSegment(
+      (await (await fetch(requestUri as string)).text()).trim().split(".")[0] as string,
+    );
+    expect(Array.isArray(header.x5c)).toBe(true);
+
+    // And the registration certificate is absent, for the same engine reason as the verification
+    // side: `verifier_info` needs a configured registrar. This is the inheritance the documentation
+    // warns about — enabling PID-during-issuance makes the issuer a Relying Party, and it inherits
+    // `RPRC_19`'s limitation rather than escaping it.
+    expect(payload.verifier_info).toBeUndefined();
+
+    // What cannot be checked without a wallet, stated rather than skipped silently.
+    console.info(
+      "[adapter-contract] PID-during-issuance: request object verified as far as a wallet would " +
+        "read it. The wallet response, the eligibility decision and the resulting issuance remain " +
+        "UNVERIFIED (blocker B7).",
+    );
   }, 90_000);
 
   it("a deleted session surfaces as an engine error, not an invented outcome", async () => {

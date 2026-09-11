@@ -15,6 +15,7 @@ import type {
   RelyingPartyId,
   RelyingPartyServiceId,
   TenantId,
+  WebhookEndpointId,
 } from "@edtp/shared";
 import { asId, PlatformError } from "@edtp/shared";
 import { and, eq } from "drizzle-orm";
@@ -130,6 +131,7 @@ export class RegistrationRepository {
   async createRelyingPartyService(
     service: RelyingPartyService,
     webhookSecret: string,
+    webhookEndpointId?: WebhookEndpointId,
   ): Promise<RelyingPartyService> {
     await this.db.insert(relyingPartyServices).values({
       id: service.id,
@@ -140,6 +142,7 @@ export class RegistrationRepository {
       description: service.description,
       callbackUrlAllowList: service.callbackUrlAllowList,
       webhookSecret,
+      webhookEndpointId: webhookEndpointId ?? null,
       createdAt: service.createdAt,
     });
     return service;
@@ -158,6 +161,20 @@ export class RegistrationRepository {
   }
 
   /** The HMAC secret used to sign outbound callbacks for this service. */
+  /** The Relying Party Service's callback destination. The route a presentation takes to a secret. */
+  async findWebhookEndpointId(
+    tenantId: TenantId,
+    id: RelyingPartyServiceId,
+  ): Promise<WebhookEndpointId | undefined> {
+    const [row] = await this.db
+      .select({ endpointId: relyingPartyServices.webhookEndpointId })
+      .from(relyingPartyServices)
+      .where(and(eq(relyingPartyServices.tenantId, tenantId), eq(relyingPartyServices.id, id)))
+      .limit(1);
+    return row?.endpointId ? asId<"WebhookEndpointId">(row.endpointId) : undefined;
+  }
+
+  /** Superseded by `findWebhookEndpointId`. Retained while migration 0002's columns remain. */
   async findWebhookSecret(
     tenantId: TenantId,
     id: RelyingPartyServiceId,
@@ -167,7 +184,7 @@ export class RegistrationRepository {
       .from(relyingPartyServices)
       .where(and(eq(relyingPartyServices.tenantId, tenantId), eq(relyingPartyServices.id, id)))
       .limit(1);
-    return row?.secret;
+    return row?.secret ?? undefined;
   }
 
   // --- intended uses -------------------------------------------------------

@@ -16,6 +16,7 @@ import {
   API_KEY_REPOSITORY,
   CLOCK_TOKEN,
   CONFIG_TOKEN,
+  FEATURE_PID_DURING_ISSUANCE,
   ISSUANCE_REPOSITORY,
   ISSUANCE_SERVICE,
   ISSUER_PORT,
@@ -28,6 +29,7 @@ import {
   REGISTRATION_SERVICE,
   VERIFIER_PORT,
   VERIFIER_PROVISIONING_PORT,
+  WEBHOOK_ENDPOINT_REPOSITORY,
   WEBHOOK_SERVICE,
 } from "./tokens.js";
 
@@ -63,6 +65,10 @@ export class AppModule {
         { provide: PRESENTATION_SERVICE, useValue: deps.services.presentations },
         { provide: WEBHOOK_SERVICE, useValue: deps.services.webhooks },
         { provide: ISSUANCE_REPOSITORY, useValue: deps.repositories.issuance },
+        {
+          provide: WEBHOOK_ENDPOINT_REPOSITORY,
+          useValue: deps.repositories.webhookEndpoints,
+        },
         { provide: ISSUER_PORT, useValue: deps.issuer },
         { provide: ISSUER_PROVISIONING_PORT, useValue: deps.issuerProvisioning },
         { provide: ISSUANCE_SERVICE, useValue: deps.services.issuances },
@@ -70,6 +76,10 @@ export class AppModule {
         // so a typo fails while a reviewer is present rather than while a User is waiting.
         { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },
         { provide: REGISTERED_CONNECTORS, useValue: [...deps.registry.connectors.keys()] },
+        {
+          provide: FEATURE_PID_DURING_ISSUANCE,
+          useValue: deps.config.FEATURE_PID_DURING_ISSUANCE,
+        },
         ApiKeyGuard,
         PlatformErrorFilter,
       ],

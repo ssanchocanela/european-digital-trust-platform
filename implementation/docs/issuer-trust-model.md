@@ -161,6 +161,37 @@ modification is deliberately not built here.**
 Gate (a) would still need `ignoreSignedMetadata()` or an engine that signs, so a full issuance test
 needs a decision on both gates, not one.
 
+## PID during issuance: the issuer becomes a relying party
+
+The §7.3 stretch goal — requiring a PID presentation as the authorization step of an issuance, reusing
+a verification policy. The engine supports it natively via `Oid4VpAuthorizationServerConfig`, so the
+platform side is a wiring decision. **Off by default** behind `FEATURE_PID_DURING_ISSUANCE`, and the
+gate is at policy *publication*, not at issuance: a policy that cannot run must not become publishable
+and then fail with a User waiting.
+
+### What enabling it changes about our role
+
+This is the part that is easy to miss. During that presentation the platform **is a Relying Party**,
+not only an Attestation Provider, and every verification-side obligation applies to it:
+
+| | |
+|---|---|
+| **`RPRC_19` is inherited, not escaped** | The nested presentation request needs a registration certificate by value, and the engine will not emit one without a configured live registrar (gap **G2**). The contract test confirms `verifier_info` is absent from the nested request object. So enabling this feature adds a second place where `RPRC_19` is unsatisfied |
+| **`RPA_03`/`RPA_04` apply** | The nested request is authenticated with an **access** certificate, which must chain to a notified Access CA anchor. A separate key from the attestation-signing key — the contract test uses a distinct `access`-usage key chain for exactly this reason |
+| **`RPRC_17` warnings are expected** | A Wallet that checks will warn that it could not validate the registered information, as it would for any of our presentations |
+| **Received PID attributes follow the VaaS rules** | They are **content**: ephemeral, processed in one call stack, never persisted, never logged, never returned. ADR 0004 and `OIA_16` bind the platform here exactly as they do on the verification side, and the eligibility decision is taken from the values without retaining them. The `EligibilityEvaluator` contract reflects this — it receives attributes and returns a decision, and its `reason` is written to avoid restating the values that drove it |
+
+### What the contract test does and does not prove
+
+`tests/adapter/issuance-contract.test.ts` decodes the nested presentation request as far as a Wallet
+would read it: `response_type`, an `x509_hash` client id, `direct_post.jwt`, a nonce, the DCQL asking
+for `urn:eudi:pid:1` / `birthdate`, and an `x5c` chain in the header. It also asserts `verifier_info`
+is absent, so the inherited limitation is pinned rather than discovered later.
+
+It cannot go further. The Wallet responding, the eligibility decision on real attributes, and the
+resulting issuance are **unverified**, and the test logs that rather than implying coverage. That is
+why the flag stays off until a wallet test passes.
+
 ## Status summary
 
 | Claim | Status |

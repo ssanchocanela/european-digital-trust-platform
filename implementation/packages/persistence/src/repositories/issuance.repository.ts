@@ -39,6 +39,8 @@ export interface IssuanceContext {
     readonly registrationCertificateJwt?: string;
     readonly registrationCertificateNotAfter?: Date;
     readonly engineTenantRef?: string;
+    /** The shared callback destination. Same kernel type the verification side references. */
+    readonly webhookEndpointId?: string;
   };
 }
 
@@ -103,6 +105,7 @@ export class IssuanceRepository {
     readonly signingKeyBindingRef: string;
     readonly registrationCertificateJwt?: string;
     readonly registrationCertificateNotAfter?: Date;
+    readonly webhookEndpointId?: string;
   }): Promise<void> {
     const updated = await this.db
       .update(attestationProviders)
@@ -111,6 +114,7 @@ export class IssuanceRepository {
         signingKeyBindingRef: input.signingKeyBindingRef,
         registrationCertificateJwt: input.registrationCertificateJwt ?? null,
         registrationCertificateNotAfter: input.registrationCertificateNotAfter ?? null,
+        ...(input.webhookEndpointId ? { webhookEndpointId: input.webhookEndpointId } : {}),
       })
       .where(
         and(
@@ -202,6 +206,9 @@ export class IssuanceRepository {
           ? { registrationCertificateNotAfter: provider.registrationCertificateNotAfter }
           : {}),
         ...(provider.engineTenantRef ? { engineTenantRef: provider.engineTenantRef } : {}),
+        ...(provider.webhookEndpointId
+          ? { webhookEndpointId: provider.webhookEndpointId }
+          : {}),
       },
     };
   }

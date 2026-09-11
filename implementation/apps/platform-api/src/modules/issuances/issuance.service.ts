@@ -7,6 +7,7 @@ import {
   type IssuancePlan,
   type IssuanceState,
   narrowToDeclaredClaims,
+  resolveCallbackUrl,
   resolvePublishedVersion,
   type SourceAttributes,
 } from "@edtp/domain";
@@ -15,9 +16,17 @@ import type {
   EudiIssuerPort,
   EudiIssuerProvisioningPort,
 } from "@edtp/eudi-issuer-port";
-import type { IssuanceRepository } from "@edtp/persistence";
-import { asId, type Clock, PlatformError, type TenantId } from "@edtp/shared";
+import type { IssuanceRepository, WebhookEndpointRepository } from "@edtp/persistence";
+import {
+  asId,
+  type Clock,
+  newWebhookDeliveryId,
+  newWebhookEventId,
+  PlatformError,
+  type TenantId,
+} from "@edtp/shared";
 import type { Logger } from "../../logging/logger.js";
+import type { WebhookService } from "../../webhook/webhook.service.js";
 import type { AuditService } from "../audit/audit.service.js";
 
 export interface CreateIssuanceCommand {
@@ -68,11 +77,13 @@ export interface IssuanceView {
 export class IssuanceService {
   constructor(
     private readonly issuance: IssuanceRepository,
+    private readonly endpoints: WebhookEndpointRepository,
     private readonly issuer: EudiIssuerPort,
     private readonly provisioning: EudiIssuerProvisioningPort,
     private readonly connectors: ReadonlyMap<string, AuthenticSourceConnector>,
     private readonly evaluators: ReadonlyMap<string, EligibilityEvaluator>,
     private readonly audit: AuditService,
+    private readonly webhooks: WebhookService,
     private readonly clock: Clock,
     private readonly logger: Logger,
   ) {}
@@ -132,6 +143,26 @@ export class IssuanceService {
       at: now,
     });
 
+    // The same SSRF control verification uses, from the same function: a request may only name a
+    // URL already on the endpoint's allow-list.
+    let callbackUrl: string | undefined;
+    if (command.callbackUrl) {
+      const endpointId = context.attestationProvider.webhookEndpointId;
+      if (!endpointId) {
+        throw PlatformError.conflict(
+          "no_webhook_endpoint",
+          "A callbackUrl was requested but this Attestation Provider has no webhook endpoint. " +
+            "Register one, with the URL on its allow-list.",
+        );
+      }
+      const endpoint = await this.endpoints.find(
+        command.tenantId,
+        asId<"WebhookEndpointId">(endpointId),
+      );
+      if (!endpoint) throw PlatformError.notFound("Webhook endpoint");
+      callbackUrl = resolveCallbackUrl(command.callbackUrl, endpoint.callbackUrlAllowList);
+    }
+
     const connector = this.resolveConnector(version.authenticSource.connector);
     const lifetime = version.retentionPolicy.transactionLifetimeSeconds;
     const issuanceId = randomUUID();
@@ -147,9 +178,8 @@ export class IssuanceService {
       ...(command.businessReference ? { businessReference: command.businessReference } : {}),
       subjectReference: command.subjectReference,
       authenticSourceKind: connector.kind,
-      ...(command.callbackUrl ? { callbackUrl: command.callbackUrl } : {}),
-      // Never PENDING: nothing is delivered for issuance in V0 (see the note below).
-      deliveryStatus: "NOT_REQUIRED",
+      ...(callbackUrl ? { callbackUrl } : {}),
+      deliveryStatus: callbackUrl ? "PENDING" : "NOT_REQUIRED",
       expiresAt,
       createdAt: now,
       updatedAt: now,
@@ -217,11 +247,7 @@ export class IssuanceService {
       policyVersion: version.version,
       interaction: { type: "SAME_DEVICE", uri: offer.uri },
       expiresAt,
-      ...this.warningsFor(
-        offer.sentWithoutRegistrationCertificate,
-        connector.kind,
-        command.callbackUrl,
-      ),
+      ...this.warningsFor(offer.sentWithoutRegistrationCertificate, connector.kind),
     };
   }
 
@@ -242,7 +268,6 @@ export class IssuanceService {
       ...this.warningsFor(
         record.sentWithoutRegistrationCertificate ?? false,
         record.authenticSourceKind,
-        record.callbackUrl,
       ),
     };
 
@@ -313,6 +338,9 @@ export class IssuanceService {
       subjectType: "issuance",
       subjectId: record.id,
       detail: { outcome: terminal, failureCode: status.failureCode },
+    });
+    await this.enqueueCallback(tenantId, record, terminal, {
+      ...(status.failureCode ? { failureCode: status.failureCode } : {}),
     });
 
     return {
@@ -508,6 +536,9 @@ export class IssuanceService {
       // element — which is stored but never logged.
       detail: { issuedCredentialId: issued.id, policyVersion: record.policyVersion },
     });
+    await this.enqueueCallback(tenantId, record, "ISSUED", {
+      issuedCredentialId: issued.id,
+    });
 
     return {
       issuanceId: record.id,
@@ -520,7 +551,6 @@ export class IssuanceService {
       ...this.warningsFor(
         record.sentWithoutRegistrationCertificate ?? false,
         record.authenticSourceKind,
-        record.callbackUrl,
       ),
     };
   }
@@ -572,9 +602,8 @@ export class IssuanceService {
   private warningsFor(
     sentWithoutRegistrationCertificate: boolean,
     authenticSourceKind?: string,
-    callbackUrl?: string,
   ): { warnings?: readonly string[] } {
-    const warnings: string[] = [...this.callbackNotDeliveredWarning(callbackUrl)];
+    const warnings: string[] = [];
     if (sentWithoutRegistrationCertificate) {
       warnings.push(
         "No registration certificate was published in the Credential Issuer metadata, so a " +
@@ -589,6 +618,76 @@ export class IssuanceService {
       );
     }
     return warnings.length > 0 ? { warnings } : {};
+  }
+
+  /**
+   * Queues the settled issuance for delivery.
+   *
+   * Uses the same queue, HMAC signing, retry schedule and idempotency as verification — the
+   * endpoint moved into the shared kernel precisely so this could reuse them rather than grow a
+   * second delivery path. A delivery failure never changes the issuance outcome.
+   */
+  private async enqueueCallback(
+    tenantId: TenantId,
+    record: {
+      readonly id: string;
+      readonly credentialTypeId: string;
+      readonly callbackUrl?: string;
+      readonly businessReference?: string;
+      readonly policyId: string;
+      readonly policyVersion: number;
+    },
+    status: IssuanceState,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    if (!record.callbackUrl) return;
+
+    try {
+      const context = await this.issuance.loadIssuanceContext(
+        tenantId,
+        record.credentialTypeId,
+      );
+      const endpointId = context.attestationProvider.webhookEndpointId;
+      if (!endpointId) {
+        // Refused rather than signed with something else. Reaching here means the endpoint was
+        // removed after the issuance was created; the result stays readable through the API.
+        this.logger.warn("no webhook endpoint for this Attestation Provider; not delivering", {
+          tenantId,
+          subject: record.id,
+        });
+        return;
+      }
+
+      await this.webhooks.enqueueEvent({
+        tenantId,
+        webhookEndpointId: asId<"WebhookEndpointId">(endpointId),
+        subjectType: "issuance",
+        subjectId: record.id,
+        url: record.callbackUrl,
+        eventId: newWebhookEventId(),
+        deliveryId: newWebhookDeliveryId(),
+        // Metadata only. No attribute values, and not the status-list index — an `ISSU_35` unique
+        // element, stored but never sent.
+        payload: {
+          event: "issuance.settled",
+          issuanceId: record.id,
+          ...(record.businessReference ? { businessReference: record.businessReference } : {}),
+          status,
+          policyId: record.policyId,
+          policyVersion: record.policyVersion,
+          settledAt: this.clock.now().toISOString(),
+          ...extra,
+        },
+        at: this.clock.now(),
+      });
+    } catch (error) {
+      // A delivery failure must never change the issuance outcome.
+      this.logger.warn("issuance callback could not be enqueued", {
+        tenantId,
+        subject: record.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   assertIssuanceTransition,
   assertPublishable,
   assertStatusTransition,
+  assertTrustListSigningKey,
   buildTrustAnchorListBody,
   type CredentialType,
   canTransitionIssuance,
@@ -618,7 +619,7 @@ describe("trust anchor publication — ARF §6.3.2.4, ETSI TS 119 602", () => {
         statusStartingTime: at,
       },
     ],
-    signingKeyRef: "key-1",
+    signingKey: { keyBindingRef: "trust-list-key-1", usage: "trustList" },
     createdAt: at,
     ...overrides,
   });
@@ -677,6 +678,61 @@ describe("trust anchor publication — ARF §6.3.2.4, ETSI TS 119 602", () => {
     expectRefusal(
       () => assertPublishable(publication({ nextUpdate: new Date(at.getTime() - 1000) })),
       /NextUpdate/i,
+    );
+  });
+
+  it("refuses an attestation or access key for list signing — a compile error and a runtime one", () => {
+    // The whole point of the separation: one compromised key must not be able to forge both the
+    // attestations and the list that says which attestations to trust.
+    for (const usage of ["attestation", "access", "statusList", "encrypt"] as const) {
+      expectRefusal(
+        () => assertTrustListSigningKey({ keyBindingRef: "shared-key", usage }),
+        /trust_list_signing_key_wrong_usage/,
+      );
+    }
+    expect(() =>
+      assertTrustListSigningKey({ keyBindingRef: "trust-list-key-1", usage: "trustList" }),
+    ).not.toThrow();
+  });
+
+  it("refuses a trustList key whose reference is already used elsewhere", () => {
+    // The subtle case: the right usage type, but the engine will let two configurations point at one
+    // key chain, so the reference must be distinct too.
+    expectRefusal(
+      () =>
+        assertTrustListSigningKey(
+          { keyBindingRef: "shared-chain", usage: "trustList" },
+          { attestationKeyRefs: ["shared-chain"] },
+        ),
+      /trust_list_signing_key_reused/,
+    );
+    expectRefusal(
+      () =>
+        assertTrustListSigningKey(
+          { keyBindingRef: "shared-chain", usage: "trustList" },
+          { accessKeyRefs: ["shared-chain"] },
+        ),
+      /trust_list_signing_key_reused/,
+    );
+  });
+
+  it("refuses an empty signing key reference rather than producing an unsigned list", () => {
+    expectRefusal(
+      () => assertTrustListSigningKey({ keyBindingRef: "   ", usage: "trustList" }),
+      /trust_list_signing_key_missing/,
+    );
+  });
+
+  it("checks the key before anything else, so a wrong key is not reported as a validation problem", () => {
+    // A publication with both a wrong key and an empty anchor list must complain about the key: it
+    // is a different and worse kind of mistake.
+    expectRefusal(
+      () =>
+        assertPublishable({
+          ...publication({ anchors: [] }),
+          signingKey: { keyBindingRef: "k", usage: "attestation" },
+        }),
+      /trust_list_signing_key_wrong_usage/,
     );
   });
 

@@ -41,6 +41,95 @@ import type { TrustEnvironment } from "../kernel/trust-environment.js";
  * not built here. See `docs/issuer-trust-model.md`.
  */
 
+/**
+ * Key usages, mirroring the engine's own enum.
+ *
+ * Named here because the *separation* is a domain rule, not an engine detail: a key that signs a
+ * trust list must not be the key that signs attestations or authenticates presentation requests.
+ * Reusing one would mean a single compromise simultaneously forges attestations and the list that
+ * says which attestations to trust — the two things a verifier checks against each other.
+ */
+export const KEY_USAGES = [
+  "access",
+  "attestation",
+  "trustList",
+  "statusList",
+  "encrypt",
+] as const;
+export type KeyUsage = (typeof KEY_USAGES)[number];
+
+/**
+ * A key reference that carries its usage.
+ *
+ * The usage travels with the reference so the two cannot be separated. A bare string — which is what
+ * this was — let any key be passed anywhere, and the only thing preventing an attestation key from
+ * signing a trust list was that nobody had done it yet.
+ */
+export interface KeyBindingRef {
+  readonly keyBindingRef: string;
+  readonly usage: KeyUsage;
+}
+
+/**
+ * The key that signs a published trust list. **Only** a `trustList` key.
+ *
+ * A literal type, so passing an attestation or access key is a **compile error** rather than a
+ * runtime hope. `assertTrustListSigningKey` covers the runtime case, for values that come back from
+ * the database where the type has been erased.
+ */
+export interface TrustListSigningKey extends KeyBindingRef {
+  readonly usage: "trustList";
+}
+
+/**
+ * Refuses a key that is not a dedicated trust-list key.
+ *
+ * Three separate refusals, because three different mistakes lead here:
+ *
+ *  1. the wrong usage — an `attestation` or `access` key passed for list signing;
+ *  2. the right usage but a reference already in use for something else, which is the subtle one:
+ *     the engine will happily register one key chain and let two configurations point at it;
+ *  3. an empty reference, which would otherwise silently produce an unsigned list.
+ */
+export const assertTrustListSigningKey = (
+  key: KeyBindingRef,
+  context?: {
+    /** References known to be in use for attestation signing. */
+    readonly attestationKeyRefs?: readonly string[];
+    /** References known to be in use for access certificates. */
+    readonly accessKeyRefs?: readonly string[];
+  },
+): void => {
+  if (!key.keyBindingRef.trim()) {
+    throw PlatformError.unprocessable(
+      "trust_list_signing_key_missing",
+      "A trust-anchor publication needs a signing key reference; an unsigned list asserts nothing.",
+    );
+  }
+
+  if (key.usage !== "trustList") {
+    throw PlatformError.conflict(
+      "trust_list_signing_key_wrong_usage",
+      `A published trust list must be signed by a dedicated 'trustList' key, not a '${key.usage}' ` +
+        "one. Sharing a key between attestation signing and list signing means one compromise " +
+        "forges both the attestations and the list that says which attestations to trust — the two " +
+        "things a verifier checks against each other.",
+    );
+  }
+
+  const collides =
+    (context?.attestationKeyRefs ?? []).includes(key.keyBindingRef) ||
+    (context?.accessKeyRefs ?? []).includes(key.keyBindingRef);
+  if (collides) {
+    throw PlatformError.conflict(
+      "trust_list_signing_key_reused",
+      "The key reference supplied for list signing is already in use as an attestation-signing or " +
+        "access-certificate key. The usage type alone is not enough: the engine will let two " +
+        "configurations point at one key chain, so the reference must also be distinct.",
+    );
+  }
+};
+
 /** Prefix every `TEST` scheme name carries, so a fetched list is self-describing. */
 export const TEST_SCHEME_NAME_PREFIX = "TEST ONLY — NOT A NOTIFIED TRUST LIST — ";
 
@@ -91,8 +180,13 @@ export interface TrustAnchorPublication {
    */
   readonly nextUpdate: Date;
   readonly anchors: readonly PublishedTrustAnchor[];
-  /** Opaque reference to the key that signs the list. The platform never holds the key itself. */
-  readonly signingKeyRef: string;
+  /**
+   * The key that signs the list — a **dedicated** `trustList` key.
+   *
+   * Typed rather than a bare string, so an attestation or access key cannot be passed. The platform
+   * never holds the key itself, only this reference.
+   */
+  readonly signingKey: TrustListSigningKey;
   readonly createdAt: Date;
 }
 
@@ -102,14 +196,21 @@ export interface TrustAnchorPublication {
  * Separate from the generic validation so the `PRODUCTION` refusal is impossible to miss and
  * impossible to skip: it is not one failed rule among many, it is a different kind of answer.
  */
-export const assertPublishable = (input: {
-  readonly trustEnvironment: TrustEnvironment;
-  readonly anchors: readonly PublishedTrustAnchor[];
-  readonly schemeOperatorName: string;
-  readonly publicationUri: string;
-  readonly issuedAt: Date;
-  readonly nextUpdate: Date;
-}): void => {
+export const assertPublishable = (
+  input: {
+    readonly trustEnvironment: TrustEnvironment;
+    readonly anchors: readonly PublishedTrustAnchor[];
+    readonly schemeOperatorName: string;
+    readonly publicationUri: string;
+    readonly issuedAt: Date;
+    readonly nextUpdate: Date;
+    readonly signingKey: KeyBindingRef;
+  },
+  keyContext?: {
+    readonly attestationKeyRefs?: readonly string[];
+    readonly accessKeyRefs?: readonly string[];
+  },
+): void => {
   if (input.trustEnvironment !== "TEST") {
     throw PlatformError.conflict(
       "trust_anchor_publication_test_only",
@@ -120,6 +221,10 @@ export const assertPublishable = (input: {
         "profile. Refused structurally rather than by convention.",
     );
   }
+
+  // Key separation before anything else: a list signed by the wrong key is not a list with a
+  // validation problem, it is a different and worse thing.
+  assertTrustListSigningKey(input.signingKey, keyContext);
 
   const details: { path: string; code: string; message: string }[] = [];
 

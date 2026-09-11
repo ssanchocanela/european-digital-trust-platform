@@ -17,6 +17,7 @@ import {
   RegistrationRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
+  WebhookEndpointRepository,
 } from "@edtp/persistence";
 import { type Clock, systemClock } from "@edtp/shared";
 import type { PlatformConfig } from "./config.js";
@@ -57,6 +58,7 @@ export interface Dependencies {
     readonly apiKeys: ApiKeyRepository;
     readonly deliveries: WebhookDeliveryRepository;
     readonly issuance: IssuanceRepository;
+    readonly webhookEndpoints: WebhookEndpointRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -108,6 +110,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     apiKeys: new ApiKeyRepository(db),
     deliveries: new WebhookDeliveryRepository(db),
     issuance: new IssuanceRepository(db),
+    webhookEndpoints: new WebhookEndpointRepository(db),
   };
 
   // One adapter instance serves every engine tenant: it is stateless, and the client
@@ -168,6 +171,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     repositories.deliveries,
     repositories.transactions,
     repositories.registration,
+    repositories.webhookEndpoints,
     clock,
     logger,
     { maxAttempts: config.WEBHOOK_MAX_ATTEMPTS, timeoutMs: config.WEBHOOK_TIMEOUT_MS },
@@ -176,6 +180,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
   const registration = new RegistrationService(
     repositories.registration,
     repositories.apiKeys,
+    repositories.webhookEndpoints,
     provisioning,
     audit,
     clock,
@@ -200,11 +205,13 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
 
   const issuances = new IssuanceService(
     repositories.issuance,
+    repositories.webhookEndpoints,
     issuer,
     issuerProvisioning,
     connectors,
     evaluators,
     audit,
+    webhooks,
     clock,
     logger,
   );

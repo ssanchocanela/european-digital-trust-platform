@@ -9,13 +9,19 @@ import {
   type RelyingPartyService,
   type Tenant,
   type TrustEnvironment,
+  validateWebhookEndpoint,
+  type WebhookEndpoint,
 } from "@edtp/domain";
 import type {
   EudiVerifierProvisioningPort,
   ImportAccessCertificateInput,
 } from "@edtp/eudi-verifier-port";
-import type { ApiKeyRepository, RegistrationRepository } from "@edtp/persistence";
-import type { LocalisedText } from "@edtp/shared";
+import type {
+  ApiKeyRepository,
+  RegistrationRepository,
+  WebhookEndpointRepository,
+} from "@edtp/persistence";
+import type { LocalisedText, WebhookEndpointId } from "@edtp/shared";
 import {
   type Clock,
   type IntendedUseId,
@@ -29,6 +35,7 @@ import {
   newRelyingPartyServiceId,
   newTenantId,
   newUuid,
+  newWebhookEndpointId,
   normaliseLocalisedText,
   type OrganisationId,
   PlatformError,
@@ -53,6 +60,7 @@ export class RegistrationService {
   constructor(
     private readonly registration: RegistrationRepository,
     private readonly apiKeys: ApiKeyRepository,
+    private readonly endpoints: WebhookEndpointRepository,
     private readonly provisioning: EudiVerifierProvisioningPort,
     private readonly audit: AuditService,
     private readonly clock: Clock,
@@ -195,22 +203,19 @@ export class RegistrationService {
     );
     if (!relyingParty) throw PlatformError.notFound("Relying Party");
 
-    for (const url of input.callbackUrlAllowList) {
-      let parsed: URL;
-      try {
-        parsed = new URL(url);
-      } catch {
-        throw PlatformError.unprocessable(
-          "invalid_callback_url",
-          `'${url}' in the callback allow-list is not a valid URL.`,
-        );
-      }
-      if (parsed.protocol !== "https:") {
-        throw PlatformError.unprocessable(
-          "callback_url_not_https",
-          "Every callback URL in the allow-list must use HTTPS.",
-        );
-      }
+    // An **empty** allow-list is legitimate and means "no callbacks": a customer that polls
+    // `GET /v1/presentations/{id}` needs none. In that case no endpoint is created at all, which is
+    // a stronger statement than an endpoint with an empty list — there is nothing to sign with and
+    // nothing to deliver to.
+    //
+    // When a list *is* given, it goes through the one validator shared with issuance. The inline
+    // copy that used to live here is gone: two implementations of the same rule is how they drift.
+    const wantsCallbacks = input.callbackUrlAllowList.length > 0;
+    if (wantsCallbacks) {
+      validateWebhookEndpoint({
+        name: input.serviceTradeName,
+        callbackUrlAllowList: input.callbackUrlAllowList,
+      });
     }
 
     const service: RelyingPartyService = {
@@ -227,7 +232,23 @@ export class RegistrationService {
     };
     // Returned once; used to sign outbound result callbacks.
     const webhookSecret = newOpaqueToken(32);
-    await this.registration.createRelyingPartyService(service, webhookSecret);
+
+    // The callback destination is a shared kernel object, created here and referenced by the
+    // Service. An Attestation Provider references the same type, which is what lets issuance reuse
+    // the Milestone 1 queue rather than grow a second delivery path.
+    let endpointId: WebhookEndpointId | undefined;
+    if (wantsCallbacks) {
+      const endpoint: WebhookEndpoint = {
+        id: newWebhookEndpointId(),
+        tenantId: input.tenantId,
+        name: `Relying Party Service ${input.serviceTradeName}`,
+        callbackUrlAllowList: input.callbackUrlAllowList,
+        createdAt: this.clock.now(),
+      };
+      await this.endpoints.create({ endpoint, secret: webhookSecret });
+      endpointId = endpoint.id;
+    }
+    await this.registration.createRelyingPartyService(service, webhookSecret, endpointId);
     await this.audit.record({
       tenantId: input.tenantId,
       actor: "tenant",

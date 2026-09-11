@@ -116,6 +116,38 @@ export const relyingParties = pgTable(
   ],
 );
 
+/**
+ * A tenant-scoped callback destination: signing secret and URL allow-list.
+ *
+ * Milestone 1 kept both on `relying_party_services`, which could not serve issuance — an issuance has
+ * no Relying Party Service, so the delivery queue could not resolve a secret for it. Signing and SSRF
+ * protection are shared infrastructure, so they live here and both sides reference them.
+ *
+ * The secret is in its own table, not a column here, so a `SELECT *` on the endpoint cannot return
+ * it. It is read only by the delivery path, only to sign.
+ */
+export const webhookEndpoints = pgTable(
+  "webhook_endpoints",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** HTTPS only, matched exactly. An arbitrary per-request URL is refused. */
+    callbackUrlAllowList: jsonb("callback_url_allow_list").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [index("webhook_endpoints_tenant_idx").on(t.tenantId)],
+);
+
+export const webhookEndpointSecrets = pgTable("webhook_endpoint_secrets", {
+  endpointId: uuid("endpoint_id")
+    .primaryKey()
+    .references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+  secret: text("secret").notNull(),
+});
+
 export const relyingPartyServices = pgTable(
   "relying_party_services",
   {
@@ -133,7 +165,18 @@ export const relyingPartyServices = pgTable(
     /** HTTPS allow-list for callbacks. An unlisted URL is refused (SSRF protection). */
     callbackUrlAllowList: jsonb("callback_url_allow_list").notNull(),
     /** Per-service HMAC secret for outbound webhook signing. */
-    webhookSecret: text("webhook_secret").notNull(),
+    /**
+     * The callback destination. Nullable only so the migration can backfill it; every row created
+     * after 0002 has one.
+     */
+    webhookEndpointId: uuid("webhook_endpoint_id").references(() => webhookEndpoints.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * Superseded by `webhook_endpoint_id`. Retained, not dropped, so migration 0002 is reversible and
+     * so an operator can confirm the backfill before the column goes. Nothing reads it.
+     */
+    webhookSecret: text("webhook_secret"),
     createdAt: ts("created_at").notNull(),
   },
   (t) => [
@@ -467,6 +510,17 @@ export const auditEvents = pgTable(
  *
  * `payload` is the normalised result only — never presentation content.
  */
+/**
+ * The delivery queue, now subject-agnostic.
+ *
+ * Milestone 1 keyed each row to a presentation and resolved the signing secret by walking
+ * presentation -> Relying Party Service. That walk is what could not serve issuance. A row now names
+ * its `webhook_endpoint_id` directly, so the secret is one lookup away whatever the subject is, and
+ * `subject_type` + `subject_id` identify what the event is about.
+ *
+ * `presentation_id` is retained and nullable for the same reason as `webhook_secret` above: migration
+ * 0002 backfills from it, and keeping it makes the change reversible.
+ */
 export const webhookDeliveries = pgTable(
   "webhook_deliveries",
   {
@@ -474,9 +528,22 @@ export const webhookDeliveries = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
-    presentationId: uuid("presentation_id")
-      .notNull()
-      .references(() => presentationTransactions.id, { onDelete: "cascade" }),
+    /**
+     * The callback destination, and therefore the signing secret. One lookup, whatever the subject.
+     *
+     * Nullable only so migration 0002 can backfill; every row enqueued after it has one, and the
+     * delivery path refuses to send without it rather than signing with something else.
+     */
+    webhookEndpointId: uuid("webhook_endpoint_id").references(() => webhookEndpoints.id, {
+      onDelete: "restrict",
+    }),
+    /** `presentation` or `issuance`. What the event is about. */
+    subjectType: text("subject_type"),
+    subjectId: uuid("subject_id"),
+    /** Superseded by `subject_type` + `subject_id`. Retained so 0002 is reversible. */
+    presentationId: uuid("presentation_id").references(() => presentationTransactions.id, {
+      onDelete: "cascade",
+    }),
     /** Stable across retries, so a receiver can deduplicate. */
     eventId: uuid("event_id").notNull(),
     url: text("url").notNull(),
@@ -492,6 +559,7 @@ export const webhookDeliveries = pgTable(
   (t) => [
     uniqueIndex("webhook_deliveries_event_key").on(t.eventId),
     index("webhook_deliveries_due_idx").on(t.status, t.nextAttemptAt),
+    index("webhook_deliveries_subject_idx").on(t.subjectType, t.subjectId),
   ],
 );
 
@@ -537,6 +605,10 @@ export const attestationProviders = pgTable(
     registrationCertificateJwt: text("registration_certificate_jwt"),
     registrationCertificateNotAfter: ts("registration_certificate_not_after"),
     engineTenantRef: text("engine_tenant_ref"),
+    /** The same shared endpoint type the verification side uses. */
+    webhookEndpointId: uuid("webhook_endpoint_id").references(() => webhookEndpoints.id, {
+      onDelete: "restrict",
+    }),
     trustEnvironment: text("trust_environment").notNull(),
     createdAt: ts("created_at").notNull(),
   },
@@ -768,6 +840,12 @@ export const trustAnchorPublications = pgTable(
     nextUpdate: ts("next_update").notNull(),
     anchors: jsonb("anchors").notNull(),
     signingKeyRef: text("signing_key_ref").notNull(),
+    /**
+     * Must be `trustList`. Stored so the invariant survives a round-trip: without it, a row read
+     * back from the database would be a bare reference again and the domain check would have
+     * nothing to act on.
+     */
+    signingKeyUsage: text("signing_key_usage").notNull(),
     /** The signed list as served. Public by construction; no secret is stored here. */
     signedList: text("signed_list"),
     createdAt: ts("created_at").notNull(),

@@ -92,6 +92,9 @@ describe("migrations", () => {
         "schema_migrations", // created and owned by the migrator, not by the schema
         "tenants",
         "webhook_deliveries",
+        // Shared infrastructure, generalised in Milestone 2 so issuance can reuse the queue
+        "webhook_endpoints",
+        "webhook_endpoint_secrets",
         // Milestone 2 — issuance
         "attestation_providers",
         "credential_types",

@@ -1,16 +1,22 @@
-import { validateCredentialType, validateIssuancePolicyVersion } from "@edtp/domain";
+import {
+  validateCredentialType,
+  validateIssuancePolicyVersion,
+  validateWebhookEndpoint,
+} from "@edtp/domain";
 import type { EudiIssuerProvisioningPort } from "@edtp/eudi-issuer-port";
-import type { IssuanceRepository } from "@edtp/persistence";
-import { asId, PlatformError } from "@edtp/shared";
+import type { IssuanceRepository, WebhookEndpointRepository } from "@edtp/persistence";
+import { asId, newOpaqueToken, newWebhookEndpointId, PlatformError } from "@edtp/shared";
 import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { IssuanceService } from "../modules/issuances/issuance.service.js";
 import {
+  FEATURE_PID_DURING_ISSUANCE,
   ISSUANCE_REPOSITORY,
   ISSUANCE_SERVICE,
   ISSUER_PROVISIONING_PORT,
   REGISTERED_CONNECTORS,
   REGISTERED_EVALUATORS,
+  WEBHOOK_ENDPOINT_REPOSITORY,
 } from "../tokens.js";
 import { assertTenantMatches, Ctx, type RequestContext } from "./auth.js";
 import {
@@ -34,9 +40,12 @@ import {
 export class IssuanceConfigurationController {
   constructor(
     @Inject(ISSUANCE_REPOSITORY) private readonly issuance: IssuanceRepository,
+    @Inject(WEBHOOK_ENDPOINT_REPOSITORY)
+    private readonly endpoints: WebhookEndpointRepository,
     @Inject(ISSUER_PROVISIONING_PORT) private readonly provisioning: EudiIssuerProvisioningPort,
     @Inject(REGISTERED_EVALUATORS) private readonly evaluators: readonly string[],
     @Inject(REGISTERED_CONNECTORS) private readonly connectors: readonly string[],
+    @Inject(FEATURE_PID_DURING_ISSUANCE) private readonly pidDuringIssuanceEnabled: boolean,
   ) {}
 
   @Post(":tenantId/attestation-providers")
@@ -94,6 +103,29 @@ export class IssuanceConfigurationController {
       certificateChain: input.signingCertificate.certificateChain,
     });
 
+    // The callback destination, when one is asked for. The same shared kernel object a Relying
+    // Party Service references, so issuance reuses the Milestone 1 queue, signing, retry schedule
+    // and SSRF check rather than growing a second delivery path.
+    let webhookEndpointId: string | undefined;
+    let webhookSecret: string | undefined;
+    if (input.callbackUrlAllowList) {
+      validateWebhookEndpoint({
+        name: `Attestation Provider ${providerId}`,
+        callbackUrlAllowList: input.callbackUrlAllowList,
+      });
+      const endpoint = {
+        id: newWebhookEndpointId(),
+        tenantId: id,
+        name: `Attestation Provider ${providerId}`,
+        callbackUrlAllowList: input.callbackUrlAllowList,
+        createdAt: new Date(),
+      };
+      // Returned once, like the Relying Party Service secret. Never readable again.
+      webhookSecret = newOpaqueToken(32);
+      await this.endpoints.create({ endpoint, secret: webhookSecret });
+      webhookEndpointId = endpoint.id;
+    }
+
     await this.issuance.provisionAttestationProvider({
       tenantId: id,
       attestationProviderId: providerId,
@@ -102,6 +134,7 @@ export class IssuanceConfigurationController {
       ...(input.registrationCertificateJwt
         ? { registrationCertificateJwt: input.registrationCertificateJwt }
         : {}),
+      ...(webhookEndpointId ? { webhookEndpointId } : {}),
     });
 
     return {
@@ -110,6 +143,9 @@ export class IssuanceConfigurationController {
       // Stated in the response, not only in a log: without it a Wallet cannot authenticate the
       // provider before issuance (ARF §6.6.2.2).
       registrationCertificatePublished: input.registrationCertificateJwt !== undefined,
+      ...(webhookEndpointId ? { webhookEndpointId } : {}),
+      // Shown once and never again, exactly as on the verification side.
+      ...(webhookSecret ? { webhookSecret } : {}),
     };
   }
 
@@ -249,6 +285,18 @@ export class IssuanceConfigurationController {
 
     const type = await this.issuance.findCredentialType(id, input.credentialTypeId);
     if (!type) throw PlatformError.notFound("Credential type");
+
+    // The gate is at **publication**, not at issuance: a policy that cannot run must not become
+    // publishable and then fail when a User is waiting. Same reasoning as the evaluator/connector
+    // name checks.
+    if (input.eligibilityPresentationPolicyId && !this.pidDuringIssuanceEnabled) {
+      throw PlatformError.conflict(
+        "feature_pid_during_issuance_disabled",
+        "eligibilityPresentationPolicyId requires FEATURE_PID_DURING_ISSUANCE=true. The flow is " +
+          "wired and the engine supports it, but it has not been exercised end to end with a " +
+          "wallet, so it is off by default rather than shipped unverified.",
+      );
+    }
 
     // Validated at publication, against the type it issues. Catching a contradiction here costs
     // nothing; catching it during an issuance means a User has already been asked to accept

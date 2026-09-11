@@ -73,11 +73,13 @@ failures #1 and #2. The faithful profile needs real HTTPS. Two options:
 
 | Option | Notes |
 |---|---|
-| **The test-session tunnel** ([`test-session-gateway.md`](test-session-gateway.md)) | Reuses work already needed for the phone, and gives a certificate the suite trusts with no extra setup. The suite then reaches us over the public internet, so the run is no longer egress-free — see §5 |
+| **The disposable EU VM** ([`test-session-vm.md`](test-session-vm.md)) | **Best of the three.** Our own domain and Let's Encrypt certificate, and the suite can run **on the VM beside the stack**, so the suite-to-us traffic stays internal and the run keeps most of its egress-free property. Hours to set up the first time |
+| The test-session tunnel ([`test-session-gateway.md`](test-session-gateway.md)) | Quickest, and gives a certificate the suite trusts with no extra setup. But the suite then reaches us over the public internet **and** Cloudflare terminates TLS, so a third party sits inside a run that is partly about trust |
 | A local CA, with its root added to the **suite container's** truststore | Keeps the run local and egress-free. More setup, and the truststore edit is per-container and easy to lose |
 
-**Recommendation: the tunnel**, because HTTPS is needed for the phone anyway and one mechanism serving
-both is one fewer thing to keep working. Take the egress consequence in §5 knowingly.
+**Recommendation: the VM**, and co-locate the suite on it. HTTPS is needed for the phone anyway, so one
+mechanism serves both — and putting the suite on the same host keeps the plan traffic internal, which the
+tunnel cannot do. Take the remaining egress in §5 knowingly.
 
 If the tunnel is used, its allow-list must admit the wallet-facing paths the **suite** uses — the same
 set a wallet uses, which is what §1a of the gateway document already lists. It must still refuse

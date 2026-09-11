@@ -85,9 +85,14 @@ keytool -importcert -noprompt -alias proxy-root -file /tmp/proxy.pem -keystore /
 export EDTP_JAVA_TRUSTSTORE=/tmp/edtp-cacerts
 ```
 
-**This is a local environment workaround, not part of normal setup.** On a network without TLS
-interception nothing above is needed, and no part of the build depends on it. It is written down only
-so the PKIX error is not mistaken for a problem with the wallet or these patches.
+**This is a local environment workaround, not part of normal setup, and it is build-machine-only.** On a
+network without TLS interception nothing above is needed, and no part of the build depends on it. It is
+written down only so the PKIX error is not mistaken for a problem with the wallet or these patches.
+
+> ⚠️ **It has no phone equivalent and must never acquire one.** The laptop needs it so the Gradle wrapper
+> can download through the proxy, where nothing about trust is being tested. The **phone's** trust store
+> *is* what a wallet test is testing, so the phone must be on a non-intercepted network (mobile data) and
+> must never have a proxy CA installed — see [`INSTALL-AND-PID.md`](INSTALL-AND-PID.md).
 
 ## Layout
 

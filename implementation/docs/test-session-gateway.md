@@ -91,14 +91,24 @@ An allow-list that lives in a document is a wish. It must be enforced at the edg
 4. **A closing assertion**: before any wallet interaction, run the negative checks in §4 against the
    public hostnames. A tunnel is trusted only after it has been shown to refuse the things it must.
 
-## 2. Tunnel choice
+## 2. How the stack is reached — two options, and this document governs both
+
+**There is now a second option, and it is the recommended one for recorded evidence:** a disposable
+EU-region VM with our own domain and Let's Encrypt certificate, designed in
+[`test-session-vm.md`](test-session-vm.md), which compares the two on security, corporate-policy exposure
+and fidelity. The short version: the tunnel is the fast path for a first "does the phone reach us at all"
+check; the VM is what any run whose result will be recorded should use, because an inbound tunnel to a
+corporate-network laptop is a policy problem regardless of its technical soundness, and because
+Cloudflare terminating TLS puts a third party inside the thing under test.
+
+**The allow-list in §1 governs either deployment**, and so do the negative checks in §4.
 
 | Option | Verdict |
 |---|---|
-| **Cloudflare Tunnel (`cloudflared`)** | **Recommended.** A stable hostname, a real certificate, no inbound ports, and ingress rules with `path` matching, so the allow-list lives in the tunnel's own configuration rather than in a second proxy |
+| **Cloudflare Tunnel (`cloudflared`)** | **The fast path.** Minutes to set up: a stable hostname, a real certificate, no inbound ports, and ingress rules with `path` matching, so the allow-list lives in the tunnel's own configuration rather than in a second proxy. Cloudflare terminates TLS, so the phone validates *their* certificate |
 | ngrok | Works. The free tier's rotating hostname is the problem: `ENGINE_PUBLIC_URL` is baked into every wallet-facing URL the engine emits, so a changed hostname invalidates in-flight sessions |
 | Tailscale Funnel | Works, and pleasantly small, but path-level filtering needs a proxy behind it |
-| VPS + nginx | Most control, most setup, and a machine to keep patched |
+| **Disposable EU VM + nginx** | **Recommended for recorded evidence.** Most control and most setup, and a machine to keep patched — which is why it is destroyed between sessions rather than kept. Fully designed in [`test-session-vm.md`](test-session-vm.md) |
 
 ### The ordering constraint that bites
 

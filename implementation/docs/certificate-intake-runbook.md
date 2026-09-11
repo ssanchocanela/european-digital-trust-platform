@@ -14,6 +14,46 @@ role, a PKCS#12 containing a certificate and its private key, plus a registratio
 
 ---
 
+## The registrations are bound to a wallet and a PID — keep both
+
+The RP Registration Service has no accounts. It authenticates by **OID4VP PID presentation**:
+`/authentication` → QR → `/getpidoid4vp` → `hash_pid`, and `hash_pid` is the credential every subsequent
+call carries. That is what made Q1 answerable without signing up for anything — and it has a consequence
+that needs stating before anything is registered rather than discovered afterwards.
+
+**The operator must retain the official wallet installation and the test PID inside it for the whole life
+of these TEST registrations.** Everything the registrations make possible — amending registered
+information, adding or changing an intended use, registering a further Service, renewing or re-enrolling
+a certificate, and in all likelihood revoking one — requires logging in again, which requires presenting
+that PID from that wallet.
+
+| Action | Effect |
+|---|---|
+| Wiping the wallet, uninstalling it, or resetting the phone | **Loses the login.** The registrations may still exist and their certificates still work, but they become unmanageable |
+| Letting the test PID expire without re-obtaining it | Same |
+| Using a *different* wallet or a *different* synthetic test identity | Produces a different `hash_pid`, which is a different registrant |
+
+So, concretely:
+
+- **This is the one wallet installation that must not be wiped.** Note which device and which
+  installation it is, in the run record, on the day it is used.
+- Do the registration session on the **official** wallet, not the EDTP test build. The test build is
+  rebuilt, reinstalled and uninstalled routinely — `INSTALL-AND-PID.md` even tells the operator to
+  `adb uninstall` it to switch between release and debug — and none of that should be able to cost us the
+  registrations.
+- Keep the two wallets on **separate devices** if at all possible. They install side by side by design,
+  but the failure mode here is a careless "reset this phone", and separate devices remove it.
+- Re-obtain the PID *before* it expires, not after.
+
+> **Unverified, so do not rely on it:** whether `hash_pid` is stable across a **re-issued** PID for the
+> same synthetic identity. It is plausibly a hash over PID attributes, in which case re-issuance would
+> reproduce it — but that is an inference, not something we have tested, and if the reference issuer
+> assigns a fresh synthetic identity per issuance it is false. Treat the wallet-plus-PID as
+> irreplaceable until someone has actually tested re-login after re-issuance, and record the result when
+> they do.
+
+---
+
 ## Step 0 — the chain check, which gates everything
 
 **Do not import anything, and do not touch a wallet, before this passes.** `AS-WP-06-005` (`RPA_04`)
@@ -31,6 +71,13 @@ It fetches the four dev LoTEs live, reports their freshness (warning past `NextU
 | Outcome | What it means | Next |
 |---|---|---|
 | **Chains to a `WRPACProviders` anchor** | **Path A holds.** An *official*, unmodified wallet can be used for VaaS testing — the most valuable evidence available | Record in `reference-wallet-testing.md` §8.1, then Step 1 |
+
+**This check gates gate (a) as well, not only verification.** The pinned wallet validates the `x5c` chain
+on signed issuer metadata with `VerificationContext.WalletRelyingPartyAccessCertificate`
+(`EtsiCertificateChainTrust`) — the same trust context, and therefore the same `WRPACProviders` anchors,
+as a verifier's access certificate. And per `ISS-MDATA-4.2.1-02` the metadata's signing certificate *is*
+the provider's access certificate. So one chain check decides whether either gate could ever be
+satisfied, and a single access certificate may serve both roles.
 | Does not chain | Path A has failed | Record it, then Path B / **WD-3**. Do not import and hope |
 
 `PubEAAProviders` had `NextUpdate` **2026-09-12**, so expect a rollover warning and re-check against
@@ -111,9 +158,17 @@ So an EAA Provider access certificate obtained in the registration session **has
 engine version. Recorded as **G8**. It compounds G1: gate (a) is missing both the signature over the
 metadata and one of the two certificates the metadata should carry.
 
-Still obtain it in the registration session. It is needed for PID-during-issuance — where the issuer
-acts as a relying party and authenticates the nested presentation request with an **access**
-certificate, a path that does work — and it will be needed the moment the engine gains the field.
+Still obtain it in the registration session, for three reasons. PID-during-issuance needs one — there
+the issuer acts as a relying party and authenticates the nested presentation request with an **access**
+certificate, a path that does work. It is what the engine will need the moment it gains the ability to
+sign its metadata, because per `ISS-MDATA-4.2.1-02` the access certificate **is** the signing
+certificate. And the chain check in Step 0 already tells you whether it would be accepted, since the
+wallet validates it against the same anchors.
+
+**Check whether one certificate can serve both roles** while you are in the session. The wallet uses one
+trust context for both, so the question is whether the Registrar issues a single access certificate
+usable for both roles or insists on one per role. Either answer is fine; not knowing which is what makes
+a second session necessary.
 
 ## Step 3 — after both roles are imported
 

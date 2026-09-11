@@ -29,12 +29,48 @@ demonstrated flow.
 | 5 | `ENGINE_PUBLIC_URL` and `PLATFORM_PUBLIC_URL` set to the public origins **before** `docker compose up` | `docker compose config` |
 | 6 | Official wallet installed from its official distribution, at the pinned release | Settings → about |
 | 7 | The wallet holds a **test PID** | Its document list |
+| 8 | The phone is on a **non-intercepted network**, and the certificate issuer it sees is the real one | Checked in the phone's browser — see below |
 
 If 1 fails, stop: this sheet is not available, and the matrix row moves to the test wallet with WD-3.
 
 > Precondition 5 is the one that silently ruins a session. `ENGINE_PUBLIC_URL` is baked into every
 > wallet-facing URL the engine emits, so setting it after a session exists produces a request the phone
 > cannot fetch, and the symptom looks like a wallet problem.
+
+## The phone must be on a non-intercepted network
+
+**Use mobile data, or a network you know does not intercept TLS. Not corporate Wi-Fi.**
+
+This is not a precaution, it is a hard requirement with two distinct failure modes — and the second is
+worse than the first because it looks like success.
+
+| Network | What happens | Why it matters |
+|---|---|---|
+| Clean (mobile data, home) | The wallet sees **our** certificate | Correct |
+| Intercepting, proxy CA **not** trusted by the phone | TLS fails. The wallet refuses — it sets `cleartextTrafficPermitted="false"` and will not accept an untrusted chain either | A wasted session, but at least it is obvious |
+| Intercepting, proxy CA **trusted** by the phone (a managed device) | **Everything appears to work**, and the wallet validated a certificate issued by the proxy, not ours | The run proves nothing about TLS, and a trust result obtained through a MITM is not a trust result |
+
+### Symptoms of interception
+
+In `adb logcat`, any of:
+
+- `javax.net.ssl.SSLHandshakeException`, `SSLPeerUnverifiedException`
+- `java.security.cert.CertPathValidatorException: Trust anchor for certification path not found`
+- `Chain validation failed` from the Ktor/Android HTTP stack
+- the issuer's authorisation page failing to load while other sites work
+
+On the phone, before starting: open the engine's well-known URL in the phone's browser, view the
+certificate, and **check the issuer**. If it does not say the CA that actually issued it — Let's Encrypt,
+or the tunnel provider's CA — the connection is being intercepted. That one check takes ten seconds and
+saves a whole session.
+
+### Two rules that follow
+
+1. **Never install a proxy CA on the test phone.** It would convert the obvious failure into the silent
+   one, and every subsequent trust result from that device would be worthless.
+2. **`EDTP_JAVA_TRUSTSTORE` is build-machine-only.** It exists so the Gradle wrapper can download
+   through a corporate proxy on the *laptop*, where nothing about trust is being tested. It has no phone
+   equivalent and must never acquire one: the phone's trust store is the thing under test.
 
 ## 1. Same-device
 
@@ -128,6 +164,9 @@ Migrations applied:
 ENGINE_PUBLIC_URL:
 PLATFORM_PUBLIC_URL:
 Gateway negative checks all 404:              yes | no
+Phone network:                                mobile data | other (which):
+Certificate issuer seen by the phone:
+Proxy CA installed on the device:             no   (must be "no")
 G7 error stripping enabled:                   no   (must be "no" here)
 
 --- trust material ---

@@ -59,6 +59,15 @@ export const DENIED_KEYS: readonly string[] = [
   "personal_administrative_number",
   "document_number",
   // Secrets and key material
+  //
+  // `hash_pid` is the bearer value the EUDI RP Registration Service returns from its
+  // PID-presentation login. It authenticates the registration session, so it is a credential and
+  // never belongs in a log line, an audit record or a document.
+  "hash_pid",
+  "hashpid",
+  "p12",
+  "pkcs12",
+  "passphrase",
   "x5c",
   "privatejwk",
   "private_jwk",
@@ -81,6 +90,8 @@ export const DENIED_KEYS: readonly string[] = [
 /** Substrings that deny a key wherever they appear in it. */
 const DENIED_SUBSTRINGS: readonly string[] = [
   "_sd",
+  "hash_pid",
+  "passphrase",
   "salt",
   "thumbprint",
   "secret",

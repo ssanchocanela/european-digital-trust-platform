@@ -43,15 +43,20 @@ pnpm verify     # lint + typecheck + boundary check + unit + integration
 ```
 
 `pnpm verify` needs no Docker and no external service: the integration suite boots an **embedded
-PostgreSQL**.
+PostgreSQL**. Enable the confidentiality pre-commit hook once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
 
 | Command | What it does |
 |---|---|
 | `pnpm build` | Compile every package and the app |
-| `pnpm test` | Unit tests (133) — pure logic, always runnable |
-| `pnpm test:integration` | Integration tests (66) — real PostgreSQL, real repositories and services, fake verifier port |
+| `pnpm test` | Unit tests (146) — pure logic, always runnable |
+| `pnpm test:integration` | Integration tests (69) — real PostgreSQL, real repositories and services, fake verifier port |
 | `pnpm test:adapter` | Adapter contract tests — **skipped** unless an engine container is reachable |
 | `pnpm boundaries` | Fails if the engine leaks outside `packages/eudiplo-adapter` |
+| `pnpm confidentiality` | Fails if any committed path or citation touches `sources/` |
 | `pnpm db:generate` | Regenerate the migration SQL from the schema |
 
 To run the adapter suite against a real engine:
@@ -95,10 +100,10 @@ implementation/
 | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) | The investigation: blockers, open questions, decisions |
 | [`docs/interop-findings.md`](docs/interop-findings.md) | Divergences between implementations and the specification |
 | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) | Conflicts with the repository's knowledge base |
-| [`docs/adr/`](docs/adr/) | 0001 technology · 0002 engine + tenant mapping · 0003 modular monolith · 0004 ephemeral processing · 0005 policy + minimisation |
+| [`docs/adr/`](docs/adr/) | 0001 technology · 0002 engine + tenant mapping · 0003 modular monolith · 0004 ephemeral processing · 0005 policy + minimisation · 0009 cross-device mitigations |
 | [`CLAUDE.md`](CLAUDE.md) | Rules that must persist across working sessions |
 
-## Five things that are easy to get wrong
+## Six things that are easy to get wrong
 
 Each contradicts a plausible assumption. All are load-bearing.
 
@@ -112,19 +117,35 @@ Each contradicts a plausible assumption. All are load-bearing.
 4. **Never branch on the engine's session status.** `failed` covers trust, signature and protocol
    failures alike. Branch on the failure code.
 5. **`SAME_DEVICE` is the tested path.** ARF discourages redirect-based cross-device flows
-   (`OIA_08c`) and obliges mitigations if used (`OIA_08d`), which V0 has not implemented, so `QR`
-   is present but flagged.
+   (`OIA_08c`) and obliges mitigations if used (`OIA_08d`). Four mitigations *are* implemented —
+   [ADR 0009](docs/adr/0009-cross-device-presentation-mitigations.md) — derived from the challenges in
+   ARF **§4.4.3.2**, the section `OIA_08d` mis-cites as §4.4.3.1. Two of the five cannot be addressed
+   by a Relying Party, so `OIA_08d` is **not** claimed as satisfied.
+6. **Age is not bound to the PID in the domain model.** V0 derives it from the date of birth because
+   no age attribute exists in the PID, but a policy can target a dedicated age attestation with no
+   domain change — asserted by a test that fails if a PID type or age attribute name is hard-coded
+   into `packages/domain`.
 
-## The one thing V0 cannot do
+## The gating step before any wallet test
 
-**No interaction with an official EUDI Reference Implementation wallet build has been
-demonstrated.** The wallet enables only the `X509SanDns` and `X509Hash` client-id schemes, always
-enforces access-certificate trust, and accepts only seven EUDIW-operated Access CA anchors. A
-self-signed certificate cannot work and there is no preregistered escape hatch in the shipped
-build.
+**No wallet interaction has been attempted yet**, and the order matters.
 
-Milestone 1 therefore targets a **self-built** Reference Implementation wallet trusting a
-platform-operated development Access CA — approved at the Phase 0 checkpoint. That is a *modified*
-wallet, it is labelled as such everywhere, and the official-build result remains **unverified**.
-[`docs/reference-wallet-testing.md`](docs/reference-wallet-testing.md) has the evidence, both paths
-and the manual steps.
+An official wallet build enables only the `X509SanDns` and `X509Hash` client-id schemes, always
+enforces access-certificate trust, and accepts only the seven EUDIW-operated Access CA anchors in the
+dev WRPACProviders LoTE. There is no preregistered escape hatch in the shipped build, so a
+self-signed certificate cannot work.
+
+A trusted certificate **is** obtainable: the reference RP Registration Service needs no account — it
+authenticates by OID4VP PID presentation. So:
+
+```bash
+./scripts/verify-access-certificate-chain.sh rpac.p12
+```
+
+- **exit 0** → Path A, an official build. Record the matched anchor.
+- **exit 1** → Path B, a self-built wallet with a development Access CA. That is a *modified* wallet,
+  labelled as such everywhere, with the official-build result recorded as **unverified**.
+
+Never test before checking: an unchecked certificate produces a misleading failure.
+[`docs/reference-wallet-testing.md`](docs/reference-wallet-testing.md) has both paths, the PID-login
+flow, the secrets handling and the status record.

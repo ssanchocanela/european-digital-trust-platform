@@ -1,5 +1,7 @@
 import {
+  applyCrossDeviceMitigations,
   applyResultPolicy,
+  type CrossDeviceDecision,
   compilePresentationPolicy,
   type InteractionType,
   isTerminal,
@@ -131,7 +133,25 @@ export class PresentationService {
       : undefined;
 
     const interactionType: InteractionType = command.interactionType ?? "SAME_DEVICE";
-    const lifetime = version.retentionPolicy.transactionLifetimeSeconds;
+
+    // A cross-device QR flow is a redirect-based transmission mechanism, which
+    // `EW-PIO-01-016` (`OIA_08c`) says Wallet Units SHOULD NOT support and
+    // `EW-PIO-01-017` (`OIA_08d`) obliges a Relying Party that uses one to mitigate. The
+    // mitigations are derived from the five challenges in ARF §4.4.3.2 — not §4.4.3.1, which
+    // `OIA_08d` cites in error. Two of the five are addressable by a Relying Party, one partly,
+    // two not at all, so `OIA_08d` is not claimed to be met. ADR 0009.
+    const crossDevice: CrossDeviceDecision | undefined =
+      interactionType === "QR"
+        ? applyCrossDeviceMitigations({
+            retentionPolicy: version.retentionPolicy,
+            accessCertificate: context.accessCertificate,
+            at: now,
+          })
+        : undefined;
+
+    const lifetime =
+      crossDevice?.transactionLifetimeSeconds ??
+      version.retentionPolicy.transactionLifetimeSeconds;
     const presentationId = newPresentationId();
 
     const transaction: PresentationTransaction = {
@@ -151,11 +171,9 @@ export class PresentationService {
     };
     await this.transactions.create(transaction);
 
-    if (interactionType === "QR") {
-      // ARF `EW-PIO-01-016` (`OIA_08c`) says Wallet Units SHOULD NOT support
-      // redirect-based cross-device flows, and `EW-PIO-01-017` (`OIA_08d`) obliges a
-      // Relying Party that uses one to implement mitigations, which V0 has not. The use
-      // is audited so it is visible rather than silent — ADR 0005 Decision 6.
+    if (crossDevice) {
+      // Audited per transaction, carrying both what was mitigated and what was not, so the
+      // residual risk is visible in the evidence rather than only in a document.
       await this.audit.record({
         tenantId: command.tenantId,
         actor: "tenant",
@@ -165,6 +183,16 @@ export class PresentationService {
         policyId: policy.id,
         policyVersion: version.version,
         correlationId: command.correlationId,
+        detail: {
+          mitigationsApplied: crossDevice.mitigationsApplied,
+          residualRisks: crossDevice.residualRisks,
+          lifetimeCapped: crossDevice.lifetimeCapped,
+          effectiveLifetimeSeconds: crossDevice.transactionLifetimeSeconds,
+        },
+      });
+      log.warn("cross-device interaction requested", {
+        presentationId,
+        residualRisks: crossDevice.residualRisks,
       });
     }
 
@@ -173,10 +201,17 @@ export class PresentationService {
       created = await this.verifier.createPresentationRequest({
         plan,
         interactionType,
-        // The wallet returns the user here after a same-device flow. It is the platform's
-        // own public URL, never a customer-supplied value, so it cannot be used to
-        // redirect a user off-platform.
-        returnUrl: `${this.publicUrl}/v1/presentations/${presentationId}/return`,
+        // Same-device only. The return URL is the platform's own public URL, never a
+        // customer-supplied value, so it cannot redirect a user off-platform.
+        //
+        // For QR it is omitted deliberately (mitigation `QR_NO_RESULT_VIA_INTERACTION_CHANNEL`,
+        // ARF §4.4.3.2 challenge 5): nothing is returned to whichever device followed the URI,
+        // so the settled result is reachable only through the authenticated business API and is
+        // bound to the tenant that created the transaction rather than to whoever scanned the
+        // code.
+        ...(interactionType === "SAME_DEVICE"
+          ? { returnUrl: `${this.publicUrl}/v1/presentations/${presentationId}/return` }
+          : {}),
         sessionTtlSeconds: lifetime,
       });
     } catch (error) {

@@ -104,11 +104,19 @@ identify content. Always cite *(HLR identifier | document + internal version | c
   [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) and propose the change.
   **Do not edit the page.** Do not restructure the knowledge documentation.
 
+**Confidentiality.** The repository working tree holds an untracked `sources/` directory of reference
+material, including internal national comitology documents. Never commit a path under it, and never
+cite or quote that material in a committed file — cite the public instrument instead. Enforced by
+`scripts/check-confidentiality.mjs`, run by `pnpm verify` and by the `.githooks/pre-commit` hook
+(enable once per clone with `git config core.hooksPath .githooks`). Confirmed clean as of
+11 September 2026.
+
 The six verification-side knowledge pages the prompt referenced **do not exist**
 (`verification-operating-models.md`, `presentation-policy.md`, `verifier-product-model.md`,
 `presentation-privacy-and-retention.md`, `verification-service-architecture.md`,
-`verification-mvp.md`). Creating them is a separate, reviewable knowledge-base change — not an
-implementation deliverable. See `knowledge-alignment.md` KA-1.
+`verification-mvp.md`). They are **backlog**, listed in `knowledge-alignment.md` KA-1, and are
+**not** created in an implementation PR. The same applies to the `RPI_07` correction in KA-2: a
+separate small PR against `main`, not bundled into implementation work.
 
 ---
 
@@ -186,10 +194,14 @@ Each of these contradicts a plausible assumption, including assumptions in the o
    or log it (the revocation index is an `ISSU_35` unique element).
 9. **ARF discourages redirect-based cross-device flows.** `EW-PIO-01-016` (`OIA_08c`) says Wallet Units
    SHOULD NOT support them; `EW-PIO-01-017` (`OIA_08d`) obliges a Relying Party that uses one to
-   implement mitigations. A QR carrying `openid4vp://` is exactly that. **Decided:** `SAME_DEVICE` is
-   the tested V0 path and the default; `QR` stays in the API surface but is flagged, audited on use,
-   and its unmet `OIA_08d` obligation is recorded in `docs/security-limitations.md`. Never present the
-   `QR` path as conformant or as the demonstrated flow.
+   implement mitigations — **for the challenges in ARF §4.4.3.2, not §4.4.3.1 which `OIA_08d` cites in
+   error** (`docs/interop-findings.md` D6). A QR carrying `openid4vp://` is exactly such a flow, and
+   the pinned wallet release **does** still scan them (verified in source). **Decided:** `SAME_DEVICE`
+   is the tested default; `QR` stays, with four implemented mitigations — see
+   [ADR 0009](docs/adr/0009-cross-device-presentation-mitigations.md). Two of the five challenges
+   cannot be addressed by a Relying Party at all, so **never state that `OIA_08d` is satisfied**, and
+   never present `QR` as the demonstrated flow. The residual risks ride in every cross-device audit
+   record; do not remove them.
 10. **EUDIPLO's documentation diverges from its code in at least seven places.** Write the adapter
     against the source and the OpenAPI document. Known: `POST /client` not `/clients`; no
     `PATCH …/status-list/{listId}/entry/{index}` route; `/issuers/:tenantId/chained-as/*` not
@@ -200,7 +212,14 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     dev WRPAC LoTE. Access certificates are enrolled out of band and imported via
     `POST /key-chain/import` with `usageType: "access"`, leaf-first, then referenced as
     `accessKeyChainId` on the presentation configuration.
-12. **The dev environment collapses three ARF trust domains.** The seven WRPAC, WRPRC and PIDProviders
+12. **Age is not bound to the PID in the domain model.** V0 derives it from the PID date of birth
+    because no age attribute exists there, but that is a *policy* choice. A policy must stay able to
+    target a dedicated age attestation, in either format, with no domain change.
+    `tests/unit/age-not-pid-bound.test.ts` fails if any PID type or age attribute name is hard-coded
+    into `packages/domain`. Note also that ARF 3.0.0 still carries a residual "`age_over_*` … if
+    present" note for attributes the PID Rulebook removed — a baseline inconsistency logged in
+    `docs/interop-findings.md` D7. Follow the Rulebook.
+13. **The dev environment collapses three ARF trust domains.** The seven WRPAC, WRPRC and PIDProviders
     anchors are byte-identical. The `TrustResolver` must keep the domains separate regardless, and
     must support both ETSI TS 119 612 Trusted Lists and ETSI TS 119 602 LoTEs — `EW-PIO-01-029`
     (`OIA_15b`).
@@ -246,15 +265,25 @@ and `ClientIdScheme.X509Hash`, always enforces access-certificate trust, and acc
 (`AS-WP-06-005`, `RPA_04`). A self-signed access certificate cannot work, and `Preregistered` is not
 enabled in the shipped build.
 
-- **Path A (preferred for production):** enrol at `https://registry.serviceproviders.eudiw.dev/`,
-  import the PKCS#12. Still worth pursuing; if an account arrives, the certificate is imported the
-  same way and no platform code changes.
-- **Path B — chosen for Milestone 1 at the Phase 0 checkpoint:** build the wallet from the Reference
+- **Path A — the route, and it needs no account.** `https://registry.serviceproviders.eudiw.dev/`
+  authenticates by **OID4VP PID presentation** (`/authentication` → QR → `/getpidoid4vp` →
+  `hash_pid`). Then **chain-check before any wallet test** —
+  `scripts/verify-access-certificate-chain.sh` — and record the result in
+  `docs/reference-wallet-testing.md` §8.1. Then import the PKCS#12.
+- **Path B — the fallback, only if that chain check fails:** build the wallet from the Reference
   Implementation with a platform-operated development Access CA in its reader trust store
   (`configureReaderTrustStore(context, R.raw.…)`, which takes precedence over the ETSI store).
 
-**Path B produces a MODIFIED wallet, not the official Reference Wallet.** That is an approved V0
-decision, not a licence to blur the distinction. Therefore, without exception:
+**Never attempt a wallet test before the chain check.** `AS-WP-06-005` (`RPA_04`) makes the Wallet
+accept only Access CA anchors from the notified LoTEs, so an unchecked certificate produces a
+misleading failure.
+
+**`hash_pid`, the PKCS#12 and its password are secrets.** Gitignored local files or `.env` only;
+never in a log, an audit record, a document, a fixture or a commit. They are on the redaction
+deny-list and `*.p12` / `*hash_pid*` are gitignored.
+
+**If Path B is used it produces a MODIFIED wallet, not the official Reference Wallet.** Therefore,
+without exception:
 
 - every report, document, test name, log line and PR statement says "self-built Reference
   Implementation wallet" or "modified wallet" — never "the Reference Wallet" unqualified;
@@ -306,8 +335,14 @@ migrations up from an empty database.
 | Phase 0 findings, blockers, open questions | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
-| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation. 0006 (hosted instance vs intermediary) is blocked on Q2; 0007–0008 are Milestone 2 |
+| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
 
 Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
-checkpoint** (Path B self-built wallet; `SAME_DEVICE` tested). Q2 (legal qualification) gates
-`PRODUCTION`. Q3 and Q4 are Milestone 2 concerns. Q6–Q9 remain open.
+checkpoint**: Q1 → **Path A** — enrol a real access certificate at the reference RP Registration
+Service, which needs **no account** because it authenticates by OID4VP PID presentation, and test
+against an **official** wallet build. Path B (a wallet self-built from the Reference Implementation
+with a platform-operated development Access CA in its reader trust store — a *modified* wallet) stays
+documented as the fallback and is used *only* if the chain check in §8 fails. Q5 → `SAME_DEVICE` is
+the tested path, `QR` retained with the ADR 0009 mitigations. **Q1a** is the new gating item: run
+`scripts/verify-access-certificate-chain.sh` and record the result before any wallet interaction.
+Q2 (legal qualification) gates `PRODUCTION`. Q3 and Q4 are Milestone 2 concerns. Q6–Q9 remain open.

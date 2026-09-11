@@ -895,7 +895,7 @@ open question Q3.
 
 | # | Blocker | Evidence | Effect | Mitigation |
 |---|---|---|---|---|
-| **B1** | No wallet-trusted access certificate for a self-hosted verifier | WRPAC LoTE contains only 7 EUDIW anchors; `AS-WP-06-005` (`RPA_04`); RI enables only `X509SanDns`/`X509Hash` | The **official** RI build will refuse a self-hosted verifier. | **Accepted and mitigated at the Phase 0 checkpoint:** Milestone 1 uses **Path B** — a self-built wallet from the Reference Implementation with a platform-operated development Access CA added to its reader trust store. This is a **modified wallet** and every report must say so. The official-build result remains **unverified**; Path A closes it |
+| **B1** | No wallet-trusted access certificate has been obtained yet | WRPAC LoTE contains only 7 EUDIW anchors; `AS-WP-06-005` (`RPA_04`); RI enables only `X509SanDns`/`X509Hash` with no preregistered escape hatch | A self-signed certificate cannot work with an official build | **Downgraded at the Phase 0 checkpoint.** Path A needs no account — the service authenticates by PID presentation — so a trusted certificate is obtainable. The remaining unknown is the chain check (Q1a), which is the gating step before any wallet test. Path B (self-built wallet, development Access CA) is the fallback, and if used, every report says "modified wallet" and records the official-build result as unverified |
 | **B2** | EUDIPLO's only registrar preset is not on the dev WRPAC LoTE | `registrar.component.ts` preset `https://sandbox.eudi-wallet.org/api`; no `DE` entry in WRPAC LoTE | EUDIPLO's built-in enrolment cannot produce a wallet-trusted certificate | Out-of-band enrolment + key-chain import; do **not** model the registrar client as the platform's enrolment path in V0 |
 | **B3** | No registration certificate provider reachable for V0 | RP Registration Service documents PKCS#12 RPAC only; WRPRC LoTE has only the 7 EUDIW anchors | Only one of the two ARF trust layers can be exercised. Tolerable because the RI ships registration checking **off** | Support `registrationCert.jwt` passthrough so a real RPRC can be dropped in later; state in `traceability.md` that `RPRC_19`/`RPRC_21` are **not** demonstrated end to end |
 | **B4** | M2 issuance depends on the RI's registration switch being off | `RPRC_22a`/`RPRC_23`; RI `configureIssuerRegistrationPolicy` | Turning the switch on breaks M2 issuance with no RPRC | Test M2 with the switch in **both** positions and report both results honestly |
@@ -909,7 +909,8 @@ open question Q3.
 
 | # | Question | Why it matters | How to resolve |
 |---|---|---|---|
-| ~~**Q1**~~ | ~~How does a developer obtain an account at `registry.serviceproviders.eudiw.dev`?~~ | — | **RESOLVED** at the Phase 0 checkpoint: Milestone 1 proceeds on **Path B**, a self-built wallet from the EUDI Reference Implementation with a platform-operated development Access CA in its reader trust store. Path A remains the preferred production route and is still worth pursuing in parallel; if an account arrives, the same access certificate is imported the same way and no platform code changes |
+| ~~**Q1**~~ | ~~How does a developer obtain an account at `registry.serviceproviders.eudiw.dev`?~~ | — | **RESOLVED** at the Phase 0 checkpoint, and the premise was wrong: **there is no account.** The service authenticates by **OID4VP PID presentation** (`/authentication` → QR → `/getpidoid4vp` → `hash_pid`), so Path A is open. Milestone 1 therefore takes **Path A**, gated on the chain check below; the self-built wallet (Path B) is the **fallback**, used only if that check fails. See `reference-wallet-testing.md` §2 |
+| **Q1a** | Does the certificate the service issues actually chain to an anchor in the dev WRPACProviders LoTE? | Decides Path A versus Path B, and nothing else should be attempted first | **OPEN, and it is the gating step.** `scripts/verify-access-certificate-chain.sh` answers it against the live list; the result is recorded in `reference-wallet-testing.md` §8.1. The script is itself verified: it extracts the 7 anchors and correctly fails a self-signed leaf |
 | **Q2** | Is the platform's hosted-RP-Instance profile a GDPR processor or an Article 5b(10) intermediary? | `RPI_01`–`RPI_10` impose registration, display and no-storage duties if intermediary | Legal and registrar confirmation. Already open in `gaps.md`; recorded in `knowledge-alignment.md`. **Not resolvable technically** |
 | **Q3** | Which provider can issue an Attestation Provider registration certificate for a `TEST` EAA? | B4 | Ask the EUDIW reference-environment maintainers; inspect the WRPRC LoTE for any non-EUDIW entity |
 | **Q4** | Does EUDIPLO's CWT status-list encoding satisfy Annex 2 of the amended CIR 2024/2979? | `VCR_11` for mdoc; `VCR_12` requires both mechanisms of a checking RP | Read CIR 2024/2979 Annex 2 against `@owf/token-status-list`. Not on the V0 path (V0 issues SD-JWT VC) but must not be claimed |
@@ -931,9 +932,14 @@ open question Q3.
    `["birthdate"]` with a `DERIVED_CLAIMS` boolean result. §6.1, §6.3.
 4a. **`SAME_DEVICE` is the tested V0 interaction**; `QR` is present but flagged. Resolved at the
    Phase 0 checkpoint. ADR 0005 Decision 6.
-4b. **Milestone 1 interoperates with a self-built Reference-Implementation wallet** (Path B),
-   trusting a platform-operated development Access CA. Resolved at the Phase 0 checkpoint. Every
-   report must label it a modified wallet; the official build stays unverified.
+4b. **Milestone 1 takes Path A**: an access certificate from the reference RP Registration Service,
+   which authenticates by PID presentation and needs no account. The chain check against the dev
+   WRPACProviders LoTE is the gating step before any wallet test (Q1a). Path B — a self-built wallet
+   trusting a development Access CA — is the **fallback**, and if used must be labelled a modified
+   wallet everywhere, with the official-build result recorded as unverified.
+4c. **Cross-device mitigations are implemented, not merely flagged.** Four of them, derived from the
+   five challenges in ARF §4.4.3.2 — the section `OIA_08d` mis-cites as §4.4.3.1. `OIA_08d` is still
+   not claimed as satisfied. ADR 0009.
 5. **Access certificates enter EUDIPLO by import, not by registrar enrolment**, in V0. §5.5, B2.
 6. **Polling is the default result-delivery path** from EUDIPLO; webhook is an optimisation on an
    internal network with a platform-side bearer secret and platform-side idempotency. §4.8.
@@ -953,7 +959,9 @@ ADR drafts: [0001](adr/0001-platform-technology.md), [0002](adr/0002-eudiplo-as-
 [0003](adr/0003-modular-monolith.md), [0004](adr/0004-ephemeral-presentation-and-issuance-processing.md),
 [0005](adr/0005-presentation-policy-abstraction-and-minimisation-first-compilation.md).
 ADR 0006 (hosted RP instance vs intermediary) is listed in the prompt's §10 and is blocked on Q2;
-0007 and 0008 belong to Milestone 2.
+0007 and 0008 belong to Milestone 2. Milestone 1 added
+[ADR 0009](adr/0009-cross-device-presentation-mitigations.md) — cross-device mitigations — taking the
+next free number so the reserved range stays intact.
 
 **No conformance with ARF 3.0.0 or any Technical Specification is claimed by this document. No
 part of this investigation demonstrates production readiness.**

@@ -52,9 +52,10 @@ stated gap), **NOT DEMONSTRATED** (modelled but not exercised end to end), **OUT
 | The compiler attaches exactly one registration certificate, by value, and reports its absence | `EW-DM-44-023` (`RPRC_19`) | ETSI TS 119 472-2 as amended by Annex 2 of the amended CIR 2024/2982 (`EW-DM-44-025`, `RPRC_20`) | **NOT DEMONSTRATED** — every transaction records `sentWithoutRegistrationCertificate` |
 | A certificate issued for another intended use is refused | `EW-DM-44-014` (`RPRC_09`) | — | IMPLEMENTED |
 | Requested attributes are within the registered list, checked at policy publication | `EW-DM-44-027` (`RPRC_21`) | TS5 v1.5 §2.4.2 `Claim.path`; OpenID4VP §6.3, §7.1, §7.2 | IMPLEMENTED |
-| The access certificate is bound to the Service and its key lives in the engine key store | ARF §3.18; `AS-WP-06-003` (`RPA_02`) | RFC 5280; ETSI TS 119 411-8, TS 119 475 | PARTIAL — imported, not chain-validated (security limitation I2) |
+| The access certificate is bound to the Service and its key lives in the engine key store | ARF §3.18; `AS-WP-06-003` (`RPA_02`) | RFC 5280; ETSI TS 119 411-8, TS 119 475 | PARTIAL — imported. `scripts/verify-access-certificate-chain.sh` chain-checks it against the WRPAC LoTE before a wallet test, but the platform does not re-validate the chain at import time (security limitation I2) |
+| The certificate's key is held by the Relying Party Instance | ARF §3.11.3 | — | **DIVERGENT for TEST.** The reference RP Registration Service generates the key pair itself and delivers a PKCS#12, so the key was outside the subject's control by construction. Accepted for `TEST` only — [`interop-findings.md`](interop-findings.md) C8, `security-limitations.md` K1a |
 | An expired access certificate refuses compilation | `AS-WP-06-004` (`RPA_03`) | — | IMPLEMENTED |
-| The Wallet accepts only Access CA anchors from notified LoTEs | `AS-WP-06-005` (`RPA_04`) | ETSI TS 119 602 | **NOT DEMONSTRATED** — blocker B1; Milestone 1 uses a self-built wallet trusting a development CA |
+| The Wallet accepts only Access CA anchors from notified LoTEs | `AS-WP-06-005` (`RPA_04`) | ETSI TS 119 602 | **NOT DEMONSTRATED** — the gating chain check is recorded in [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1. On success Milestone 1 uses an official build; only on failure does it fall back to a self-built wallet with a development CA |
 
 ## 3. Presentation
 
@@ -65,9 +66,21 @@ stated gap), **NOT DEMONSTRATED** (modelled but not exercised end to end), **OUT
 | Relying Party authentication in every transaction, using an access certificate | `AS-WP-06-004` (`RPA_03`) | ETSI TS 119 475, TS 119 411-8 | PARTIAL — the request is signed by the engine; wallet-side acceptance not demonstrated |
 | Localised purpose and privacy policy are mandatory, because the Wallet shows them | `AS-WP-06-015` (`RPA_10`) | TS5 v1.5 §2.4.4 `purpose` **[1..*]**, `privacyPolicy` **[1..*]**, Annex E of ETSI TS 119 612 V2.3.1 | IMPLEMENTED |
 | `DECLINED_BY_USER` is best-effort and its absence never implies consent | `AS-WP-06-017` (`RPA_11`) | — | IMPLEMENTED, documented as best-effort |
-| `SAME_DEVICE` is the tested path; `QR` is flagged as not satisfying the mitigation duty | `EW-PIO-01-016` (`OIA_08c`), `EW-PIO-01-017` (`OIA_08d`) | ARF main §4.4.3.1 | PARTIAL — see security limitation P1 |
-| W3C Digital Credentials API flows | `EW-PIO-01-013/014/015` (`OIA_08`, `OIA_08a`, `OIA_08b`), `EW-PIO-01-020` (`OIA_08g`) | HAIP §5.2; ISO/IEC 18013-7 Annex C | OUT OF SCOPE |
+| `SAME_DEVICE` is the tested path and the default | `EW-PIO-01-016` (`OIA_08c`) | — | IMPLEMENTED |
+| Four cross-device mitigations implemented for `QR`: lifetime cap, requester-attributable for the whole lifetime, no result via the interaction channel, audited opt-in | `EW-PIO-01-017` (`OIA_08d`) | **ARF main §4.4.3.2** — *not* §4.4.3.1, which `OIA_08d` cites in error; see the note below | **PARTIAL, and `OIA_08d` is NOT claimed.** Two of the five challenges are addressable by a Relying Party, one partly, two not at all. Residual risks are in every cross-device audit record and in `security-limitations.md` P1. [ADR 0009](adr/0009-cross-device-presentation-mitigations.md) |
+| W3C Digital Credentials API, which closes challenges 1–4 | `EW-PIO-01-013/014/015` (`OIA_08`, `OIA_08a`, `OIA_08b`), `EW-PIO-01-020` (`OIA_08g`) | HAIP §5.2; ISO/IEC 18013-7 Annex C | OUT OF SCOPE for V0 — planned as the iteration after Milestone 1 (`reference-wallet-testing.md` §9) |
 | Proximity presentation | `EW-PIO-01-001` (`OIA_01`) | ISO/IEC 18013-5 | OUT OF SCOPE |
+
+### A cross-reference discrepancy in `OIA_08d`
+
+`EW-PIO-01-017` (`OIA_08d`) requires mitigations "for the challenges described in Section 4.4.3.1 of
+the ARF main document". At ARF commit `c64f2cb`, **§4.4.3.1 is "Introduction"** and describes no
+challenges; the five challenges are in **§4.4.3.2, "Challenges for remote presentation flows using
+custom URIs"**.
+
+Recorded because it changes what the requirement asks for: read literally it points at a section with
+nothing to implement. The platform derives its mitigations from §4.4.3.2. Logged as a baseline
+inconsistency in [`interop-findings.md`](interop-findings.md) D6.
 
 ## 4. Privacy and data handling
 
@@ -78,6 +91,8 @@ stated gap), **NOT DEMONSTRATED** (modelled but not exercised end to end), **OUT
 | The PID `portrait` is not retained | `AS-RP-03-01` (`PID_03a`) | PID Rulebook v1.1 §2.2 | IMPLEMENTED — `portrait` is on the log deny-list and no content is stored |
 | Minimisation of requested attributes | — (principle) | TS5 v1.5 §2.4.5 | IMPLEMENTED — validated subset, derived result |
 | `age_over_18` is **not** requested, because it is no longer a PID attribute | — | PID Rulebook v1.1 change log: "Age verification attributes removed, following CIR 2024/2977" | IMPLEMENTED — ADR 0005 Decision 5 |
+| Age is **not bound to the PID in the domain model**: a policy can target a dedicated age attestation, in either format, with no domain change | — | — | IMPLEMENTED — asserted by `tests/unit/age-not-pid-bound.test.ts`, which fails if any PID type or age attribute name is hard-coded into `packages/domain` |
+| ARF 3.0.0 still carries a residual "`age_over_*` … if present" note for attributes the PID Rulebook has removed | — | — | Baseline inconsistency, logged in [`interop-findings.md`](interop-findings.md) D7. The platform follows the Rulebook |
 | Presentation response encryption | `EW-PIO-01-021` (`OIA_09`) | — | Engine responsibility; `direct_post.jwt` is used | NOT VERIFIED by the platform |
 
 ## 5. Trust and status
@@ -116,6 +131,10 @@ stated gap), **NOT DEMONSTRATED** (modelled but not exercised end to end), **OUT
 - It does not say the platform conforms to ARF 3.0.0 or to any Technical Specification.
 - It does not say V0 is production-ready.
 - Rows marked PARTIAL or NOT DEMONSTRATED are the honest status. The single largest gap is that
-  **no interaction with an official Reference Implementation build has been demonstrated**
-  (blocker B1); Milestone 1 targets a self-built wallet trusting a development Access CA, which
-  is a modified wallet and is labelled as such everywhere.
+  **no wallet interaction of any kind has been attempted**. The gating step is the
+  access-certificate chain check recorded in [`reference-wallet-testing.md`](reference-wallet-testing.md)
+  §8.1: on success Milestone 1 can use an official build, and only on failure does it fall back to
+  a self-built wallet — which would then be labelled a modified wallet everywhere.
+- `EW-PIO-01-017` (`OIA_08d`) is the one requirement this table deliberately marks PARTIAL while
+  having implemented something: four mitigations exist, two of the five challenges remain
+  unaddressable by a Relying Party, and the obligation is therefore not claimed as met.

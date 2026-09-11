@@ -83,8 +83,15 @@ to a tenant are scoped by ARF to a **Relying Party Service**:
 
 So:
 
-> **One EUDIPLO tenant per platform `RelyingPartyInstance`**, where a `RelyingPartyInstance` is the
-> platform-hosted instance serving one `RelyingPartyService` in one `trustEnvironment`.
+> **One EUDIPLO tenant corresponds to one access-certificate binding** — that is, to one
+> `RelyingPartyInstance` × `RelyingPartyService` pair in one `trustEnvironment`.
+>
+> The access certificate is the thing being bound, and it is what forces the granularity: it carries
+> both the Relying Party identifier and the **Service identifier** (`AS-MS-27-043` / `Reg_32` and
+> `AS-MS-27-045` / `Reg_33`), so a single certificate cannot serve two Services. An engine tenant
+> holds exactly one access-certificate key chain for the verifier path, so an engine tenant cannot
+> serve two Services either. The mapping is not a convention — it is the only one the certificate
+> allows.
 
 A platform `Tenant` holding two Organisations with two Services each needs **four** EUDIPLO tenants.
 Corollaries:

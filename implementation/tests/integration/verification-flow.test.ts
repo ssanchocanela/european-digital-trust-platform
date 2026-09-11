@@ -343,6 +343,92 @@ describe("terminal outcomes", () => {
   });
 });
 
+describe("cross-device (QR) mitigations", () => {
+  it("caps the lifetime, omits the completion redirect and audits the residual risk", async () => {
+    const { presentations } = harness.deps.services;
+
+    const created = await presentations.create({
+      tenantId: seeded.tenantId,
+      policyId: seeded.policyId,
+      businessReference: "order-qr",
+      interactionType: "QR",
+      correlationId: correlationId(),
+    });
+
+    expect(created.interaction?.type).toBe("QR");
+    // QR_SHORT_LIFETIME: capped to 120s, below the 300s same-device default.
+    const lifetimeSeconds = Math.round(
+      (created.expiresAt.getTime() - harness.clock.now().getTime()) / 1000,
+    );
+    expect(lifetimeSeconds).toBe(120);
+
+    // QR_NO_RESULT_VIA_INTERACTION_CHANNEL: no completion redirect is passed to the engine, so
+    // nothing is returned to whichever device followed the URI.
+    const requestedReturnUrl = harness.verifier.createdRequests.at(-1)?.returnUrl;
+    expect(requestedReturnUrl).toBeUndefined();
+
+    // The engine session window requested of the port follows the capped lifetime, not the
+    // policy's. That the adapter then applies it to the engine is the adapter's contract, covered
+    // by `tests/adapter/engine-contract.test.ts`.
+    expect(harness.verifier.createdRequests.at(-1)?.sessionTtlSeconds).toBe(120);
+
+    // The residual risk is in the evidence, not only in a document.
+    const audit = await harness.deps.services.audit.listForPresentation(
+      seeded.tenantId,
+      created.presentationId,
+    );
+    const crossDeviceEvent = audit.find(
+      (e) => e.action === "platform.interaction.cross_device_requested",
+    );
+    expect(crossDeviceEvent).toBeDefined();
+    expect(crossDeviceEvent?.detail?.residualRisks).toContain("NO_PROXIMITY_CHECK");
+    expect(crossDeviceEvent?.detail?.mitigationsApplied).toContain("QR_SHORT_LIFETIME");
+    expect(crossDeviceEvent?.detail?.lifetimeCapped).toBe(true);
+  });
+
+  it("passes the completion redirect for SAME_DEVICE", async () => {
+    await harness.deps.services.presentations.create({
+      tenantId: seeded.tenantId,
+      policyId: seeded.policyId,
+      businessReference: "order-same-device",
+      interactionType: "SAME_DEVICE",
+      correlationId: correlationId(),
+    });
+    // The contrast that makes the QR assertion meaningful.
+    expect(harness.verifier.createdRequests.at(-1)?.returnUrl).toContain("/return");
+  });
+
+  it("refuses QR when the access certificate would expire inside the transaction", async () => {
+    // QR_REQUESTER_AUTHENTICATED: with no browser-supplied origin, the signed request object is
+    // the only way a Wallet can attribute the request, so it must stay attributable throughout.
+    await harness.handle.pool.query(
+      'UPDATE "access_certificates" SET "not_after" = $1 WHERE "tenant_id" = $2',
+      [new Date(harness.clock.now().getTime() + 30_000), seeded.tenantId],
+    );
+
+    await expect(
+      harness.deps.services.presentations.create({
+        tenantId: seeded.tenantId,
+        policyId: seeded.policyId,
+        businessReference: "order-qr-short-cert",
+        interactionType: "QR",
+        correlationId: correlationId(),
+      }),
+    ).rejects.toMatchObject({ code: "access_certificate_expires_during_transaction" });
+
+    // SAME_DEVICE is unaffected: the certificate is still valid now, and the stricter rule is
+    // specific to the discouraged flow.
+    const sameDevice = await harness.deps.services.presentations.create({
+      tenantId: seeded.tenantId,
+      policyId: seeded.policyId,
+      businessReference: "order-same-device-short-cert",
+      interactionType: "SAME_DEVICE",
+      correlationId: correlationId(),
+    });
+    expect(sameDevice.status).toBe("AWAITING_WALLET");
+  });
+});
+
 describe("the engine session window", () => {
   it("is sized to the transaction lifetime and set before the session is created", async () => {
     await harness.deps.services.presentations.create({

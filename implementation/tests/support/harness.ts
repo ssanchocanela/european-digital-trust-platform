@@ -51,6 +51,8 @@ export const capturingSink = (): CapturedLog => {
  */
 export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningPort {
   readonly createdPlans: VerificationPlan[] = [];
+  /** Full inputs, so a test can assert what the adapter was actually asked for. */
+  readonly createdRequests: CreatePresentationRequestInput[] = [];
   readonly retentionCalls: { engineTenantRef: string; settings: EngineRetentionSettings }[] =
     [];
   readonly cancelled: string[] = [];
@@ -114,6 +116,7 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
       throw error;
     }
     this.createdPlans.push(input.plan);
+    this.createdRequests.push(input);
     this.counter += 1;
     const ref = `engine-session-${this.counter}`;
     this.statuses.set(ref, { progress: "AWAITING_WALLET" });
@@ -178,6 +181,7 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
    */
   reset(): void {
     this.createdPlans.length = 0;
+    this.createdRequests.length = 0;
     this.retentionCalls.length = 0;
     this.cancelled.length = 0;
     this.imports.length = 0;

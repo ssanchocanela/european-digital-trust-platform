@@ -3,10 +3,22 @@
 How to attempt a wallet interaction, what currently blocks it, and exactly what is needed for a
 real test.
 
-**Read this first:** no interaction with an **official** Reference Implementation build has been
-demonstrated. Milestone 1 targets a **self-built** wallet trusting a platform-operated
-development Access CA, approved at the Phase 0 checkpoint. That is a *modified* wallet. Every
-report, including the PR description, says so.
+**Read this first.** Two things, in order:
+
+1. **Path A is the route, and it needs no account.** The EUDI RP Registration Service authenticates
+   by **OID4VP PID presentation** — there is no registration form and no credential to request. So
+   an access certificate for an official wallet build is obtainable, and §2 has the flow.
+2. **Chain-check the certificate before any wallet test.** A Wallet Unit accepts only Access CA
+   trust anchors from the notified LoTEs — `AS-WP-06-005` (`RPA_04`). Run
+   `scripts/verify-access-certificate-chain.sh` first and record the result in §8. Testing before
+   checking wastes the attempt and produces a misleading failure.
+
+The **self-built wallet (Path B) is the fallback**, used only if that chain check fails. It is a
+*modified* wallet, and if it is used then every report — including the PR description — says so and
+records the official-build result as unverified.
+
+As of 11 September 2026 no interaction with any wallet has been attempted, because neither a
+certificate nor a built wallet was available in this environment.
 
 ---
 
@@ -55,46 +67,71 @@ is blocker B1 and blocker B2.
 
 ## 2. The two paths
 
-### Path A — an access certificate from the official RP Registration Service (preferred)
+### Path A — an access certificate from the official RP Registration Service (the route)
 
-`https://registry.serviceproviders.eudiw.dev/` issues Relying Party Access Certificates in
-PKCS#12. It is on the same `serviceproviders.eudiw.dev` host family as the dev trusted lists,
-which strongly suggests its CA is among the seven anchors — **suggests, not proves**: its
-documentation does not name its CA, and I could not verify a chain without an account. How a
-developer obtains an account is not documented.
+`https://registry.serviceproviders.eudiw.dev/` issues Relying Party Access Certificates in PKCS#12.
+**No account is needed:** it authenticates by presenting a PID from a wallet.
 
-Its own documentation states it "must not be used to manage real Relying Party access
-certificates".
+#### A.1 Obtain a test PID
 
-If you obtain one:
+Issue one to the wallet from `https://issuer.eudiw.dev` first (§5). The registration service will ask
+for it.
+
+#### A.2 Log in by PID presentation
+
+The service's login is an OID4VP presentation flow rather than a username and password:
+
+| Step | What happens |
+|---|---|
+| `/authentication` | The service starts a presentation request and renders a QR code |
+| scan | The wallet presents the PID |
+| `/getpidoid4vp` | The service polls for the presentation result |
+| → `hash_pid` | On success it returns a `hash_pid`, which authenticates the registration session |
+
+**`hash_pid` is a credential.** Keep it in a gitignored local file or `.env`, never in a log, a
+document, a fixture or a commit. It is on the log-redaction deny-list, and `*hash_pid*` is
+gitignored. Same for the issued PKCS#12 and its password.
+
+#### A.3 Chain-check before anything else
+
+```bash
+./scripts/verify-access-certificate-chain.sh rpac.p12
+```
+
+Fetches the live WRPACProviders LoTE, extracts its issuance anchors and verifies the leaf against
+them with `openssl verify -partial_chain`. On success it names the matched anchor and its SHA-256.
+The script writes nothing outside a mode-700 temporary directory it deletes on exit, and prints no
+key material.
+
+- **exit 0** — record the matched anchor in §8 and continue with Path A.
+- **exit 1** — record that in §8, then fall back to Path B.
+
+Why this matters before the wallet: `AS-WP-06-005` (`RPA_04`) makes the Wallet accept only Access CA
+anchors from the notified LoTEs, and the shipped build has no preregistered-client escape hatch. The
+service sits on the same `serviceproviders.eudiw.dev` host family as the dev trusted lists, which
+*suggests* its CA is among the seven anchors — but suggestion is not verification, and its own
+documentation says it "must not be used to manage real Relying Party access certificates".
+
+#### A.4 Import
 
 ```bash
 TENANT_ID=<tenant-id> ./scripts/import-access-certificate.sh \
   <service-id> <tenant-api-key> <engine-tenant-ref> rpac.p12
 ```
 
-**Verify the chain against the LoTE before anything else.** Extract the anchors and check that
-your leaf chains to one of them:
+No platform code changes on this path.
 
-```bash
-curl -s https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt \
-  | python3 -c '
-import sys, base64, json, hashlib
-def d(s): s += "=" * (-len(s) % 4); return base64.urlsafe_b64decode(s)
-payload = json.loads(d(sys.stdin.read().strip().split(".")[1]))
-for entity in payload["LoTE"]["TrustedEntitiesList"]:
-    for svc in entity.get("TrustedEntityServices", []):
-        info = svc.get("ServiceInformation", svc)
-        name = info.get("ServiceName", [{}])[0].get("value")
-        for cert in info.get("ServiceDigitalIdentity", {}).get("X509Certificates", []):
-            der = base64.b64decode(cert["val"])
-            print(hashlib.sha256(der).hexdigest()[:16], name)
-'
-```
+#### A.5 A divergence to be aware of
 
-No platform code changes on this path. The certificate is imported the same way.
+The service **generates the key pair itself** and delivers a P12, rather than accepting a CSR for a
+key the Relying Party Instance generated. ARF §3.11.3 describes an access certificate as bound to
+"a key held by the Relying Party Instance", so a CA-generated key has been outside the subject's
+control by construction and the binding is weaker than it looks.
 
-### Path B — a self-built wallet (chosen for Milestone 1)
+Acceptable for `TEST`. Recorded in [`interop-findings.md`](interop-findings.md) C8 and
+[`security-limitations.md`](security-limitations.md) K1a, and **must not carry into `PRODUCTION`**.
+
+### Path B — a self-built wallet (fallback, only if the chain check fails)
 
 Build `eudi-app-android-wallet-ui` from source and add your development Access CA to its reader
 trust store. A custom store takes precedence over the ETSI store, which takes precedence over
@@ -114,7 +151,8 @@ _config = EudiWalletConfig {
 
 Place the CA certificate at `resources-logic/src/main/res/raw/edtp_dev_access_ca.crt`.
 
-**This is a modified wallet.** Requirements that follow from that, without exception:
+**Use this only when §A.3 returned exit 1.** It is a modified wallet, and the requirements that
+follow from that hold without exception:
 
 - every report, document, test name, log line and PR statement says "self-built Reference
   Implementation wallet" or "modified wallet" — never "the Reference Wallet" unqualified;
@@ -230,21 +268,78 @@ Record the result in this file and in the PR description using these exact disti
 
 | Question | Answer to give |
 |---|---|
-| Which wallet? | "self-built Reference Implementation wallet, build `<tag>`, with a development Access CA in its reader trust store" — never "the Reference Wallet" |
-| Official build? | "unverified" until Path A succeeds |
+| Which wallet? | Path A: "official Reference Implementation build `<tag>`". Path B: "self-built Reference Implementation wallet, build `<tag>`, with a development Access CA in its reader trust store" — never "the Reference Wallet" unqualified |
+| Chain check (§8.1)? | The result, the matched anchor and its SHA-256 — or the failure |
+| Official build? | Path A: verified, with the anchor named. Path B: "unverified" |
 | *Check Registration Certificates* on? | both results, separately |
 | Registration certificate present? | "no — `EW-DM-44-023` (`RPRC_19`) not satisfied; the transaction records `sentWithoutRegistrationCertificate`" |
 | Conformance? | none claimed |
 
-## 8. Current status
+## 8. Status record
+
+**Fill this in as each step is done.** It is the record the PR description and
+[`traceability.md`](traceability.md) cite, so an empty row means "not done", never "assumed fine".
+
+### 8.1 Access-certificate chain check — the gating step
+
+| Field | Value |
+|---|---|
+| Date run | *not yet run* |
+| Certificate source | *Path A — `registry.serviceproviders.eudiw.dev`, pending* |
+| LoTE URL | `https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt` |
+| LoTE issued / next update | `2026-07-09T13:45:27Z` / `2027-01-05T13:45:27Z` (as fetched 11 Sep 2026) |
+| Issuance anchors in the list | **7** — `EUDIW WRPAC Provider - {EE, NL, CZ, EU, LU, PT, UT} 02` |
+| Result | *pending* |
+| Matched anchor | *pending* |
+| Matched anchor SHA-256 | *pending* |
+| Consequence | exit 0 → Path A, official build. exit 1 → Path B, modified build, official result stays unverified |
+
+The script itself is verified: run against a freshly generated self-signed leaf it extracts the 7
+anchors from the live list and correctly reports `FAIL`, so a `PASS` is meaningful rather than a
+default.
+
+### 8.2 Wallet capability checks
 
 | Item | Status |
 |---|---|
-| Engine reachable, authenticated, retention applied | Verifiable by `pnpm test:adapter` against a container; **not yet run** (no container available in the Phase 0/Milestone 1 environment) |
-| Configuration chain and transaction creation | **Verified** — 66 integration tests against real PostgreSQL |
-| Interaction URI obtained from the engine | **Not yet verified** against a real engine; covered by the fake port and by the adapter-contract suite when a container is present |
-| Self-built wallet interaction | **Not attempted** — needs a built wallet, a public HTTPS origin and the development CA |
-| Official Reference Implementation build | **Unverified**, and expected to refuse without a Path A certificate |
+| Pinned release still scans `openid4vp://` QR codes | **Yes — verified in source.** `QrScanViewModel.navigateToPresentationRequest` passes the scanned string to `PresentationMode.OpenId4Vp(uri = scanResult)`, reached from `QrScanFlow.Presentation`. So the cross-device flow is reachable in practice, which is why [ADR 0009](adr/0009-cross-device-presentation-mitigations.md) mitigates it rather than relying on the wallet to refuse |
+| Only `X509SanDns` and `X509Hash` client-id schemes enabled | **Yes — verified in source.** No `Preregistered` escape hatch in the shipped build |
+| *Check Registration Certificates* ships off | **Yes — verified in source.** Both positions must be tested and both reported |
+
+### 8.3 End-to-end status
+
+| Item | Status |
+|---|---|
+| Configuration chain and transaction creation | **Verified** — 69 integration tests against real PostgreSQL |
+| Application boots, migrates, serves, enforces auth | **Verified** — booted against a real database and exercised over HTTP |
+| Engine reachable, authenticated, retention applied | **Not yet run.** `pnpm test:adapter` needs a container; none was available in this environment |
+| Interaction URI obtained from a real engine | **Not yet verified.** Covered by the fake port, and by the adapter-contract suite once a container exists |
+| Wallet interaction | **Not attempted.** Needs the chain check (§8.1), a public HTTPS origin and a wallet |
+| Official Reference Implementation build | **Unverified** |
+
+## 9. Planned next: the W3C Digital Credentials API
+
+Scheduled as **the iteration after Milestone 1**, and it is what actually resolves the cross-device
+problem rather than mitigating it.
+
+| What it closes | Requirement |
+|---|---|
+| The OS-managed proximity check — ARF §4.4.3.2 challenge 1 | `EW-PIO-01-020` (`OIA_08g`) |
+| Unified wallet selection — challenge 2 | ARF §4.4.3.3.2 |
+| Consistent invocation — challenge 3 | ARF §4.4.3.3.2 |
+| Browser-supplied origin — challenge 4 | ARF §4.4.3.3.2 |
+| Session binding handled by the browser and OS — challenge 5 | ARF §4.4.3.2 |
+
+Protocol requirements: `EW-PIO-01-013` (`OIA_08`) and `EW-PIO-01-014` (`OIA_08a`) for OpenID4VP over
+the DC API via HAIP §5.2, and `EW-PIO-01-015` (`OIA_08b`) for ISO/IEC 18013-7 Annex C.
+
+Engine support already exists — `response_type: "dc-api"` and `"iso-18013-7"` on
+`POST /verifier/offer`, with `expected_origin` — so the platform work is the `interactionType`, the
+origin plumbing and the browser-side integration, not a new engine. Two caveats carried from
+Phase 0: the Reference Implementation's DC API support is marked `n/a` in the engine's
+compatibility matrix, and `readerAuth` for the ISO 18013-7 path extracts the access key as a JWK,
+so a KMS-backed non-extractable key is not yet usable there
+([`interop-findings.md`](interop-findings.md) B9).
 
 EUDIPLO's own recorded Reference Implementation compatibility is `2026.02.26-Demo`, last verified
 26 February 2026 — about six and a half months stale against the current wallet release and

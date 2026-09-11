@@ -200,8 +200,8 @@ Drizzle schema, or migration 0000 would try to create a table the migrator had a
 
 | Suite | Runs | Covers |
 |---|---|---|
-| `unit` (133) | always | claim-path subset semantics, policy validation, the compiler, result policies, the state machines, outcome normalisation, DCQL, webhook signing, log redaction |
-| `integration` (66) | always — boots an embedded PostgreSQL, no Docker needed | migrations from empty, the whole business layer against a fake port, tenant isolation, policy versioning, delivery, retention, jobs |
+| `unit` (146) | always | claim-path subset semantics, policy validation, the compiler, result policies, the state machines, outcome normalisation, DCQL, webhook signing, log redaction |
+| `integration` (69) | always — boots an embedded PostgreSQL, no Docker needed | migrations from empty, the whole business layer against a fake port, tenant isolation, policy versioning, delivery, retention, jobs |
 | `adapter-contract` (6) | **skipped** when no engine container is reachable | authentication, retention application, error shapes against a real engine |
 
 The integration suite uses a real PostgreSQL because the properties under test are ones only a

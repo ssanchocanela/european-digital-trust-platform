@@ -23,14 +23,25 @@ knowledge page to align with. The issuance side, by contrast, has eight pages in
 product model and service architecture. The knowledge base is asymmetric and the asymmetry is on
 the wrong side for M1.
 
-**Proposal.** Create the six pages as a separate, reviewable change, mirroring the structure and
-`[STATUS]` tagging conventions of their issuance counterparts
-(`issuance-as-a-service.md` → `verification-as-a-service.md` extension,
-`issuer-product-model.md` → `verifier-product-model.md`,
-`08-architecture/issuance-service-architecture.md` → `verification-service-architecture.md`,
-`09-product-roadmap/issuance-mvp.md` → `verification-mvp.md`). The Phase 0 findings and
-ADRs 0002–0005 supply the content. **Not done in Phase 0** — it is a knowledge-base change, not an
-implementation deliverable, and it should not be smuggled in under an implementation branch.
+**Decision: backlog, not this PR.** Confirmed at the Phase 0 checkpoint — the pages are **not**
+created in the implementation PR. They are a knowledge-base change and must not be smuggled in under
+an implementation branch where a reviewer looking at code would not expect them.
+
+### Backlog
+
+Each page as a separate, reviewable change against `main`, mirroring the structure and `[STATUS]`
+tagging of its issuance counterpart. Content already exists in the Phase 0 findings and ADRs 0002–0005 and 0009.
+
+| Page | Counterpart to mirror | Source material |
+|---|---|---|
+| `05-eudi-services/verification-operating-models.md` | `attestation-provider-operating-models.md` | Findings §5.1, §6.2; ADR 0009 |
+| `05-eudi-services/presentation-policy.md` | — (new concept) | ADR 0005; `docs/api/verification-api.md` |
+| `05-eudi-services/verifier-product-model.md` | `issuer-product-model.md` | Findings §3.6; `packages/domain/src/kernel` |
+| `06-shared-capabilities/presentation-privacy-and-retention.md` | — (new) | ADR 0004; `docs/privacy.md` |
+| `08-architecture/verification-service-architecture.md` | `issuance-service-architecture.md` | `docs/architecture.md` |
+| `09-product-roadmap/verification-mvp.md` | `issuance-mvp.md` | Findings §6; `docs/reference-wallet-testing.md` §9 |
+
+A seventh, smaller item: a PID attribute reference, per KA-7.
 
 ---
 
@@ -66,6 +77,11 @@ disappear from the interaction" remains true **legally** (Article 5b(10) deems t
 relying party, and `RPI_08`/`RPI_10` impose forwarding and immediate-deletion duties) even though
 it is not shown to the user at approval time. That distinction strengthens the page's argument
 rather than weakening it.
+
+**Delivery: a separate small PR against `main`.** Decided at the Phase 0 checkpoint. It is a
+correction to a knowledge page, not an implementation change, and bundling a one-paragraph factual
+fix into a 120-file implementation PR would bury it. The implementation PR records the finding here
+and changes nothing in that page.
 
 **Impact on V0.** None directly — V0 does not implement the intermediary profile. But the page is
 the main input to the hosted-instance-vs-intermediary question (KA-3), so the error should not

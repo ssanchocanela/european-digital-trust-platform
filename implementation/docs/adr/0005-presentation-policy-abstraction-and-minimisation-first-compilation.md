@@ -221,12 +221,16 @@ Therefore:
 - `SAME_DEVICE` returns EUDIPLO's `uri` — the variant that carries the post-completion redirect — and
   is the flow covered by the end-to-end target, the smoke script and
   [`reference-wallet-testing.md`](../reference-wallet-testing.md).
-- `QR` returns EUDIPLO's `crossDeviceUri`. It stays in the API surface because removing it would
-  force a breaking change later, but it is **flagged**: the `OIA_08d` mitigation obligation is unmet
-  in V0 and is recorded in [`security-limitations.md`](../security-limitations.md). The API
-  documentation says so, and requesting it emits a `platform.interaction.cross_device_requested`
-  audit event so its use is visible rather than silent.
-- No V0 claim is made that the `QR` path satisfies `EW-PIO-01-017` (`OIA_08d`).
+- `QR` returns EUDIPLO's `crossDeviceUri`. It stays in the API surface, and the `OIA_08d` mitigation
+  obligation is addressed by **four implemented mitigations** — a lifetime cap, a requirement that
+  the access certificate remain valid for the whole transaction, no result via the interaction
+  channel, and an audited explicit opt-in. These are derived from the five challenges in ARF
+  **§4.4.3.2**, which is the section `OIA_08d` mis-cites as §4.4.3.1. See
+  [ADR 0009](0009-cross-device-presentation-mitigations.md), which supersedes this bullet's original
+  "no mitigations" position.
+- **`OIA_08d` is still not claimed to be satisfied.** Two of the five challenges cannot be addressed
+  by a Relying Party at all, and the residual risks are carried in every cross-device audit record
+  and listed in [`security-limitations.md`](../security-limitations.md) P1.
 
 ### Why ARF discourages the cross-device redirect flow
 

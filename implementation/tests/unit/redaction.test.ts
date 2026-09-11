@@ -56,6 +56,15 @@ describe("isDeniedKey", () => {
     }
   });
 
+  it("denies the registration-service login credential and trust-material secrets", () => {
+    // `hash_pid` is the bearer value the RP Registration Service returns from its
+    // PID-presentation login; the P12 and its passphrase are the access-certificate secrets.
+    // All are credentials, so none may reach a log, an audit record or a document.
+    for (const key of ["hash_pid", "hashPid", "p12", "pkcs12", "passphrase", "keyPassphrase"]) {
+      expect(isDeniedKey(key), key).toBe(true);
+    }
+  });
+
   it("denies secrets and key material", () => {
     for (const key of [
       "x5c",

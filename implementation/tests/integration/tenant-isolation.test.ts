@@ -29,6 +29,9 @@ afterAll(async () => {
 beforeEach(async () => {
   await harness.reset();
   alice = await seedTenant(harness, {
+    // A non-empty allow-list, because this suite asserts callback-secret isolation and a Service
+    // with no allow-list deliberately gets no endpoint and no secret at all.
+    callbackUrlAllowList: ["https://alice.test/hooks"],
     name: "Alice Retail",
     engineTenantRef: "engine-tenant-a",
   });
@@ -118,20 +121,35 @@ describe("cross-tenant reads", () => {
     ).toBeUndefined();
   });
 
-  it("hides another tenant's webhook signing secret", async () => {
-    // The secret signs outbound callbacks. Leaking it across tenants would let one tenant
-    // forge another's result notifications.
+  it("hides another tenant's webhook endpoint, and therefore its signing secret", async () => {
+    // The secret signs outbound callbacks. Leaking it across tenants would let one tenant forge
+    // another's notifications — for presentations *or* issuances, since both now sign with an
+    // endpoint secret.
+    //
+    // The assertion moved with the secret: it used to read `relying_party_services.webhook_secret`,
+    // which migration 0002 superseded and 0004 cleared. Reading the endpoint is the real control now.
+    const endpointId = await harness.deps.repositories.registration.findWebhookEndpointId(
+      alice.tenantId,
+      alice.serviceId,
+    );
+    expect(endpointId, "Alice's Service must have an endpoint").toBeTruthy();
+
+    // Bob cannot reach Alice's endpoint at all, even knowing its id.
     expect(
-      await harness.deps.repositories.registration.findWebhookSecret(
-        bob.tenantId,
-        alice.serviceId,
-      ),
+      await harness.deps.repositories.webhookEndpoints.find(bob.tenantId, endpointId as never),
     ).toBeUndefined();
+
+    // Alice can, and it carries her allow-list.
+    const mine = await harness.deps.repositories.webhookEndpoints.find(
+      alice.tenantId,
+      endpointId as never,
+    );
+    expect(mine?.tenantId).toBe(alice.tenantId);
+
+    // The secret is reachable only by endpoint id, never through a tenant-scoped listing — which is
+    // why `findSecret` takes no tenant: the endpoint lookup above is the tenant boundary.
     expect(
-      await harness.deps.repositories.registration.findWebhookSecret(
-        alice.tenantId,
-        alice.serviceId,
-      ),
+      await harness.deps.repositories.webhookEndpoints.findSecret(endpointId as never),
     ).toBe(alice.webhookSecret);
   });
 

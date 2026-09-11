@@ -141,7 +141,9 @@ export class RegistrationRepository {
       serviceTradeName: service.serviceTradeName,
       description: service.description,
       callbackUrlAllowList: service.callbackUrlAllowList,
-      webhookSecret,
+      // The legacy column is never written: the secret lives on the webhook endpoint. Migration
+      // 0002 superseded it, 0004 cleared the historical values, and a follow-up drops the column.
+      webhookSecret: null,
       webhookEndpointId: webhookEndpointId ?? null,
       createdAt: service.createdAt,
     });
@@ -172,19 +174,6 @@ export class RegistrationRepository {
       .where(and(eq(relyingPartyServices.tenantId, tenantId), eq(relyingPartyServices.id, id)))
       .limit(1);
     return row?.endpointId ? asId<"WebhookEndpointId">(row.endpointId) : undefined;
-  }
-
-  /** Superseded by `findWebhookEndpointId`. Retained while migration 0002's columns remain. */
-  async findWebhookSecret(
-    tenantId: TenantId,
-    id: RelyingPartyServiceId,
-  ): Promise<string | undefined> {
-    const [row] = await this.db
-      .select({ secret: relyingPartyServices.webhookSecret })
-      .from(relyingPartyServices)
-      .where(and(eq(relyingPartyServices.tenantId, tenantId), eq(relyingPartyServices.id, id)))
-      .limit(1);
-    return row?.secret ?? undefined;
   }
 
   // --- intended uses -------------------------------------------------------

@@ -57,7 +57,7 @@ export const page = (options: LayoutOptions): string =>
   ${
     options.authenticated
       ? rawHtml(
-          '<nav><a href="/">Test driver</a> <a href="/health">Health</a>' +
+          '<nav><a href="/">Test driver</a> <a href="/registration">Registration</a> <a href="/health">Health</a>' +
             '<form method="post" action="/logout" class="inline"><button type="submit">Sign out</button></form></nav>',
         )
       : ""
@@ -68,8 +68,9 @@ ${options.body}
 </main>
 <footer>
   <p>
-    This console renders exactly what the platform API returns. It has no privileged view and no raw
-    response view, by design — see <code>docs/web-interface-proposal.md</code> §3.1.
+    This console renders exactly what the platform API returns — and, on the registration screen, what
+    the Registrar returns. It has no privileged view and no raw response view, by design — see
+    <code>docs/web-interface-proposal.md</code> §3.1.
   </p>
 </footer>
 </body>
@@ -86,6 +87,29 @@ export const notice = (kind: "error" | "warn" | "info", message: string): SafeHt
  * Plain CSS, light and dark, no framework. The console is forms and tables.
  */
 export const CONSOLE_CSS = `
+/* Registration session. Reuses .notice, .qr, .lead and the generic table rules above; these are
+   the shapes those do not cover. */
+section { margin: 2rem 0; padding-top: 1rem; border-top: 1px solid color-mix(in srgb, currentColor 18%, transparent); }
+section h2 { font-size: 1.05rem; margin: 0 0 .5rem; }
+.muted { opacity: .7; font-size: .9em; }
+dl.kv { display: grid; grid-template-columns: auto 1fr; gap: .3rem 1rem; margin: .5rem 0; }
+dl.kv dt { font-weight: 600; }
+dl.kv dd { margin: 0; }
+ol.steps { margin: .5rem 0 1rem 1.2rem; padding: 0; }
+ol.steps li { margin: .3rem 0; }
+table.problems, table.steps-table { width: 100%; border-collapse: collapse; margin: .5rem 0; }
+table.problems td, table.steps-table td { padding: .3rem .5rem; vertical-align: top; }
+table.problems tr.warning td { opacity: .8; }
+table.problems tr.invalid td, table.problems tr.placeholder td { color: #b3261e; }
+table.steps-table tr.done td:last-child { color: #1b6b3a; }
+table.steps-table tr.pending td:last-child { opacity: .6; }
+pre.cmd { padding: .6rem .8rem; overflow-x: auto; border-radius: 4px;
+  background: color-mix(in srgb, currentColor 8%, transparent); }
+@media (prefers-color-scheme: dark) {
+  table.problems tr.invalid td, table.problems tr.placeholder td { color: #f2b8b5; }
+  table.steps-table tr.done td:last-child { color: #7fd8a0; }
+}
+
 :root {
   color-scheme: light dark;
   --bg: #fbfbfa; --fg: #1d1d1b; --muted: #5f5f5a; --line: #d9d9d4;

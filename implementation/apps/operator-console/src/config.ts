@@ -60,6 +60,18 @@ const schema = z.object({
   CONSOLE_SESSION_SECRET: z.string().min(32),
   CONSOLE_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(28_800),
 
+  /**
+   * The registration session's working directory and entity file.
+   *
+   * The console stores nothing of its own (`docs/web-interface-proposal.md` §7): the session lives
+   * in these files, which `pnpm registration` also drives, so the two front ends cannot disagree
+   * about what has been registered.
+   */
+  EDTP_REGISTRATION_DIR: z.string().min(1).optional(),
+  REGISTRATION_ENTITY_FILE: z.string().min(1).optional(),
+  /** Overridden only to point at something other than the reference service. */
+  REGISTRY_BASE_URL: z.string().url().optional(),
+
   CONSOLE_BIND_HOST: z.string().min(1).default("127.0.0.1"),
   /**
    * Binding off-localhost is an explicit, loud decision rather than a config typo.

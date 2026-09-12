@@ -53,6 +53,12 @@ So, concretely:
 > assigns a fresh synthetic identity per issuance it is false. Treat the wallet-plus-PID as
 > irreplaceable until someone has actually tested re-login after re-issuance, and record the result when
 > they do.
+>
+> **There is now a way to test it, and it costs nothing before anything is registered.**
+> [`registration-session-plan.md`](registration-session-plan.md) §1a: authenticate, re-issue the PID,
+> authenticate again, and the two logins are compared by digest — the console states the verdict and
+> `pnpm registration login` prints the digests. Do it **before** the registration session, never
+> after: afterwards it would mean deleting the PID that holds the only login.
 
 ---
 

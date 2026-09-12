@@ -1,3 +1,23 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  archiveHashPid,
+  beginLogin,
+  checkEntity,
+  completeLogin,
+  DEFAULT_BASE_URL,
+  type EntityCheck,
+  hashPidFingerprint,
+  issueAccessCertificate,
+  issueRegistrationCertificate,
+  openStore,
+  pollLogin,
+  previousHashPidFingerprint,
+  readState,
+  runChain,
+  stabilityVerdict,
+  stepStatuses,
+} from "@edtp/registration-client";
 import { mintStartToken } from "@edtp/start-token";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
@@ -8,6 +28,11 @@ import { CONSOLE_CSS, CONTENT_SECURITY_POLICY, notice, page } from "./layout.js"
 import { Logger } from "./logger.js";
 import { PlatformApiError, PlatformClient } from "./platform-client.js";
 import { checkInteractionReachability } from "./reachability.js";
+import {
+  REGISTRATION_JS,
+  registrationLoginView,
+  registrationView,
+} from "./registration-views.js";
 import { clearSession, hasValidSession, isCorrectPassword, issueSession } from "./session.js";
 import {
   CONSOLE_JS,
@@ -355,6 +380,207 @@ const main = async (): Promise<void> => {
       true,
     );
   };
+
+  // --- registration session -------------------------------------------------------------------
+  // Enrolment at the reference RP Registration Service: a third-party service, not the platform.
+  // It lives here because the console is already localhost-bound, refuses to bind elsewhere and is
+  // absent from the gateway allow-list — the posture a flow holding `hash_pid` and minting a
+  // private key needs. The session itself needs no public exposure: the login QR addresses the EUDI
+  // verifier backend, so the phone never reaches this console.
+
+  const registrationStore = openStore(config.EDTP_REGISTRATION_DIR);
+  const entityPath =
+    config.REGISTRATION_ENTITY_FILE ?? join(registrationStore.directory, "entity.json");
+  const registryBaseUrl = config.REGISTRY_BASE_URL ?? DEFAULT_BASE_URL;
+  const registrationOptions = { store: registrationStore, baseUrl: registryBaseUrl };
+
+  /** Reads and validates the entity file, reporting its absence as a condition rather than a crash. */
+  const loadEntity = (): { check?: EntityCheck; error?: string } => {
+    try {
+      return { check: checkEntity(JSON.parse(readFileSync(entityPath, "utf8")) as unknown) };
+    } catch (error) {
+      const reason =
+        (error as NodeJS.ErrnoException).code === "ENOENT" ? "not found" : "unreadable";
+      return {
+        error:
+          `${entityPath} is ${reason}. Copy scripts/registration-entity.example.json there and ` +
+          "fill in every CHANGE-ME.",
+      };
+    }
+  };
+
+  const renderRegistration = (response: Response, message?: SafeHtml, status = 200): void => {
+    const { check, error } = loadEntity();
+    const certificates: { label: string; path: string }[] = [];
+    const accessPath = join(registrationStore.directory, "rpac.p12");
+    if (existsSync(accessPath)) {
+      certificates.push({ label: "Access certificate (PKCS#12)", path: accessPath });
+    }
+    const state = readState(registrationStore);
+    const intendedUseId = state["intended_use"]?.[0];
+    if (intendedUseId !== undefined) {
+      const rcPath = join(
+        registrationStore.directory,
+        `rprc-intended-use-${intendedUseId}.jwt`,
+      );
+      if (existsSync(rcPath))
+        certificates.push({ label: "Registration certificate", path: rcPath });
+    }
+
+    response.status(status);
+    render(
+      response,
+      "Registration",
+      registrationView({
+        baseUrl: registryBaseUrl,
+        entityPath,
+        entityCheck: check,
+        entityError: error,
+        hashPidDigest: hashPidFingerprint(registrationStore),
+        previousDigest: previousHashPidFingerprint(registrationStore),
+        verdict: stabilityVerdict(registrationStore),
+        steps: stepStatuses(state),
+        certificates,
+        message,
+      }),
+      true,
+    );
+  };
+
+  app.get("/assets/registration.js", (_request, response) => {
+    response.type("js").send(REGISTRATION_JS);
+  });
+
+  app.get("/registration", (_request, response) => {
+    renderRegistration(response);
+  });
+
+  app.post("/registration/login", async (request, response) => {
+    // A second login archives the first rather than overwriting it, which is what makes the
+    // stability check a comparison instead of a claim.
+    const reauthenticate = request.query["reauthenticate"] === "1";
+    if (reauthenticate) archiveHashPid(registrationStore);
+
+    try {
+      const challenge = await beginLogin(registrationOptions);
+      render(
+        response,
+        "Registration login",
+        registrationLoginView({
+          qrValue: challenge.qrValue,
+          presentationId: challenge.presentationId,
+          reauthenticate,
+        }),
+        true,
+      );
+    } catch (error) {
+      logger.warn("registration login could not be started", {
+        reason: (error as Error).message,
+      });
+      renderRegistration(response, notice("error", (error as Error).message), 502);
+    }
+  });
+
+  app.get("/registration/login/:presentationId/status.json", async (request, response) => {
+    const presentationId = request.params.presentationId;
+    try {
+      const presented = await pollLogin(presentationId, registrationOptions);
+      response.json({ presented });
+    } catch (error) {
+      logger.warn("registration login poll failed", { reason: (error as Error).message });
+      response.status(502).json({ presented: false });
+    }
+  });
+
+  app.post("/registration/login/complete", async (request, response) => {
+    const presentationId = String(
+      (request.body as Record<string, unknown>)["presentationId"] ?? "",
+    );
+    if (presentationId.length === 0) {
+      renderRegistration(response, notice("error", "No presentation to complete."), 400);
+      return;
+    }
+    try {
+      // Stores the credential, mode 600, and does not return it: every consumer needs it only
+      // inside a request body, and a return value is one more place it could reach a log.
+      await completeLogin(presentationId, registrationOptions);
+      renderRegistration(
+        response,
+        notice(
+          "info",
+          "Authenticated. Only the digest of the session credential is ever shown.",
+        ),
+      );
+    } catch (error) {
+      renderRegistration(response, notice("error", (error as Error).message), 502);
+    }
+  });
+
+  app.post("/registration/run", async (_request, response) => {
+    const { check } = loadEntity();
+    if (!check?.entity || !check.runnable) {
+      renderRegistration(response, notice("error", "Fix the entity file first."), 400);
+      return;
+    }
+    try {
+      const outcomes = await runChain(check.entity, registrationOptions);
+      const created = outcomes.filter((outcome) => !outcome.skipped).length;
+      renderRegistration(
+        response,
+        notice(
+          "info",
+          created === 0
+            ? "Nothing to do: every step was already recorded."
+            : `Registered. ${created} of ${outcomes.length} steps ran; the rest were already done.`,
+        ),
+      );
+    } catch (error) {
+      // The chain stops where it failed and the state file keeps what succeeded, so the next run
+      // resumes rather than duplicating. Saying so matters: the instinct on an error is to retry
+      // from the beginning, which here would create a second set of entities.
+      logger.warn("registration chain failed", { reason: (error as Error).message });
+      renderRegistration(
+        response,
+        notice(
+          "error",
+          `${(error as Error).message} — the steps that succeeded are recorded, so running again ` +
+            "resumes from here rather than starting over.",
+        ),
+        502,
+      );
+    }
+  });
+
+  app.post("/registration/certificate", async (request, response) => {
+    const passphrase = String((request.body as Record<string, unknown>)["passphrase"] ?? "");
+    if (passphrase.length < 12) {
+      renderRegistration(
+        response,
+        notice(
+          "error",
+          "The passphrase protects a private key; use at least twelve characters.",
+        ),
+        400,
+      );
+      return;
+    }
+    try {
+      const access = await issueAccessCertificate(passphrase, registrationOptions);
+      const registration = await issueRegistrationCertificate(registrationOptions);
+      renderRegistration(
+        response,
+        notice(
+          "info",
+          `Access certificate written to ${access.path} and the registration certificate to ` +
+            `${registration.path}, both mode 600. The registration certificate's encoding is ` +
+            "unverified — documented as JAdES and COSE — so check what it actually is before " +
+            "importing it. Now run the chain check: it, not this, is what closes B1.",
+        ),
+      );
+    } catch (error) {
+      renderRegistration(response, notice("error", (error as Error).message), 502);
+    }
+  });
 
   // --- health ---------------------------------------------------------------------------------
 

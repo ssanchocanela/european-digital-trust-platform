@@ -12,6 +12,9 @@
     },
     {
       "path": "../../packages/start-token"
+    },
+    {
+      "path": "../../packages/registration-client"
     }
   ]
 }

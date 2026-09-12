@@ -52,18 +52,51 @@ unmodified official wallet handles it, which is what makes this path usable at a
 **everything** that follows: capture it once and reuse it, because re-authenticating yields a
 different session and defeats the point of doing both roles together.
 
-`scripts/register-relying-party.sh` does all three, polls, and stores `hash_pid` in a mode-600
-file outside the repository so an interrupted session resumes instead of restarting:
+Both front ends do all three, poll, and store `hash_pid` in a mode-600 file outside the repository
+so an interrupted session resumes instead of restarting. The **operator console** is the better
+surface, because it renders the QR at a size a phone can focus on:
 
 ```bash
-./scripts/register-relying-party.sh --login-only
+# the console, at http://127.0.0.1:<PORT>/registration
+pnpm --filter @edtp/operator-console start
+
+# or from a terminal
+pnpm registration login
 ```
 
-It never prints `hash_pid`. Install `qrencode` first if you want the QR rendered in the terminal
-rather than having to encode the URL yourself.
+Neither ever prints `hash_pid`: it is shown only as a truncated digest, which is also the form the
+stability check in §1a compares.
 
 **No account is created and none is needed.** That was the Q1 finding: the service authenticates by
 PID presentation, so there is nothing to sign up for.
+
+## 1a. Before registering anything: is the login recoverable?
+
+[`certificate-intake-runbook.md`](certificate-intake-runbook.md) records, as **unverified and not to
+be relied on**, whether `hash_pid` is stable across a **re-issued** PID for the same synthetic
+identity. The entire risk profile of these registrations turns on that one fact:
+
+| If it is stable | If it is not |
+|---|---|
+| Losing the wallet installation does not lose the login. Re-obtain a PID, authenticate again, carry on | The wallet installation and the PID inside it are **irreplaceable**. Losing them leaves the registrations alive and unmanageable |
+
+**Answer it now, because now it is free.** Nothing is registered yet, so a login that turns out to be
+unreproducible costs nothing — you simply register with the new one. After the session it would mean
+deleting the PID that holds the only login, which is unthinkable.
+
+```bash
+pnpm registration login          # first login; note the digest
+#   in the wallet: delete the PID and obtain another, choosing the SAME test identity if offered —
+#   a fresh synthetic identity would tell you nothing about stability
+pnpm registration login          # the console's "authenticate again" button does this in one step
+```
+
+The console's §2 panel archives the first value, compares the two and states the verdict. Both front
+ends compare **digests**, never values: a truncated SHA-256 settles the question exactly as well and
+keeps the secret off the screen and out of the run record.
+
+Record the outcome in the runbook either way. It is an open question with a cheap answer, and the
+next person should not have to re-derive it.
 
 ## 2. The data to have prepared
 
@@ -185,22 +218,31 @@ Gate (b) takes its anchors from the Rulebook regardless
 Step 2 needs rewriting before it is run, and a signing certificate for the EAA Provider role has to
 come from somewhere else.
 
-### Run it with the script, and rehearse first
+### Run it, and rehearse first
 
 ```bash
+mkdir -p ~/.edtp/registration
 cp scripts/registration-entity.example.json ~/.edtp/registration/entity.json
-# fill in every CHANGE-ME, then rehearse without touching the service:
-EDTP_DRY_RUN=1 ./scripts/register-relying-party.sh ~/.edtp/registration/entity.json
-# then, for real:
-./scripts/register-relying-party.sh ~/.edtp/registration/entity.json
+# fill in every CHANGE-ME, then:
+pnpm registration check   ~/.edtp/registration/entity.json   # validation only
+pnpm registration preview ~/.edtp/registration/entity.json   # every body, nothing sent
+pnpm registration run     ~/.edtp/registration/entity.json
+pnpm registration certificate
 ```
 
+The console does the same over a screen, and refuses to run the chain while the entity file still
+has an unfilled `CHANGE-ME` in it.
+
 Rehearsing matters more here than it usually would. The service has **no idempotency key and no
-route that amends a half-built registration**, so a body the service rejects at step 9 leaves eight
-entities behind that cannot be edited away. The dry run builds every request body exactly as it
-would be sent, validates it as JSON and prints it with `hash_pid` and the passphrase redacted,
-without making a single call. A real run records each minted id in a mode-600 state file and skips
-what is already recorded, so an interruption resumes.
+route that amends a half-built registration**, so a body it rejects at step 9 leaves eight entities
+behind that cannot be edited away. `preview` builds every request body exactly as it would be sent
+and prints it with `hash_pid` redacted, without making a single call; `check` catches an unfilled
+placeholder, which the schema alone cannot — `https://CHANGE-ME.example.org/support` is a perfectly
+well-formed https URL, and the service would accept it and register a company that does not exist.
+
+Both front ends are the same module, `packages/registration-client`: the chain is defined once, as
+data, and the console renders that list while the CLI walks it. A fourteen-call chain against a
+service with no undo is not something to implement twice.
 
 ### 3.1 The one field nobody has documented
 

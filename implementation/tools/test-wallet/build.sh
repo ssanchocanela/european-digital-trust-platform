@@ -10,8 +10,17 @@
 #
 # Usage:
 #   ANDROID_KEYSTORE_PATH=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=... ./build.sh
+#   ... ./build.sh --deviations wd-3 --wrpac-lote https://<host>/lote/WRPACProviders.jwt
 #
-# Deviations: none are implemented yet. --deviations accepts only "none" in W1; see deviations.md.
+# Deviations: only `none` and `wd-3` are accepted. Each is refused unless everything it needs is
+# present, because a flag that is accepted and does nothing puts a false claim in a test record.
+#
+#   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
+#   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
+#                           an existing one instead of replacing it. Needed whenever the installed
+#                           build must survive: uninstalling it deletes its documents, and a
+#                           differently-signed APK cannot update it in place.
+#   --app-name <name>       overrides the on-screen app name to match.
 
 set -euo pipefail
 
@@ -25,12 +34,18 @@ UPSTREAM_DIR="$HERE/upstream"
 OUT_DIR="$HERE/out"
 DEVIATIONS="none"
 SKIP_BUILD="no"
+WRPAC_LOTE=""
+APP_ID_SUFFIX=""
+APP_NAME=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --deviations) DEVIATIONS="${2:-}"; shift 2 ;;
+    --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
+    --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
+    --app-name) APP_NAME="${2:-}"; shift 2 ;;
     --prepare-only) SKIP_BUILD="yes"; shift ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -43,11 +58,27 @@ step() { printf '\n==> %s\n' "$*"; }
 # Every deviation defaults to upstream behaviour, and none is implemented yet. Refusing an
 # unimplemented flag outright is the point: a flag that is accepted and silently does nothing
 # would put "WD-1 active" in a test record for a build where it was not.
-if [ "$DEVIATIONS" != "none" ]; then
-  die "deviations are not implemented in this build (asked for '$DEVIATIONS').
-    WD-1, WD-2 and WD-3 are recorded in deviations.md and are W2 work. This script builds the
-    renamed identity only, so it cannot honestly claim any deviation is active."
-fi
+case "$DEVIATIONS" in
+  none) ;;
+  wd-3)
+    # Refused without the URL rather than defaulted to anything. A wd-3 build whose list location
+    # were guessed would report the deviation as active while consulting the notified list, which
+    # is the precise failure this gate exists to prevent.
+    [ -n "$WRPAC_LOTE" ] ||
+      die "--deviations wd-3 requires --wrpac-lote <url>: the list this build is to consult.
+    Publish one with scripts/make-test-lote.mjs first. See deviations.md."
+    case "$WRPAC_LOTE" in
+      https://*) ;;
+      *) die "--wrpac-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+    esac
+    [ -f "$HERE/deviations/wd-3.patch" ] || die "deviations/wd-3.patch is missing."
+    ;;
+  *)
+    die "unknown or unimplemented deviation '$DEVIATIONS'.
+    Accepted: none, wd-3. WD-1 and WD-2 are recorded in deviations.md and are not built — and a
+    flag that is accepted and does nothing would put a false claim in a test record."
+    ;;
+esac
 
 # --- 1. Prerequisites --------------------------------------------------------------------------
 step "Checking prerequisites"
@@ -154,14 +185,44 @@ for module in business-logic core-logic resources-logic; do
   echo "    $module/src/$EDTP_FLAVOR"
 done
 
+# --- 4b. Deviations, applied to the generated source sets --------------------------------------
+#
+# Separate from the patches in step 3 on purpose: those modify upstream files, while a deviation
+# modifies OUR copy of a per-flavour source set, which does not exist until step 4. Keeping them
+# apart is also what lets `--deviations none` produce a tree with no behavioural change at all.
+if [ "$DEVIATIONS" = "wd-3" ]; then
+  step "Applying WD-3 (wrpacProviders -> our TEST LoTE)"
+  git apply --whitespace=nowarn "$HERE/deviations/wd-3.patch" ||
+    die "failed to apply deviations/wd-3.patch. It is a diff against the demo source set; if
+    upstream changed that file at the pinned tag, the deviation must be regenerated."
+
+  # The URL is substituted rather than committed into the patch, so that the list location is a
+  # build input recorded in the stamp below — not a constant buried in a diff.
+  WD3_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  grep -q "__EDTP_WRPAC_LOTE__" "$WD3_FILE" || die "the WD-3 sentinel is missing from $WD3_FILE."
+  # `|` as the delimiter: the replacement is a URL and contains slashes.
+  sed -i.bak "s|__EDTP_WRPAC_LOTE__|$WRPAC_LOTE|" "$WD3_FILE" && rm -f "$WD3_FILE.bak"
+  grep -q "$WRPAC_LOTE" "$WD3_FILE" || die "substituting the WD-3 list URL did not take effect."
+  echo "    wrpacProviders -> $WRPAC_LOTE"
+  echo "    this build consults a list we publish. Every result from it says 'modified wallet'."
+fi
+
 # --- 5. Build stamp ----------------------------------------------------------------------------
 #
 # version.properties is how upstream's build reads the version, and the patch reads the deviation
 # list from the same file, so the banner in the app states exactly what this build contains.
 step "Stamping the build"
+# The identity overrides travel through version.properties, which the build already reads for the
+# version and the deviation list — so a build can be given a distinct applicationId without a new
+# flavour, new source sets or a patch edit per build.
+EFFECTIVE_APP_ID_SUFFIX="${APP_ID_SUFFIX:-$EDTP_APPLICATION_ID_SUFFIX}"
+EFFECTIVE_APP_NAME="${APP_NAME:-$EDTP_APP_NAME}"
 cat > version.properties <<EOF
 VERSION_NAME=$EDTP_VERSION_NAME
 EDTP_DEVIATIONS=$DEVIATIONS
+EDTP_APP_ID_SUFFIX=$EFFECTIVE_APP_ID_SUFFIX
+EDTP_APP_NAME=$EFFECTIVE_APP_NAME
+EDTP_WRPAC_LOTE=$WRPAC_LOTE
 EOF
 [ -f local.properties ] || echo "sdk.dir=$SDK" > local.properties
 cat version.properties | sed 's/^/    /'

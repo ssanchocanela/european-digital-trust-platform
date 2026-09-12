@@ -1,5 +1,5 @@
 diff --git a/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt b/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
-index df2645f..71fd6e1 100644
+index df2645f..c79a891 100644
 --- a/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
 +++ b/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
 @@ -31,10 +31,31 @@ enum class FlavorDimension {
@@ -36,7 +36,7 @@ index df2645f..71fd6e1 100644
  }
  
  fun Project.configureFlavors(
-@@ -47,6 +68,15 @@ fun Project.configureFlavors(
+@@ -47,6 +68,33 @@ fun Project.configureFlavors(
          "version.properties"
      ).orEmpty()
  
@@ -49,17 +49,52 @@ index df2645f..71fd6e1 100644
 +        "version.properties"
 +    ).orEmpty().ifBlank { "none" }
 +
++    // EDTP addition. The identity of our flavour, overridable per build through the same file.
++    //
++    // Why it is not simply a constant on the enum: two EDTP builds sometimes have to coexist on one
++    // device. Uninstalling an installed build deletes its documents — including a PID that may not
++    // be reproducible — and a differently-signed APK cannot update one in place, so a build that
++    // must not disturb its predecessor needs a different applicationId. Doing that with a whole new
++    // flavour would duplicate three source sets and a patch for what is a two-string difference.
++    //
++    // Blank means the enum's own value, so an unstamped build is unchanged.
++    val edtpAppIdSuffix = getProperty<String>(
++        "EDTP_APP_ID_SUFFIX",
++        "version.properties"
++    ).orEmpty()
++    val edtpAppName = getProperty<String>(
++        "EDTP_APP_NAME",
++        "version.properties"
++    ).orEmpty()
++
      commonExtension.apply {
          flavorDimensions += FlavorDimension.contentType.name
          productFlavors {
-@@ -60,10 +90,25 @@ fun Project.configureFlavors(
+@@ -56,14 +104,41 @@ fun Project.configureFlavors(
+                     if (this@apply is ApplicationExtension && this is ApplicationProductFlavor) {
+                         versionName = version
+                         if (it.applicationIdSuffix != null) {
+-                            applicationIdSuffix = it.applicationIdSuffix
++                            // EDTP addition. The stamped suffix wins for our flavour only, so the
++                            // upstream flavours keep theirs whatever is in version.properties.
++                            applicationIdSuffix =
++                                if (it == AppFlavor.EdtpTest && edtpAppIdSuffix.isNotBlank()) {
++                                    edtpAppIdSuffix
++                                } else {
++                                    it.applicationIdSuffix
++                                }
                          }
                      }
                      manifestPlaceholders["appNameSuffix"] = it.applicationNameSuffix.orEmpty()
 +                    // EDTP addition. A flavour placeholder overrides the one in defaultConfig, so
 +                    // this replaces the app name for this flavour only and leaves the others alone.
 +                    it.applicationNameOverride?.let { overriddenName ->
-+                        manifestPlaceholders["appName"] = overriddenName
++                        manifestPlaceholders["appName"] =
++                            if (it == AppFlavor.EdtpTest && edtpAppName.isNotBlank()) {
++                                edtpAppName
++                            } else {
++                                overriddenName
++                            }
 +                    }
                      addConfigField(
                          "APP_VERSION",

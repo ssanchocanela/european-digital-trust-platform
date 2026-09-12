@@ -3,6 +3,15 @@
 **Nothing here has been run, and nothing can be until real certificates exist.** This is the sequence
 for the moment they arrive: the gating chain check first, then import for each of the two roles.
 
+> **As of 12 September 2026 the Registrar cannot issue one.** A session was authenticated and the
+> registration built as far as the provider; `POST /intended_use/create` then reports success,
+> returns a `null` id and persists nothing, which leaves `/wallet_rp/certificate` and
+> `/intended_use/certificate` both unreachable. So **Path A is blocked at the source**, for a reason
+> unrelated to the trust question it was chosen to answer. Diagnosis and evidence:
+> [`interop-findings.md`](interop-findings.md) C10. The choice this forces is in
+> [`registration-session-plan.md`](registration-session-plan.md) — report it and wait, or fall back
+> to Path B, which produces a *modified* wallet and leaves the official result unverified.
+
 It assumes the dual-role registration session in
 [`registration-session-plan.md`](registration-session-plan.md) has happened. That session produces
 **one** PKCS#12 containing a certificate and its private key, plus **one registration certificate per

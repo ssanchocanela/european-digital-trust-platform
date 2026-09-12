@@ -119,7 +119,13 @@ export const entitySchema = z.object({
     .array(
       z.object({
         format: z.string().min(1),
-        meta: z.record(z.unknown()),
+        /**
+         * A **string**, despite the OpenAPI document declaring an object with a `{name, version}`
+         * example. The running service answers 500 to an object and 201 to a string, and the 500 is
+         * an HTML error page with nothing in it — so this was found by probing, not by reading.
+         * `interop-findings.md` C9. An empty string is also refused, as `missing_fields: ["meta"]`.
+         */
+        meta: z.string().min(1),
         claims: z.array(z.object({ path: z.string().min(1) })).min(1),
       }),
     )

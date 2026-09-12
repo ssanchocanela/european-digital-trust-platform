@@ -10,6 +10,13 @@ that case. The Registrar issues per-role artefacts; the *registration* is one ac
 
 > **Read this first.** The reference service is explicitly non-production and its own documentation
 > says so. Everything below is `TEST`. Nothing here registers anything real.
+>
+> **And read this second: as of 12 September 2026 this session cannot be completed.** Steps 1 to 8
+> work. `POST /intended_use/create` then reports `201 ... created successfully` with a `null` id and
+> persists nothing, so `intendedUse_ids` never exists — and without it neither the access certificate
+> nor the registration certificate can be minted. Evidence and the full diagnosis:
+> [`interop-findings.md`](interop-findings.md) C10. The steps that did succeed are recorded in the
+> session state file, so the chain resumes from step 9 if the route is repaired.
 
 ---
 
@@ -254,12 +261,26 @@ Both front ends are the same module, `packages/registration-client`: the chain i
 data, and the console renders that list while the CLI walks it. A fourteen-call chain against a
 service with no undo is not something to implement twice.
 
-### 3.1 The one field nobody has documented
+### 3.1 The one field nobody has documented — answered, in part
 
 `providerType` on `/provider/create` is a **free-form string with no `enum`** in the OpenAPI
-document, and it does not appear in the public register, so its accepted values are unknown. The
-only value documented anywhere is the guide's example, `WALLET_PROVIDER`, which is plainly not what
-a relying party is. Expect to discover it by trying, and record what worked.
+document, and it does not appear in the public register.
+
+**`WALLET_PROVIDER` is accepted** — provider id 235 was created with it on 12 September 2026, and
+`/list_full_info` shows it stored as `provider_type: "WALLET_PROVIDER"`. That settles what the
+service will take. It does **not** settle what is correct: the value plainly does not describe a
+relying party, nothing validates it, and no other value is documented anywhere. So it is recorded as
+"accepted" and not as "right".
+
+Two more shapes the document gets wrong, both found by probing rather than reading — see
+[`interop-findings.md`](interop-findings.md) C10:
+
+- **`credentials[].meta` is a string**, not the object the document declares with a
+  `{name, version}` example. An object answers **500**, as an HTML page with nothing in it.
+- **Every creation route returns `data` as an object keyed by a prose label** — `{"Law new ids:":
+  [252]}`, colon included — not the array of integers the document declares. The label differs per
+  route and is not stable, so a client must not key off it. `packages/registration-client` accepts
+  both shapes.
 
 `/credential/create` carries a second, smaller unknown: its `claims[].path` is a **JSON-path
 string** (`"$.credentialSubject.name"` in the example), which is *not* the OpenID4VP claim-path

@@ -32,18 +32,15 @@
     }
   },
   "provider": {
-    "providerType": "CHANGE-ME — see docs/registration-session-plan.md §3.1, the one unknown"
+    "providerType": "CHANGE-ME \u2014 see docs/registration-session-plan.md \u00a73.1, the one unknown"
   },
   "credentials": [
     {
       "format": "dc+sd-jwt",
-      "meta": {
-        "name": "Person Identification Data",
-        "version": "1.1"
-      },
+      "meta": "urn:eudi:pid:1",
       "claims": [
         {
-          "path": "$.birthdate"
+          "path": "birthdate"
         }
       ]
     }
@@ -70,14 +67,14 @@
     }
   ],
   "supervisoryAuthority": {
-    "name": "Agencia Española de Protección de Datos",
+    "name": "Agencia Espa\u00f1ola de Protecci\u00f3n de Datos",
     "country": "ES",
     "email": ["internacional@aepd.es"],
     "phone": ["+34901100099"],
     "formURI": ["https://www.aepd.es/es/canal-del-ciudadano"]
   },
   "walletRelyingParty": {
-    "tradeName": "CHANGE-ME trade name — this is what the Wallet shows the User",
+    "tradeName": "CHANGE-ME trade name \u2014 this is what the Wallet shows the User",
     "entitlements": [
       "http://data.europa.eu/eudi/entitlement/Service_Provider",
       "http://data.europa.eu/eudi/entitlement/Non_Q_EAA_Provider"
@@ -92,7 +89,7 @@
       },
       {
         "lang": "es",
-        "content": "Confirmación de edad para compras en línea"
+        "content": "Confirmaci\u00f3n de edad para compras en l\u00ednea"
       }
     ]
   }

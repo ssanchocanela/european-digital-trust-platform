@@ -338,6 +338,39 @@ export const previewStep = (step: StepDescriptor, context: StepContext): unknown
   [step.envelope]: step.build(context),
 });
 
+/**
+ * Pulls the minted identifiers out of a creation response.
+ *
+ * The OpenAPI document declares `data` as an array of integers. The running service returns an
+ * **object whose key is a prose label**, colon and all:
+ *
+ *     {"code":201,"data":{"Law new ids:":[252]},"message":"Law created successfully"}
+ *
+ * So the key differs per endpoint and is not a stable identifier — it reads like a debug print that
+ * became the contract. Both shapes are accepted here rather than either being trusted: the document
+ * is wrong today and could be made right tomorrow, and a client that handled only the observed shape
+ * would then break silently. `interop-findings.md` C9.
+ *
+ * Only arrays of finite numbers count. An object may carry other keys — `code`, a message — and
+ * guessing at a non-numeric one would turn a shape change into a corrupt reference passed to the
+ * next step.
+ */
+const numericIds = (value: unknown): readonly number[] | undefined => {
+  if (
+    Array.isArray(value) &&
+    value.every((item) => typeof item === "number" && Number.isFinite(item))
+  ) {
+    return value as readonly number[];
+  }
+  if (value && typeof value === "object") {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      const found = numericIds(nested);
+      if (found && found.length > 0) return found;
+    }
+  }
+  return undefined;
+};
+
 export interface StepOutcome {
   readonly key: string;
   readonly label: string;
@@ -374,11 +407,13 @@ export const runChain = async (
 
     const body = { hash_pid: hashPid, [step.envelope]: step.build({ entity, state }) };
     const response = (await request(resolved, "POST", step.route, body)) as {
-      data?: readonly number[];
+      data?: unknown;
     };
-    const minted = response?.data;
-    if (!Array.isArray(minted) || minted.length === 0) {
-      throw new Error(`${step.route} returned no data array; refusing to continue the chain`);
+    const minted = numericIds(response?.data);
+    if (!minted || minted.length === 0) {
+      throw new Error(
+        `${step.route} returned no identifiers in its response; refusing to continue the chain`,
+      );
     }
 
     state = recordIds(resolved.store, step.key, minted);

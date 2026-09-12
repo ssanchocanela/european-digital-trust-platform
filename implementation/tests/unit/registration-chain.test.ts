@@ -47,7 +47,8 @@ const VALID_ENTITY = {
   credentials: [
     {
       format: "dc+sd-jwt",
-      meta: { name: "PID", version: "1.1" },
+      // A string, not an object: the service answers 500 to an object. `interop-findings.md` C10.
+      meta: "urn:eudi:pid:1",
       claims: [{ path: "$.birthdate" }],
     },
   ],
@@ -274,6 +275,49 @@ describe("running the chain", () => {
     expect(statuses[3]?.done).toBe(false);
   });
 
+  it("reads ids out of the prose-keyed object the service actually returns", async () => {
+    const store = openStore(directory);
+    storeHashPid(store, "test-credential");
+    const entity = checkEntity(VALID_ENTITY).entity;
+    if (!entity) throw new Error("fixture is invalid");
+
+    // The observed shape. The OpenAPI document declares `data` as an array of integers; the running
+    // service returns an object whose key is a human-readable label, and the label differs per route
+    // — "Law new ids:" with a colon, "Credentials ids" without. `interop-findings.md` C10.
+    let n = 0;
+    const proseKeyed = (async () => {
+      n += 1;
+      return new Response(
+        JSON.stringify({ code: 201, data: { "Law new ids:": [250 + n] }, message: "ok" }),
+        { status: 201 },
+      );
+    }) as unknown as typeof fetch;
+
+    await runChain(entity, { store, fetchImpl: proseKeyed, baseUrl: "https://registry.test" });
+    expect(readState(store).law).toEqual([251]);
+    expect(stepStatuses(readState(store)).every((step) => step.done)).toBe(true);
+  });
+
+  it("treats a success carrying a null id as a failure, because it is one", async () => {
+    const store = openStore(directory);
+    storeHashPid(store, "test-credential");
+    const entity = checkEntity(VALID_ENTITY).entity;
+    if (!entity) throw new Error("fixture is invalid");
+
+    // Exactly what /intended_use/create answers: 201, "created successfully", and no identifier —
+    // while persisting nothing. Continuing would build every later body around an undefined
+    // reference and leave orphaned entities that cannot be deleted.
+    const nullId = (async () =>
+      new Response(
+        JSON.stringify({ code: 201, data: { "Credentials ids": [null] }, message: "created" }),
+        { status: 201 },
+      )) as unknown as typeof fetch;
+
+    await expect(
+      runChain(entity, { store, fetchImpl: nullId, baseUrl: "https://registry.test" }),
+    ).rejects.toThrow(/no identifiers/);
+  });
+
   it("refuses to continue when a step answers without an id", async () => {
     const store = openStore(directory);
     storeHashPid(store, "test-credential");
@@ -289,7 +333,7 @@ describe("running the chain", () => {
 
     await expect(
       runChain(entity, { store, fetchImpl: emptyData, baseUrl: "https://registry.test" }),
-    ).rejects.toThrow(/no data array/);
+    ).rejects.toThrow(/no identifiers/);
   });
 
   it("will not run at all without a session credential", async () => {

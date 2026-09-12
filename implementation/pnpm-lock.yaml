@@ -136,6 +136,9 @@ importers:
 
   apps/operator-console:
     dependencies:
+      '@edtp/registration-client':
+        specifier: workspace:*
+        version: link:../../packages/registration-client
       '@edtp/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -290,6 +293,15 @@ importers:
       '@types/pg':
         specifier: 8.15.6
         version: 8.15.6
+
+  packages/registration-client:
+    dependencies:
+      qrcode-generator:
+        specifier: 2.0.4
+        version: 2.0.4
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
 
   packages/shared: {}
 

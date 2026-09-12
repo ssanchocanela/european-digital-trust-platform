@@ -23,6 +23,9 @@
       "path": "./packages/start-token"
     },
     {
+      "path": "./packages/registration-client"
+    },
+    {
       "path": "./apps/platform-api"
     },
     {

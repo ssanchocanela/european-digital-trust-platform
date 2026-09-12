@@ -13,6 +13,7 @@ import {
   type Database,
   type DatabaseHandle,
   IssuanceRepository,
+  ListingRepository,
   PolicyRepository,
   RegistrationRepository,
   TransactionRepository,
@@ -59,6 +60,7 @@ export interface Dependencies {
     readonly deliveries: WebhookDeliveryRepository;
     readonly issuance: IssuanceRepository;
     readonly webhookEndpoints: WebhookEndpointRepository;
+    readonly listing: ListingRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -110,6 +112,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     apiKeys: new ApiKeyRepository(db),
     deliveries: new WebhookDeliveryRepository(db),
     issuance: new IssuanceRepository(db),
+    listing: new ListingRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
 

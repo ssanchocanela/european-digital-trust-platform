@@ -3,9 +3,20 @@
 **Nothing here has been run, and nothing can be until real certificates exist.** This is the sequence
 for the moment they arrive: the gating chain check first, then import for each of the two roles.
 
+> **As of 12 September 2026 the Registrar cannot issue one.** A session was authenticated and the
+> registration built as far as the provider; `POST /intended_use/create` then reports success,
+> returns a `null` id and persists nothing, which leaves `/wallet_rp/certificate` and
+> `/intended_use/certificate` both unreachable. So **Path A is blocked at the source**, for a reason
+> unrelated to the trust question it was chosen to answer. Diagnosis and evidence:
+> [`interop-findings.md`](interop-findings.md) C10. The choice this forces is in
+> [`registration-session-plan.md`](registration-session-plan.md) — report it and wait, or fall back
+> to Path B, which produces a *modified* wallet and leaves the official result unverified.
+
 It assumes the dual-role registration session in
-[`registration-session-plan.md`](registration-session-plan.md) has happened and produced, for **each**
-role, a PKCS#12 containing a certificate and its private key, plus a registration certificate.
+[`registration-session-plan.md`](registration-session-plan.md) has happened. That session produces
+**one** PKCS#12 containing a certificate and its private key, plus **one registration certificate per
+intended use** — not one of each per role, which is what this runbook originally assumed and what
+Step 2 below still reads as though it had. See `interop-findings.md` C9.
 
 > **Secrets.** The PKCS#12 passphrases, `hash_pid` and the platform tenant API key are secrets. Every
 > script here takes them from an environment variable or a prompt, never from `argv` — `argv` is
@@ -45,12 +56,29 @@ So, concretely:
   but the failure mode here is a careless "reset this phone", and separate devices remove it.
 - Re-obtain the PID *before* it expires, not after.
 
-> **Unverified, so do not rely on it:** whether `hash_pid` is stable across a **re-issued** PID for the
-> same synthetic identity. It is plausibly a hash over PID attributes, in which case re-issuance would
-> reproduce it — but that is an inference, not something we have tested, and if the reference issuer
-> assigns a fresh synthetic identity per issuance it is false. Treat the wallet-plus-PID as
-> irreplaceable until someone has actually tested re-login after re-issuance, and record the result when
-> they do.
+> **Attempted on 12 September 2026, and the run was inconclusive — through a confound worth writing
+> down, because the next person would hit it too.** Two logins either side of a re-issuance produced
+> different credentials (digests `527b981a96c8a35e` then `eb4bf3632d06987d`), which looks like
+> instability until you know how the reference issuer works: **the operator types the person's
+> attributes into a form at issue time**, and on the second issuance they were not the same values.
+> Different attributes, different credential. Nothing about stability was measured.
+>
+> So the question stands, and the observation actually **strengthens** the original inference rather
+> than refuting it: a value that tracks the attributes is what a hash over those attributes would do.
+>
+> **The real test, and it is still free while nothing is registered:** re-issue with the *identical*
+> form values and compare. Method and tooling:
+> [`registration-session-plan.md`](registration-session-plan.md) §1a.
+>
+> **Meanwhile, one operational consequence holds whichever way it resolves, and it is cheap
+> insurance: record the exact values entered into the issuer's form.** If the credential is derived
+> from the attributes, those values *are* what makes the login reproducible — and they are typed by
+> hand, so they are lost the moment nobody remembers them. Keep them in the session directory
+> (`~/.edtp/registration/`, mode 700, outside the repository), not in a committed file: they are
+> synthetic, but the registration they control is not a thing to make guessable.
+>
+> Until the identical-values test passes, keep treating the wallet installation and its PID as
+> irreplaceable. With one device and one wallet there is no redundancy either way.
 
 ---
 
@@ -80,8 +108,10 @@ the provider's access certificate. So one chain check decides whether either gat
 satisfied, and a single access certificate may serve both roles.
 | Does not chain | Path A has failed | Record it, then Path B / **WD-3**. Do not import and hope |
 
-`PubEAAProviders` had `NextUpdate` **2026-09-12**, so expect a rollover warning and re-check against
-the current list rather than a remembered result.
+`PubEAAProviders` had `NextUpdate` **2026-09-12**. That rollover has now happened: all four dev
+lists were reissued on 10–11 September 2026 with `NextUpdate` in March 2027, and the seven anchors
+came through byte-identical (`interop-findings.md` C1, re-verified live 12 September 2026). Read the
+freshness line the script prints anyway rather than trusting that sentence — the lists roll again.
 
 ## Step 1 — the Relying Party role
 
@@ -127,6 +157,18 @@ must not survive next to a real certificate.
 > half of the problem; the engine's half remains. Say so in any report.
 
 ## Step 2 — the non-qualified EAA Provider role
+
+> **This step assumes an artefact the Registrar does not issue, and has not been rewritten yet.**
+> It was written expecting a second PKCS#12 for the attestation-signing key (`apac.p12`) and a
+> second registration certificate for the provider role. Reading the service's OpenAPI document on
+> 12 September 2026 established that it mints **one** certificate, keyed by the Wallet Relying
+> Party, and issues registration certificates **per intended use** — `interop-findings.md` C9 and
+> `registration-session-plan.md` §3. So the inputs below have no source. The platform endpoints and
+> their contract tests are unaffected and still correct; what is missing is where an EAA Provider
+> signing certificate comes from at all. Resolve that before running this step, and do not
+> substitute the relying-party certificate for it: an access certificate carries one role's
+> identifiers, and signing attestations with it would misrepresent the provider.
+
 
 ```
 POST /v1/tenants/{tenantId}/attestation-providers/{providerId}/provision

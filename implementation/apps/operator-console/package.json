@@ -1,0 +1,21 @@
+{
+  "name": "@edtp/operator-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@edtp/registration-client": "workspace:*",
+    "@edtp/shared": "workspace:*",
+    "@edtp/start-token": "workspace:*",
+    "express": "5.1.0",
+    "qrcode-generator": "2.0.4",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.3"
+  }
+}

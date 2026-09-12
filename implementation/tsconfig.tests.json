@@ -16,7 +16,12 @@
       "@edtp/eudi-verifier-port": ["packages/eudi-verifier-port/src/index.ts"],
       "@edtp/eudi-issuer-port": ["packages/eudi-issuer-port/src/index.ts"],
       "@edtp/persistence": ["packages/persistence/src/index.ts"],
-      "@edtp/eudiplo-adapter": ["packages/eudiplo-adapter/src/index.ts"]
+      "@edtp/eudiplo-adapter": ["packages/eudiplo-adapter/src/index.ts"],
+      "@edtp/start-token": ["packages/start-token/src/index.ts"],
+      "@edtp/registration-client": ["packages/registration-client/src/index.ts"],
+      "@edtp/operator-console/*": ["apps/operator-console/src/*"],
+      "@edtp/platform-api/*": ["apps/platform-api/src/*"],
+      "@edtp/test-gateway/*": ["apps/test-gateway/src/*"]
     }
   },
   // The packages are included rather than referenced, because with `paths` pointing at source a

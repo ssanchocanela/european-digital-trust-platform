@@ -24,6 +24,8 @@
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
     "db:migrate": "node --experimental-strip-types packages/persistence/src/migrate-cli.ts",
     "api:openapi": "node --experimental-strip-types apps/platform-api/src/openapi-cli.ts",
+    "registration": "node packages/registration-client/dist/cli.js",
+    "console": "node --env-file=.env apps/operator-console/dist/main.js",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run boundaries && pnpm run confidentiality && pnpm run test:unit && pnpm run test:integration",
     "start:dev": "node --experimental-strip-types --watch apps/platform-api/src/main.ts",
     "start": "node apps/platform-api/dist/main.js",

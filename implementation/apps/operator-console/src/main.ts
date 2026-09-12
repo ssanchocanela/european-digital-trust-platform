@@ -7,6 +7,7 @@ import { type Interaction, InteractionCache } from "./interaction-cache.js";
 import { CONSOLE_CSS, CONTENT_SECURITY_POLICY, notice, page } from "./layout.js";
 import { Logger } from "./logger.js";
 import { PlatformApiError, PlatformClient } from "./platform-client.js";
+import { checkInteractionReachability } from "./reachability.js";
 import { clearSession, hasValidSession, isCorrectPassword, issueSession } from "./session.js";
 import {
   CONSOLE_JS,
@@ -326,6 +327,13 @@ const main = async (): Promise<void> => {
       }
     }
 
+    // Checked here, where both the start URL and the URI the engine actually emitted are in hand.
+    const reachability = checkInteractionReachability({
+      ...(interaction ? { interactionUri: interaction.uri } : {}),
+      ...(startUrl ? { startUrl } : {}),
+      platformPublicUrl: config.PLATFORM_PUBLIC_URL,
+    });
+
     render(
       response,
       "Presentation",
@@ -341,6 +349,7 @@ const main = async (): Promise<void> => {
         ...(qrValue ? { qrValue } : {}),
         ...(qrLabel ? { qrLabel } : {}),
         ...(startUrl ? { startUrl } : {}),
+        reachability,
         run,
       }),
       true,

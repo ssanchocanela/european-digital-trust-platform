@@ -1,6 +1,7 @@
 import { html, type SafeHtml } from "./html.js";
 import type { CreatedPresentation, PresentationView } from "./platform-client.js";
 import { renderQrWithValue } from "./qr.js";
+import type { ReachabilityProblem } from "./reachability.js";
 
 /**
  * The console's screens.
@@ -118,6 +119,7 @@ export const presentationView = (options: {
   readonly qrValue?: string;
   readonly qrLabel?: string;
   readonly startUrl?: string;
+  readonly reachability: readonly ReachabilityProblem[];
   readonly run: RunContext;
 }): SafeHtml => {
   const { created, view, run } = options;
@@ -133,6 +135,8 @@ export const presentationView = (options: {
     ${(created.warnings ?? []).map(
       (w) => html`<p class="notice warn"><strong>${w.code}</strong> — ${w.message}</p>`,
     )}
+
+    ${options.reachability.length > 0 ? unreachableNotice(options.reachability) : ""}
 
     <div class="two">
       <section>
@@ -179,6 +183,36 @@ export const presentationView = (options: {
     <script src="/assets/console.js" defer></script>
   `;
 };
+
+/**
+ * Says plainly that a phone cannot complete this interaction, and which variable to change.
+ *
+ * Shown above the QR rather than below it, because the whole failure mode being prevented is an
+ * operator scanning a code that never had a chance of working and then debugging the wallet.
+ */
+const unreachableNotice = (problems: readonly ReachabilityProblem[]): SafeHtml => html`
+  <div class="notice error">
+    <p>
+      <strong>A phone cannot complete this interaction.</strong> The QR is valid and the platform is
+      working; these URLs are simply not reachable from a phone, so scanning it will fail in the wallet
+      for a reason that has nothing to do with the wallet.
+    </p>
+    <table>
+      ${problems.map(
+        (p) => html`<tr>
+          <td class="k mono">${p.setting}</td>
+          <td><code>${p.value}</code><br>${p.reason}</td>
+        </tr>`,
+      )}
+    </table>
+    <p>
+      A phone test needs public HTTPS for all three — blocker <strong>B5</strong>. That is what
+      <code>docs/test-session-gateway.md</code> and <code>docs/test-session-vm.md</code> are for. Set the
+      variables <em>before</em> <code>docker compose up</code>: the engine bakes them into every URL it
+      emits, so changing them afterwards breaks sessions a wallet already holds.
+    </p>
+  </div>
+`;
 
 /**
  * The result panel.

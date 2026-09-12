@@ -47,6 +47,13 @@ const schema = z.object({
    */
   TEST_START_PUBLIC_URL: z.string().url().optional(),
 
+  /**
+   * The platform's own public origin, as the **phone** would reach it — the same-device return URL.
+   *
+   * Read only to tell the operator when it cannot work. The console never calls it.
+   */
+  PLATFORM_PUBLIC_URL: z.string().url().optional(),
+
   /** Operator login. A single shared credential — the console has no user model by design. */
   CONSOLE_OPERATOR_PASSWORD: z.string().min(16),
   /** Signs the session cookie. Distinct from `START_TOKEN_SECRET`: different trust, different key. */

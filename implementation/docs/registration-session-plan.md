@@ -95,6 +95,16 @@ The console's §2 panel archives the first value, compares the two and states th
 ends compare **digests**, never values: a truncated SHA-256 settles the question exactly as well and
 keeps the secret off the screen and out of the run record.
 
+> **The trap that made the first attempt inconclusive.** The reference issuer does not hand out a
+> fixed test persona — **the operator types the attributes into a form at issue time**. So "the same
+> test identity" means *re-entering the identical values*, field for field, not merely asking for
+> another PID. Different values produce a different credential and the comparison measures nothing.
+>
+> Which means: **write the values down before the first issuance.** Keep them in the session
+> directory (`~/.edtp/registration/`, mode 700, outside the repository) — never in a committed file.
+> If the credential is derived from the attributes, those values are what makes the login
+> reproducible, and they exist only in whoever typed them.
+
 Record the outcome in the runbook either way. It is an open question with a cheap answer, and the
 next person should not have to re-derive it.
 

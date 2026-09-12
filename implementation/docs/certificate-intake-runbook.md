@@ -47,23 +47,29 @@ So, concretely:
   but the failure mode here is a careless "reset this phone", and separate devices remove it.
 - Re-obtain the PID *before* it expires, not after.
 
-> **Tested on 12 September 2026, and the answer is the unwelcome one: re-issuing a PID does not
-> reproduce the login.** Two logins either side of a re-issuance produced different credentials —
-> digests `527b981a96c8a35e` then `eb4bf3632d06987d`. Method and tooling:
-> [`registration-session-plan.md`](registration-session-plan.md) §1a. Done deliberately *before*
-> anything was registered, which is the only time it is safe: afterwards it would mean deleting the
-> PID that holds the only login.
+> **Attempted on 12 September 2026, and the run was inconclusive — through a confound worth writing
+> down, because the next person would hit it too.** Two logins either side of a re-issuance produced
+> different credentials (digests `527b981a96c8a35e` then `eb4bf3632d06987d`), which looks like
+> instability until you know how the reference issuer works: **the operator types the person's
+> attributes into a form at issue time**, and on the second issuance they were not the same values.
+> Different attributes, different credential. Nothing about stability was measured.
 >
-> **So treat the wallet installation and the PID inside it as irreplaceable.** Wiping the wallet,
-> uninstalling it or resetting the phone leaves the registrations alive and unmanageable. With one
-> device and one wallet there is no redundancy, and that device is a single point of failure.
+> So the question stands, and the observation actually **strengthens** the original inference rather
+> than refuting it: a value that tracks the attributes is what a hash over those attributes would do.
 >
-> **The mechanism is still open, and the two candidates are not the same finding.** Either the
-> derivation is not stable for a fixed identity — a per-issuance salt or credential id in it — or the
-> reference issuer assigned a *different* synthetic identity on re-issuance, in which case nothing
-> about stability has been measured. Distinguishing them needs a re-issuance that provably reuses the
-> same test person. The **operational consequence is identical either way**, which is why the
-> conclusion above does not wait on it.
+> **The real test, and it is still free while nothing is registered:** re-issue with the *identical*
+> form values and compare. Method and tooling:
+> [`registration-session-plan.md`](registration-session-plan.md) §1a.
+>
+> **Meanwhile, one operational consequence holds whichever way it resolves, and it is cheap
+> insurance: record the exact values entered into the issuer's form.** If the credential is derived
+> from the attributes, those values *are* what makes the login reproducible — and they are typed by
+> hand, so they are lost the moment nobody remembers them. Keep them in the session directory
+> (`~/.edtp/registration/`, mode 700, outside the repository), not in a committed file: they are
+> synthetic, but the registration they control is not a thing to make guessable.
+>
+> Until the identical-values test passes, keep treating the wallet installation and its PID as
+> irreplaceable. With one device and one wallet there is no redundancy either way.
 
 ---
 

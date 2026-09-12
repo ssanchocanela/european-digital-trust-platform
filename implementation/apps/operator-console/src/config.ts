@@ -15,6 +15,26 @@ import { z } from "zod";
  *   `CONSOLE_ALLOW_NON_LOCAL_BIND` is set. The console is a management surface, and
  *   `docs/test-session-gateway.md` §1c says management is never publicly exposed.
  */
+/**
+ * An optional URL that tolerates an empty string.
+ *
+ * `docker-compose.yml` passes these as `${VAR:-}`, so an unset variable arrives as `""` rather
+ * than as absent — and `z.string().url().optional()` rejects `""`, which meant the console
+ * crash-looped on `TEST_START_PUBLIC_URL: Invalid url` unless a public URL was configured. That
+ * contradicted the field's own documentation, where absence is meaningful rather than an error:
+ * without it the console still runs cross-device tests, where no page of ours is involved.
+ *
+ * The same reasoning the HTTP layer already applies to empty form fields: an empty value from a
+ * transport that cannot express absence must mean absence, not a validation failure.
+ */
+const optionalUrl = z
+  .string()
+  .transform((value) => (value.trim() === "" ? undefined : value))
+  .refine((value) => value === undefined || z.string().url().safeParse(value).success, {
+    message: "must be a URL, or empty",
+  })
+  .optional();
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3200),
@@ -45,14 +65,14 @@ const schema = z.object({
    * cross-device (`QR`) tests, where the QR carries the OpenID4VP request and no page of ours is
    * involved. Same-device on a phone is what needs a publicly reachable page.
    */
-  TEST_START_PUBLIC_URL: z.string().url().optional(),
+  TEST_START_PUBLIC_URL: optionalUrl,
 
   /**
    * The platform's own public origin, as the **phone** would reach it — the same-device return URL.
    *
    * Read only to tell the operator when it cannot work. The console never calls it.
    */
-  PLATFORM_PUBLIC_URL: z.string().url().optional(),
+  PLATFORM_PUBLIC_URL: optionalUrl,
 
   /** Operator login. A single shared credential — the console has no user model by design. */
   CONSOLE_OPERATOR_PASSWORD: z.string().min(16),

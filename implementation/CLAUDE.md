@@ -430,6 +430,7 @@ migrations up from an empty database.
 
 | | |
 |---|---|
+| **Where the work stands, and the next action** | [`docs/status.md`](docs/status.md) — **read this first**; it carries what the code and the git history do not |
 | Prerequisites, and moving to another machine (Windows → WSL2) | [`docs/development-setup.md`](docs/development-setup.md) |
 | Phase 0 findings, blockers, open questions | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) |
 | Test wallet: build tooling, deviation register, install + first PID sheet | [`tools/test-wallet/`](tools/test-wallet/) — and [`docs/test-wallet-plan.md`](docs/test-wallet-plan.md) for the W0 investigation it was built from |

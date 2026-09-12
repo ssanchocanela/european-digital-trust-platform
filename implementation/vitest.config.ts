@@ -24,6 +24,7 @@ const workspaceAliases = {
   // without starting a server — which is also why those modules are pure functions.
   "@edtp/operator-console": resolve(here, "apps/operator-console/src"),
   "@edtp/platform-api": resolve(here, "apps/platform-api/src"),
+  "@edtp/test-gateway": resolve(here, "apps/test-gateway/src"),
 };
 
 /**

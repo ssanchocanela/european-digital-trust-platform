@@ -30,6 +30,9 @@
     },
     {
       "path": "./apps/test-start"
+    },
+    {
+      "path": "./apps/test-gateway"
     }
   ]
 }

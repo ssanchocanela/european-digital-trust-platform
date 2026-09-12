@@ -47,18 +47,23 @@ So, concretely:
   but the failure mode here is a careless "reset this phone", and separate devices remove it.
 - Re-obtain the PID *before* it expires, not after.
 
-> **Unverified, so do not rely on it:** whether `hash_pid` is stable across a **re-issued** PID for the
-> same synthetic identity. It is plausibly a hash over PID attributes, in which case re-issuance would
-> reproduce it — but that is an inference, not something we have tested, and if the reference issuer
-> assigns a fresh synthetic identity per issuance it is false. Treat the wallet-plus-PID as
-> irreplaceable until someone has actually tested re-login after re-issuance, and record the result when
-> they do.
+> **Tested on 12 September 2026, and the answer is the unwelcome one: re-issuing a PID does not
+> reproduce the login.** Two logins either side of a re-issuance produced different credentials —
+> digests `527b981a96c8a35e` then `eb4bf3632d06987d`. Method and tooling:
+> [`registration-session-plan.md`](registration-session-plan.md) §1a. Done deliberately *before*
+> anything was registered, which is the only time it is safe: afterwards it would mean deleting the
+> PID that holds the only login.
 >
-> **There is now a way to test it, and it costs nothing before anything is registered.**
-> [`registration-session-plan.md`](registration-session-plan.md) §1a: authenticate, re-issue the PID,
-> authenticate again, and the two logins are compared by digest — the console states the verdict and
-> `pnpm registration login` prints the digests. Do it **before** the registration session, never
-> after: afterwards it would mean deleting the PID that holds the only login.
+> **So treat the wallet installation and the PID inside it as irreplaceable.** Wiping the wallet,
+> uninstalling it or resetting the phone leaves the registrations alive and unmanageable. With one
+> device and one wallet there is no redundancy, and that device is a single point of failure.
+>
+> **The mechanism is still open, and the two candidates are not the same finding.** Either the
+> derivation is not stable for a fixed identity — a per-issuance salt or credential id in it — or the
+> reference issuer assigned a *different* synthetic identity on re-issuance, in which case nothing
+> about stability has been measured. Distinguishing them needs a re-issuance that provably reuses the
+> same test person. The **operational consequence is identical either way**, which is why the
+> conclusion above does not wait on it.
 
 ---
 

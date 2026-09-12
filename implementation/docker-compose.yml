@@ -191,10 +191,31 @@ services:
       TEST_START_PUBLIC_URL: ${TEST_START_PUBLIC_URL:-}
       PLATFORM_COMMIT: ${PLATFORM_COMMIT:-}
       ENGINE_IMAGE_DIGEST: ${ENGINE_IMAGE_DIGEST:-}
+      # The registration session's working directory, bind-mounted from the host below.
+      #
+      # Not a named volume and not the container's own filesystem: this directory holds `hash_pid`,
+      # the session state and the issued PKCS#12, and `hash_pid` is not recoverable. The service is
+      # authenticated by presenting a PID, there is no account and no key-rotation route, so losing
+      # it leaves the registrations alive and unmanageable
+      # (docs/certificate-intake-runbook.md). A container-local path would discard all of it on the
+      # next `--force-recreate`, which is a rebuild away.
+      #
+      # Bind-mounting the host path also makes the console and `pnpm registration` drive the *same*
+      # session, which is the point of keeping the state in a file at all.
+      #
+      # One consequence to know: the screen shows `/session/...`, the path the process reads, while
+      # the operator edits `~/.edtp/registration/...` on the host. Same file. The console cannot know
+      # the host path, and inventing an env var to display one would be machinery for a cosmetic
+      # gain — `pnpm registration` shows the host path if that is ever confusing.
+      EDTP_REGISTRATION_DIR: /session
       # Bound to every interface *inside* the container; the publish line below is what keeps it local.
       # This is the one legitimate reason the console's own refusal to bind off-localhost is overridden.
       CONSOLE_BIND_HOST: "0.0.0.0"
       CONSOLE_ALLOW_NON_LOCAL_BIND: "true"
+    # The container runs as uid 1000, which is the usual desktop-Linux and WSL first-user id, so the
+    # host directory is writable without a chown. `${HOME}` is resolved by compose on the host.
+    volumes:
+      - ${EDTP_REGISTRATION_DIR:-${HOME}/.edtp/registration}:/session
     # A management surface. Published to localhost only, and never added to the gateway allow-list —
     # docs/test-session-gateway.md §1c.
     ports:

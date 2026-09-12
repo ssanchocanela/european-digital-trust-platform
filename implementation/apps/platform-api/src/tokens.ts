@@ -17,6 +17,7 @@ export const TRANSACTION_REPOSITORY = Symbol("TransactionRepository");
 export const AUDIT_REPOSITORY = Symbol("AuditRepository");
 export const API_KEY_REPOSITORY = Symbol("ApiKeyRepository");
 export const WEBHOOK_DELIVERY_REPOSITORY = Symbol("WebhookDeliveryRepository");
+export const LISTING_REPOSITORY = Symbol("ListingRepository");
 
 export const VERIFIER_PORT = Symbol("EudiVerifierPort");
 export const VERIFIER_PROVISIONING_PORT = Symbol("EudiVerifierProvisioningPort");

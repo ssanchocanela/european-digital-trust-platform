@@ -13,7 +13,12 @@ import {
   IssuanceController,
 } from "./http/issuance.controllers.js";
 import {
+  TenantListingController,
+  TransactionListingController,
+} from "./http/listing.controllers.js";
+import {
   API_KEY_REPOSITORY,
+  AUDIT_SERVICE,
   CLOCK_TOKEN,
   CONFIG_TOKEN,
   FEATURE_PID_DURING_ISSUANCE,
@@ -21,6 +26,7 @@ import {
   ISSUANCE_SERVICE,
   ISSUER_PORT,
   ISSUER_PROVISIONING_PORT,
+  LISTING_REPOSITORY,
   LOGGER_TOKEN,
   POLICY_SERVICE,
   PRESENTATION_SERVICE,
@@ -51,6 +57,8 @@ export class AppModule {
         PresentationController,
         IssuanceConfigurationController,
         IssuanceController,
+        TenantListingController,
+        TransactionListingController,
         HealthController,
       ],
       providers: [
@@ -65,6 +73,10 @@ export class AppModule {
         { provide: PRESENTATION_SERVICE, useValue: deps.services.presentations },
         { provide: WEBHOOK_SERVICE, useValue: deps.services.webhooks },
         { provide: ISSUANCE_REPOSITORY, useValue: deps.repositories.issuance },
+        { provide: LISTING_REPOSITORY, useValue: deps.repositories.listing },
+        // Injected by the audit route. Absent until the listing controllers needed it, because until
+        // then the audit service was only ever called from inside other services.
+        { provide: AUDIT_SERVICE, useValue: deps.services.audit },
         {
           provide: WEBHOOK_ENDPOINT_REPOSITORY,
           useValue: deps.repositories.webhookEndpoints,

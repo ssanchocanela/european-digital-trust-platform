@@ -36,6 +36,13 @@
       "when": 1789142552004,
       "tag": "0004_clear_superseded_webhook_secrets",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789194688230,
+      "tag": "0005_listing_indexes",
+      "breakpoints": true
     }
   ]
 }

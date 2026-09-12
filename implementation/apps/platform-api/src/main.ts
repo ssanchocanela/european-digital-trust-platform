@@ -31,7 +31,13 @@ const bootstrap = async (): Promise<void> => {
   const deps = buildDependencies({ config, db: handle.db, logger });
 
   const app = await NestFactory.create(AppModule.withDependencies(deps), {
-    logger: false,
+    // Not `false`, which is what this was.
+    //
+    // Nest's startup output is noise — a line per route — but with the logger disabled entirely a
+    // **bootstrap failure prints nothing at all**: the process ran its migrations and exited 1 in
+    // silence, because `bootstrap().catch` never sees an error Nest handles itself. That cost a
+    // debugging cycle over a missing provider. `error` and `warn` keep the noise out and the failures in.
+    logger: ["error", "warn"],
     bodyParser: true,
   });
   // A modest body limit: every request in this API is small, and a large one is either a

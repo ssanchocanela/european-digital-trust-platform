@@ -20,6 +20,9 @@ birth never reaches the customer and is never stored.
 
 ## Quick start
 
+Prerequisites, and how to move the work to another machine — including **Windows, where the answer is
+WSL2** — are in [`docs/development-setup.md`](docs/development-setup.md).
+
 ```bash
 cp .env.example .env      # fill in every CHANGE-ME
 docker compose up

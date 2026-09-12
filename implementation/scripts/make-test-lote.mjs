@@ -192,15 +192,22 @@ const signerCertPath = join(signerDir, "lote-signer.crt");
 if (!existsSync(signerCertPath)) {
   console.log("==> Creating the list signing certificate (self-signed, separate from the CA)");
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
-  writeFileSync(
-    signerKeyPath,
-    privateKey.export({ type: "pkcs8", format: "pem" }),
-    { mode: 0o600 },
-  );
+  writeFileSync(signerKeyPath, privateKey.export({ type: "pkcs8", format: "pem" }), {
+    mode: 0o600,
+  });
   execFileSync("openssl", [
-    "req", "-new", "-x509", "-key", signerKeyPath, "-out", signerCertPath,
-    "-days", "730", "-sha256",
-    "-subj", "/CN=EDTP TEST LoTE Signer - NOT A NOTIFIED SCHEME OPERATOR/O=EDTP development/C=ES",
+    "req",
+    "-new",
+    "-x509",
+    "-key",
+    signerKeyPath,
+    "-out",
+    signerCertPath,
+    "-days",
+    "730",
+    "-sha256",
+    "-subj",
+    "/CN=EDTP TEST LoTE Signer - NOT A NOTIFIED SCHEME OPERATOR/O=EDTP development/C=ES",
   ]);
 }
 

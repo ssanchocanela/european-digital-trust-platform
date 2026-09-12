@@ -31,6 +31,15 @@ JAVA_BIN="${JAVA_HOME:+$JAVA_HOME/bin/keytool}"
 [ -x "${JAVA_BIN:-}" ] || JAVA_BIN="$(command -v keytool || true)"
 [ -n "${JAVA_BIN:-}" ] || { echo "keytool not found. Set JAVA_HOME to a JDK 17 installation." >&2; exit 1; }
 
+# The prompts below turn terminal echo off, which needs a real terminal. Without one — piped input,
+# a CI step, or a shell helper that does not allocate a TTY — `stty` fails and `set -e` aborts the
+# script with no output at all, which reads as "it did nothing" rather than as an error. So say so.
+[ -t 0 ] && [ -t 1 ] || {
+  echo "this needs an interactive terminal: it turns echo off to read the password." >&2
+  echo "Run it in a shell where you can type, not through a pipe or a non-interactive helper." >&2
+  exit 2
+}
+
 printf 'Keystore password (not echoed, at least 12 characters): '
 stty -echo; read -r PW1; stty echo; printf '\n'
 printf 'Again: '

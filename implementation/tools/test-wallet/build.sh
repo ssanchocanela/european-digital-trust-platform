@@ -238,7 +238,43 @@ fi
 FLAVOR_TASK_NAME="$(printf '%s' "$EDTP_FLAVOR" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
 TASK="assemble${FLAVOR_TASK_NAME}Release"
 step "Building :app:$TASK"
-./gradlew --no-daemon ":app:$TASK"
+# Upstream's gradle.properties asks for `-Xmx8192m`. On a machine with less physical memory than
+# that the JVM is killed by the kernel partway through, which looks like a mysterious build failure
+# — the log simply stops. So the heap is bounded here instead: passed on the command line, which
+# overrides the project file without editing an upstream source file.
+#
+# Sized from what the machine actually has rather than fixed, and capped at upstream's request so
+# this never *raises* it. The Kotlin compile daemon is bounded too, since it is a second JVM and
+# the sum is what the kernel sees.
+TOTAL_MB="$(awk '/MemTotal/ {print int($2 / 1024)}' /proc/meminfo 2>/dev/null || echo 0)"
+if [ -n "${EDTP_GRADLE_MAX_HEAP_MB:-}" ]; then
+  HEAP_MB="$EDTP_GRADLE_MAX_HEAP_MB"
+elif [ "$TOTAL_MB" -gt 0 ]; then
+  HEAP_MB=$(( TOTAL_MB * 40 / 100 ))
+  [ "$HEAP_MB" -gt 8192 ] && HEAP_MB=8192
+  [ "$HEAP_MB" -lt 1536 ] && HEAP_MB=1536
+else
+  HEAP_MB=3072
+fi
+KOTLIN_HEAP_MB=$(( HEAP_MB / 2 ))
+echo "    gradle heap ${HEAP_MB}m, kotlin daemon ${KOTLIN_HEAP_MB}m (machine has ${TOTAL_MB}m)"
+
+# Android lint is disabled for release assembly, and this is a deliberate choice rather than a
+# convenience. `lintVital` loads the model of every module at once and is what exhausts memory on a
+# modest machine — it was the step that died here, twice, after compilation had already succeeded.
+# It is also a code-quality gate on **upstream's** source, which this build does not modify
+# meaningfully: the deviation is one line of configuration in our own flavour source set. Skipping
+# it changes nothing about the artefact's behaviour, and leaving it on would mean the APK cannot be
+# produced at all on this hardware.
+#
+# It is printed below so it reaches the build record, because it is a build input like any other.
+echo "    android lint: skipped for release assembly (upstream quality gate; see build.sh)"
+
+./gradlew --no-daemon \
+  "-Dorg.gradle.jvmargs=-Xmx${HEAP_MB}m -Dfile.encoding=UTF-8" \
+  "-Dkotlin.daemon.jvmargs=-Xmx${KOTLIN_HEAP_MB}m" \
+  -Pandroid.lint.checkReleaseBuilds=false \
+  ":app:$TASK"
 
 # `awk NR==1` rather than `head -1` throughout this script: `head` closes the pipe early, which
 # under `set -o pipefail` turns a perfectly successful command into a SIGPIPE failure (exit 141).

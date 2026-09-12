@@ -1,0 +1,99 @@
+{
+  "law": [
+    {
+      "legalBasis": ["consent"],
+      "legislativeIdentifier": "GDPR-ART-6"
+    }
+  ],
+  "legalPerson": {
+    "legalName": ["CHANGE-ME legal name, exactly as in the official record"]
+  },
+  "identifiers": [
+    {
+      "identifier": "CHANGE-ME-VAT-OR-EORI",
+      "type": "http://data.europa.eu/eudi/id/VATIN"
+    }
+  ],
+  "legalEntity": {
+    "country": "ES",
+    "email": ["CHANGE-ME@example.org"],
+    "phone": ["+34000000000"],
+    "postalAddress": ["CHANGE-ME street, city"],
+    "infoURI": ["https://CHANGE-ME.example.org/"]
+  },
+  "policies": {
+    "wrp": {
+      "policyURI": "https://CHANGE-ME.example.org/trust-service-practice-statement",
+      "type": "http://data.europa.eu/eudi/policy/trust-service-practice-statement"
+    },
+    "intendedUse": {
+      "policyURI": "https://CHANGE-ME.example.org/privacy",
+      "type": "http://data.europa.eu/eudi/policy/privacy-policy"
+    }
+  },
+  "provider": {
+    "providerType": "CHANGE-ME — see docs/registration-session-plan.md §3.1, the one unknown"
+  },
+  "credentials": [
+    {
+      "format": "dc+sd-jwt",
+      "meta": {
+        "name": "Person Identification Data",
+        "version": "1.1"
+      },
+      "claims": [
+        {
+          "path": "$.birthdate"
+        }
+      ]
+    }
+  ],
+  "intendedUse": {
+    "intendedUseIdentifier": "age-gate",
+    "createdAt": "2026-09-12T00:00:00Z",
+    "revokedAt": "2027-09-12T00:00:00Z",
+    "purpose": [
+      {
+        "lang": "en",
+        "content": "Confirm the customer is an adult"
+      },
+      {
+        "lang": "es",
+        "content": "Confirmar que la persona es mayor de edad"
+      }
+    ]
+  },
+  "providedAttestations": [
+    {
+      "format": "dc+sd-jwt",
+      "meta": "urn:edtp:employee-badge:1"
+    }
+  ],
+  "supervisoryAuthority": {
+    "name": "Agencia Española de Protección de Datos",
+    "country": "ES",
+    "email": ["internacional@aepd.es"],
+    "phone": ["+34901100099"],
+    "formURI": ["https://www.aepd.es/es/canal-del-ciudadano"]
+  },
+  "walletRelyingParty": {
+    "tradeName": "CHANGE-ME trade name — this is what the Wallet shows the User",
+    "entitlements": [
+      "http://data.europa.eu/eudi/entitlement/Service_Provider",
+      "http://data.europa.eu/eudi/entitlement/Non_Q_EAA_Provider"
+    ],
+    "isPSB": false,
+    "registryURI": "https://CHANGE-ME.example.org/registry",
+    "supportURI": ["https://CHANGE-ME.example.org/support"],
+    "srvDescription": [
+      {
+        "lang": "en",
+        "content": "Age confirmation for online purchases"
+      },
+      {
+        "lang": "es",
+        "content": "Confirmación de edad para compras en línea"
+      }
+    ]
+  }
+}

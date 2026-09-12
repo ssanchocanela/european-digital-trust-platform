@@ -30,21 +30,37 @@ Have ready:
 
 ## 1. Authenticate — one PID presentation for the whole session
 
+Three endpoints, not two, and the middle one is a poll. Taken from the service's OpenAPI document
+(`/apispec_1.json`), which is authoritative over its `/guide` page and over what this plan
+previously guessed — see [`interop-findings.md`](interop-findings.md) C9.
+
 ```
-GET  https://registry.serviceproviders.eudiw.dev/authentication
-      → renders a QR encoding an openid4vp:// request
-     [scan it with the wallet, approve the PID presentation]
-POST https://registry.serviceproviders.eudiw.dev/getpidoid4vp
-      → returns hash_pid
+GET  /authentication
+      → {"QR_code_url": "eudi-openid4vp://…", "presentation_id": "…"}
+     [encode QR_code_url as a QR, scan it, approve the PID presentation]
+GET  /pid_authorization?presentation_id=…
+      → poll until it reports success
+POST /getpidoid4vp?presentation_id=…
+      → hash_pid
 ```
 
-`hash_pid` is the session credential for **everything** that follows. Capture it once and reuse it;
-re-authenticating would give a different session and defeat the point of doing both roles together.
+Note the scheme: the request is `eudi-openid4vp://` with `client_id=x509_hash:…`, so the login
+itself uses `ClientIdScheme.X509Hash` — one of the two the pinned wallet build enables. An
+unmodified official wallet handles it, which is what makes this path usable at all.
+
+`presentation_id` ties the three calls together. `hash_pid` is then the session credential for
+**everything** that follows: capture it once and reuse it, because re-authenticating yields a
+different session and defeats the point of doing both roles together.
+
+`scripts/register-relying-party.sh` does all three, polls, and stores `hash_pid` in a mode-600
+file outside the repository so an interrupted session resumes instead of restarting:
 
 ```bash
-# Outside the repo, or in a gitignored path.
-read -r -s -p "hash_pid: " HASH_PID && export HASH_PID
+./scripts/register-relying-party.sh --login-only
 ```
+
+It never prints `hash_pid`. Install `qrencode` first if you want the QR rendered in the terminal
+rather than having to encode the URL yourself.
 
 **No account is created and none is needed.** That was the Q1 finding: the service authenticates by
 PID presentation, so there is nothing to sign up for.
@@ -70,7 +86,7 @@ resume. One column per role; the **shared** rows are entered once.
 
 | Field | Value for V0 | Notes |
 |---|---|---|
-| Role / entitlement | Wallet-Relying Party | The `entitlement` set in the register |
+| Role / entitlement | `http://data.europa.eu/eudi/entitlement/Service_Provider` | The `entitlements` value in the register — a **URI**, and the one 99 of the 122 live entities hold |
 | Service identifier | e.g. `age-gate` | **RP-chosen, unique within the RP.** `AS-MS-27-045` (`Reg_33`). The platform requires it even though TS5 makes it `[0..1]` |
 | Service trade name | e.g. `Age Gate` | Displayed with the RP name at approval |
 | Intended use — purpose | "Confirm the customer is an adult" | Localised and **multi-valued**: `[1..*]` MultiLangString. The Wallet displays it (`AS-WP-06-015` / `RPA_10`) |
@@ -80,7 +96,7 @@ resume. One column per role; the **shared** rows are entered once.
 
 | Field | Value for V0 | Notes |
 |---|---|---|
-| Role / entitlement | `Non_Q_EAA_Provider` | The entitlement that makes this an Attestation Provider rather than a relying party |
+| Role / entitlement | `http://data.europa.eu/eudi/entitlement/Non_Q_EAA_Provider` | Added to the **same** `wallet_rp` as Role A, not to a separate registration — §3 |
 | Attestation type | `urn:edtp:employee-badge:1` | The `vct`. Must match the credential type you create in the platform |
 | Format | SD-JWT VC (`dc+sd-jwt`) | One type for V0 |
 | Attributes issued | `employee_id` (mandatory, string) | Keep it to one or two; every attribute has to be justified in the registration |
@@ -95,59 +111,131 @@ resume. One column per role; the **shared** rows are entered once.
 
 ## 3. The endpoint sequence
 
-The reference service's UI walks these; the API shape is given so you can script the repeat runs.
-Every call carries the same `hash_pid`.
+**Every route this section previously listed was wrong.** It was written from the ARF's vocabulary
+rather than from the service, and flagged as indicative; reconciling it against the service's own
+OpenAPI document on 12 September 2026 found no `/api` prefix, no `registrationId` in any path and no
+`role` parameter anywhere. What follows is read from `/apispec_1.json` (title "My API", version
+1.0.0, 51 routes), which is authoritative over the `/guide` page — the guide's example bodies omit
+required fields. Recorded as [`interop-findings.md`](interop-findings.md) C9.
+
+The model is a chain: `Person → Legal Entity → Provider → Wallet Relying Party → Intended Use →
+Credential`. Every call is a `POST /<resource>/create` carrying `hash_pid` **in the body**, and every
+call answers `{"data": [<integer ids>], "message": "…"}`. Each step consumes ids minted by an
+earlier one, so the order is not a style choice — the service rejects a reference it cannot resolve.
+
+| # | Route | Consumes | Mints |
+|---|---|---|---|
+| 1 | `/law/create` | — | law ids |
+| 2 | `/legal_person/create` | law ids | `legal_person_id` |
+| 3 | `/identifier/create` | — | identifier ids |
+| 4 | `/legal_entity/create` | identifier ids, `legal_person_id` | `legal_entity_id` |
+| 5 | `/policy/create` `intention: "wrp"` | — | policy id |
+| 6 | `/provider/create` | `legalEntityId`, wrp policy ids | `provider_id` |
+| 7 | `/credential/create` | — | credential ids |
+| 8 | `/policy/create` `intention: "intended_use"` | — | policy id |
+| 9 | `/intended_use/create` | credential ids, intended-use policy ids | `intended_use_id` |
+| 10 | `/provided_attestation/create` | — | attestation ids |
+| 11 | `/supervisory_authority/create` | — | authority id |
+| 12 | `/wallet_rp/create` | all of the above | **`wrp_id`** |
+| 13 | `/wallet_rp/certificate` | `wrp_id` + a passphrase **you choose** | the access certificate, PKCS#12 |
+| 14 | `/intended_use/certificate` | `intended_use_id` | the registration certificate |
+
+Three things in that table are worth stating plainly, because each contradicts what this plan
+assumed:
+
+- **One certificate route, and it is keyed by the Wallet Relying Party.** There is no `role`
+  parameter and no second access-certificate route. The P12 arrives **base64-encoded inside a JSON
+  field**, not as a download, and the passphrase is chosen by the caller and sent in the request
+  body — so it must come from an environment variable, never from a `curl` command line.
+- **The registration certificate is per intended use**, which is `RPRC_19` expressed as a route.
+  One per intended use, not one per Service, exactly as the intake runbook says.
+- **`entitlements` are URIs**, not the bare tokens this plan used:
+  `http://data.europa.eu/eudi/entitlement/Service_Provider` and
+  `http://data.europa.eu/eudi/entitlement/Non_Q_EAA_Provider`.
+
+### Both roles are one registration — settled, not assumed
+
+This plan used to say that not knowing whether one certificate could serve both roles "is what makes
+a second session necessary". It is now known, from public evidence rather than inference.
+
+`GET /wrp` is the register itself, unauthenticated, returned as a JWS over the whole list. On
+12 September 2026 it held **122 entities**, and their entitlement combinations were:
 
 ```
-# --- once, shared ------------------------------------------------------------------
-POST /api/registration                       legal entity + contact + identifiers
-      → registrationId
-
-# --- role A: Relying Party ---------------------------------------------------------
-POST /api/registration/{registrationId}/services          serviceIdentifier, tradeName
-POST /api/registration/{registrationId}/intended-uses     purpose[], privacyPolicy[], attributes[]
-POST /api/registration/{registrationId}/access-certificate
-      → PKCS#12  (the RP access certificate)        ← save as rpac.p12
-
-# --- role B: non-qualified EAA Provider -------------------------------------------
-POST /api/registration/{registrationId}/entitlements      Non_Q_EAA_Provider
-POST /api/registration/{registrationId}/attestations      vct, format, attributes, rulebook
-POST /api/registration/{registrationId}/access-certificate?role=attestation-provider
-      → PKCS#12  (the attestation-signing certificate)  ← save as apac.p12
-
-# --- registration certificates, if the service issues them ------------------------
-POST /api/registration/{registrationId}/registration-certificate?role=relying-party
-POST /api/registration/{registrationId}/registration-certificate?role=attestation-provider
-      → JWT each                                    ← save as rprc.jwt / aprc.jwt
+ 99  Service_Provider
+ 10  Non_Q_EAA_Provider + PID_Provider + Service_Provider
+  7  Non_Q_EAA_Provider + Service_Provider
+  3  all ten entitlements at once
+  1  PUB_EAA_Provider + Service_Provider
+  1  PID_Provider
+  1  Non_Q_EAA_Provider
 ```
 
-**Route names are indicative.** The service's own OpenAPI is authoritative, and Milestone 1 taught
-that documented routes diverge from running ones — so open its document and reconcile before
-scripting. What is *not* negotiable is the order: the shared registration first, then per-role
-artefacts, because each certificate is bound to the registration it was issued under.
+**Twenty entities carry `Non_Q_EAA_Provider` alongside `Service_Provider`.** The dual-role
+registration of ARF §6.3.2.3 is the second most common shape in the register, so one `wallet_rp`
+holding both entitlements is the normal way to express it — one registration, one certificate, one
+session.
 
-If the service exposes only one `access-certificate` route with no role parameter, **run the
-registration twice against the same `hash_pid`** — once per role — rather than reusing one
-certificate for both. An access certificate carries one role's identifiers; using the RP's
-certificate to sign attestations would misrepresent the provider.
+What that also means, and it is a reduction in what the session can deliver: **the service issues no
+attestation-signing certificate.** `providesAttestations` is declared metadata only — a `format` and
+a free-text `meta`. So there is no `apac.p12` to save, and
+[`certificate-intake-runbook.md`](certificate-intake-runbook.md) Step 2 was written expecting one.
+Gate (b) takes its anchors from the Rulebook regardless
+([`issuer-trust-model.md`](issuer-trust-model.md)), so this changes nothing about blocker B7 — but
+Step 2 needs rewriting before it is run, and a signing certificate for the EAA Provider role has to
+come from somewhere else.
+
+### Run it with the script, and rehearse first
+
+```bash
+cp scripts/registration-entity.example.json ~/.edtp/registration/entity.json
+# fill in every CHANGE-ME, then rehearse without touching the service:
+EDTP_DRY_RUN=1 ./scripts/register-relying-party.sh ~/.edtp/registration/entity.json
+# then, for real:
+./scripts/register-relying-party.sh ~/.edtp/registration/entity.json
+```
+
+Rehearsing matters more here than it usually would. The service has **no idempotency key and no
+route that amends a half-built registration**, so a body the service rejects at step 9 leaves eight
+entities behind that cannot be edited away. The dry run builds every request body exactly as it
+would be sent, validates it as JSON and prints it with `hash_pid` and the passphrase redacted,
+without making a single call. A real run records each minted id in a mode-600 state file and skips
+what is already recorded, so an interruption resumes.
+
+### 3.1 The one field nobody has documented
+
+`providerType` on `/provider/create` is a **free-form string with no `enum`** in the OpenAPI
+document, and it does not appear in the public register, so its accepted values are unknown. The
+only value documented anywhere is the guide's example, `WALLET_PROVIDER`, which is plainly not what
+a relying party is. Expect to discover it by trying, and record what worked.
+
+`/credential/create` carries a second, smaller unknown: its `claims[].path` is a **JSON-path
+string** (`"$.credentialSubject.name"` in the example), which is *not* the OpenID4VP claim-path
+array of TS5 `Claim.path` that the platform uses — see CLAUDE.md §6 item 2. The correct spelling for
+a PID `birthdate` in this field is therefore unverified; `scripts/registration-entity.example.json`
+guesses `$.birthdate` and says so.
 
 ## 4. Immediately after: the gating check, before any wallet test
 
 ```bash
-# The RP access certificate must chain to a dev WRPACProviders anchor.
-./scripts/verify-access-certificate-chain.sh rpac.p12
-
-# The attestation-signing certificate is a different question: there is no notified list for a
-# non-qualified EAA provider (see issuer-trust-model.md gate (b)), so expect this to find no anchor.
-# Run it anyway and record the result, rather than assuming.
-LOTE_URL=https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PubEAAProviders.jwt \
-  ./scripts/verify-access-certificate-chain.sh apac.p12
+# The one certificate the session produces must chain to a dev WRPACProviders anchor.
+./scripts/verify-access-certificate-chain.sh ~/.edtp/registration/rpac.p12
 ```
 
-The script now also reports **list freshness**. The dev lists roll over — `PubEAAProviders` had
-`NextUpdate` 2026-09-12 — and a stale list must not be trusted silently: a rotated-out anchor would
-still look valid to a cached copy while a Wallet, which refetches, refuses the certificate. Record
-both the matched anchor and the freshness line in
+There is only one certificate to check, not two: §3 establishes that the service mints no separate
+attestation-signing certificate. The second command this section used to carry, against
+`PubEAAProviders` and an `apac.p12`, had nothing to run on.
+
+That single check still covers both gates. Per `ISS-MDATA-4.2.1-02` the access certificate **is** the
+signer of issuer metadata, and the pinned wallet validates that chain with
+`VerificationContext.WalletRelyingPartyAccessCertificate` — the same anchors a verifier's
+certificate is held to. So one chain check decides whether either gate could ever be satisfied
+(CLAUDE.md §6 item 21).
+
+The script also reports **list freshness**, and the rollover it was written to warn about has now
+happened: all four dev lists reissued on 10–11 September 2026 with `NextUpdate` in March 2027, the
+seven anchors unchanged. Still read the freshness line rather than trusting that, and record it
+together with the matched anchor in
 [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1.
 
 ## 5. Then hand over
@@ -156,11 +244,15 @@ What the platform needs, and nothing more:
 
 | Artefact | Goes to | Kept where |
 |---|---|---|
-| `rpac.p12` + password | `scripts/import-access-certificate.sh` | Engine key store; the platform keeps only the opaque key-binding reference |
-| `apac.p12` + password | `POST .../attestation-providers/{id}/provision` | Same |
-| `rprc.jwt` | `POST .../registration-certificates` | Stored on the intended use |
-| `aprc.jwt` | `provision`, as `registrationCertificateJwt` | Published as `issuer_info` |
-| The registrar-assigned identifiers | `registrarAssignedIdentifier` on both records | Configuration rows |
+| `rpac.p12` + passphrase | `scripts/import-access-certificate.sh` | Engine key store; the platform keeps only the opaque key-binding reference |
+| `rprc-intended-use-<id>.jwt` | `POST .../registration-certificates` | Stored on the intended use it was issued for |
+| The ids in the state file | `registrarAssignedIdentifier` on the configuration records | Configuration rows |
+
+Two rows that this table used to carry have been removed because the service cannot produce them:
+an `apac.p12` (there is no attestation-signing certificate — §3) and an `aprc.jwt` (the registration
+certificate is issued per intended use, and the EAA Provider role has no intended use of its own).
+`docs/certificate-intake-runbook.md` Step 2 still assumes both, and needs rewriting before it is
+run.
 
 Pass the passwords by environment variable or prompt — never as a command-line argument. Both scripts
 use `-passin env:` for exactly that reason.

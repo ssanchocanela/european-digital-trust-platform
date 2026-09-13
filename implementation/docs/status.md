@@ -24,7 +24,13 @@ publish; an unmodified one consults only the notified list, which does not carry
 
 Nothing is half-done and nothing is blocking. The candidates, in the order I would take them:
 
-1. **Close the test session** (`./scripts/test-session-tunnel.sh down`) if it is still open. A
+0. **A session is now four commands, not eight.** `./scripts/test-session.sh up | present
+   <policyId> [--wallet <package>] | status | down`. Every check in it is one of the three mistakes
+   made by hand on 13 September, and it reports **all** of them before deciding, rather than dying
+   on the first: a `request_uri` that is not public, a `client_id` that is not the development CA's,
+   and a window too short to reach a phone. It refuses to send to a phone when any of them holds.
+1. **Close the test session** (`./scripts/test-session-tunnel.sh down`, or `test-session.sh down`)
+   if it is still open. A
    tunnel is not left running, and the access certificate's SAN carries today's hostname, so the
    next session needs one command to reissue the leaf — the CA is reused, so the wallet build stays
    valid.
@@ -103,13 +109,14 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **274 unit, 92 integration**. Docker stack up, with a tenant and credentials
+`pnpm verify` passes: **275 unit, 92 integration**. Docker stack up, with a tenant and credentials
 in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.
 
 Two published policies, and the difference matters. `f7013836-…` belongs to the smoke test's
 service, whose instance holds a **self-signed** certificate no wallet will accept.
 **`30627f9a-3e6b-4d56-89ed-3e9b1e0af801`** belongs to the service provisioned with the development
-CA's certificate, and is the one a wallet test must use. There is no route to replace an instance's
+CA's certificate, and is the one a wallet test must use — `test-session.sh present` now refuses the
+other one rather than leaving it to be discovered on the phone. There is no route to replace an instance's
 certificate — `POST …/instance` creates, and nothing updates — which is why a second service exists
 rather than the first being corrected.
 

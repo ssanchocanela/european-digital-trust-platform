@@ -433,6 +433,40 @@ nothing about whether issuance would succeed with the gate passed: that needs de
 *Check Registration Certificates* preference says (`CLAUDE.md` §6.21), so a pass obtained that way
 proves less again and must be reported with that caveat attached.
 
+### 8.1d Fourth wallet run — **past gate (a)**, and stopped at the authorization-code start
+
+13 September 2026, **W4** (`eu.europa.ec.euidi.edtptest4`, deviations **`wd-2,wd-3`**), over the
+same tunnel, against the §7.3 PID-gated issuance policy.
+
+**Gate (a) no longer blocks.** The "Issuance blocked — the provider could not be verified" of §8.1c
+is gone, which is what `wd-2` was built to do. **It does not mean the gate is satisfied: it is
+bypassed.** `wd-2` accepts unsigned metadata *and* silently switches off the issuer
+registration-certificate check, so nothing here evidences ARF §6.6.2.2, `AS-AP-44-005` (`RPRC_22a`)
+or `AS-AP-44-007` (`RPRC_23`).
+
+**What the run reached, and where it stopped.** The Wallet fetched the credential offer (200) and
+the issuer metadata (200), and then made no further request and logged no error — the screen shows
+only a generic failure. The authorization-code flow never started.
+
+**Two platform defects were found getting that far, and both are fixed.**
+
+| | |
+|---|---|
+| **A gated policy with `PRE_AUTHORIZED_CODE` was accepted** | A pre-authorized code skips the authorization server by construction, and the gate *is* an authorization step. The offer was minted, and the eligibility presentation simply would not have happened. Now refused at publication (`gate_requires_authorization_code`) |
+| **The offer did not name its authorization server** | The tenant advertises every server its provider needs (A20), so the offer has to say which one this credential goes through. Without it the engine chose the built-in one — so a gated policy produced an offer pointing away from its own gate. Verified against the running engine: the offer's `authorization_server` was `…/issuers/{ref}` whatever the policy said |
+
+After both fixes the offer carries
+`grants.authorization_code.authorization_server = …/authorization-servers/eligibility-<policyId>`
+over public HTTPS, the authorization server's own metadata resolves (`issuer`,
+`authorization_endpoint`, `token_endpoint`, `response_types_supported: ["code"]`), and the gateway
+allow-list passes it. The Wallet still does not proceed, and the reason is not visible from here.
+
+**So the §7.3 eligibility presentation remains unexercised against a wallet.** What this run
+establishes is narrower and worth stating exactly: everything the platform emits for a gated
+issuance is now correct and reachable, and the remaining gap is on the wallet side of the
+authorization-code start. That is a better position than §8.1c — where the failure was ours — but it
+is not the test succeeding.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

@@ -77,6 +77,21 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         credentialClaims: {
           [configId]: { type: "inline", claims: claims as Record<string, unknown> },
         },
+        // **Named, not left to the engine.** The tenant advertises every authorization server its
+        // provider needs (A20), and the offer has to say which one *this* credential goes through.
+        // Without it the engine picks for itself and chose the built-in one, so a policy gated on a
+        // presentation minted an offer that skipped the gate entirely — the metadata advertised the
+        // `oid4vp` server and the offer never pointed at it.
+        //
+        // Verified on the running engine, 13 September 2026: an offer without this field carries
+        // `"authorization_server": ".../issuers/{ref}"` whatever the policy says.
+        ...(plan.eligibilityPresentationPolicyId
+          ? {
+              authorization_server: eligibilityAuthorizationServerId(
+                plan.eligibilityPresentationPolicyId,
+              ),
+            }
+          : {}),
       }),
     );
 

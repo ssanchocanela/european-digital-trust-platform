@@ -38,9 +38,11 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    layer (`smoke-issuance.sh`, and the adapter contract test that decodes the nested request object
    as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone.**
    A22 is fixed, so this now tests the flow rather than a coincidence of this stack's configuration.
-3. **A wallet built with `wd-1` + `wd-2` + `wd-3`**, to get past B7 and exercise the §7.3 eligibility
-   presentation against a wallet. `wd-2` silently disables the issuer registration-certificate check
-   (`CLAUDE.md` §6.21), so whatever it shows must be reported with that caveat attached.
+3. **Why W4 stops at the authorization-code start.** Built and run — `wd-2,wd-3` gets past gate (a),
+   and the platform now emits a correct, reachable gated offer. The Wallet reads the offer and the
+   metadata and then does nothing, with no request and no logged error. The §7.3 eligibility
+   presentation is still unexercised, and the remaining gap is on the wallet side.
+   [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1d.
 4. **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
    first is a rename, the second needs a decision about what it should do.
 
@@ -141,7 +143,7 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **280 unit, 115 integration**. The adapter contract suite is separate and
+`pnpm verify` passes: **282 unit, 115 integration**. The adapter contract suite is separate and
 needs a reachable engine: `ENGINE_BASE_URL=… ENGINE_TENANT_CREDENTIALS=… pnpm test:adapter` — 25
 tests, all passing against the live engine on 13 September 2026. Docker stack up, with a tenant and credentials
 in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.

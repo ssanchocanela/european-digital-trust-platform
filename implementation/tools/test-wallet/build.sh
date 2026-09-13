@@ -12,8 +12,14 @@
 #   ANDROID_KEYSTORE_PATH=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=... ./build.sh
 #   ... ./build.sh --deviations wd-3 --wrpac-lote https://<host>/lote/WRPACProviders.jwt
 #
-# Deviations: only `none` and `wd-3` are accepted. Each is refused unless everything it needs is
-# present, because a flag that is accepted and does nothing puts a false claim in a test record.
+# Deviations: `none`, `wd-2`, `wd-3`, or a comma-separated set (`wd-2,wd-3`). Each is refused unless
+# everything it needs is present, because a flag that is accepted and does nothing puts a false claim
+# in a test record. `wd-1` is refused outright: it needs a published list of **issuer** anchors,
+# which does not exist.
+#
+# `wd-2,wd-3` is the combination that reaches the §7.3 eligibility presentation — wd-2 to get past
+# the issuer gate the engine cannot satisfy, wd-3 so the request object's access certificate is
+# trusted. **wd-2 is a security relaxation and bypasses gate (a) rather than meeting it.**
 #
 #   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
 #   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
@@ -68,27 +74,61 @@ step() { printf '\n==> %s\n' "$*"; }
 # Every deviation defaults to upstream behaviour, and none is implemented yet. Refusing an
 # unimplemented flag outright is the point: a flag that is accepted and silently does nothing
 # would put "WD-1 active" in a test record for a build where it was not.
-case "$DEVIATIONS" in
-  none) ;;
-  wd-3)
-    # Refused without the URL rather than defaulted to anything. A wd-3 build whose list location
-    # were guessed would report the deviation as active while consulting the notified list, which
-    # is the precise failure this gate exists to prevent.
-    [ -n "$WRPAC_LOTE" ] ||
-      die "--deviations wd-3 requires --wrpac-lote <url>: the list this build is to consult.
+# `--deviations` takes a comma-separated set, because a useful build needs more than one: reaching
+# the §7.3 eligibility presentation needs wd-2 to pass the issuer gate *and* wd-3 so the request
+# object's access certificate is trusted. Each is still validated on its own terms, and an unknown
+# or unbuildable name is refused rather than ignored.
+WANT_WD2=no
+WANT_WD3=no
+if [ "$DEVIATIONS" != "none" ]; then
+  OLD_IFS="$IFS"; IFS=,
+  for d in $DEVIATIONS; do
+    case "$d" in
+      wd-2)
+        [ -f "$HERE/deviations/wd-2.patch" ] || die "deviations/wd-2.patch is missing."
+        WANT_WD2=yes
+        ;;
+      wd-3)
+        # Refused without the URL rather than defaulted to anything. A wd-3 build whose list
+        # location were guessed would report the deviation as active while consulting the notified
+        # list, which is the precise failure this gate exists to prevent.
+        [ -n "$WRPAC_LOTE" ] ||
+          die "--deviations wd-3 requires --wrpac-lote <url>: the list this build is to consult.
     Publish one with scripts/make-test-lote.mjs first. See deviations.md."
-    case "$WRPAC_LOTE" in
-      https://*) ;;
-      *) die "--wrpac-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        case "$WRPAC_LOTE" in
+          https://*) ;;
+          *) die "--wrpac-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        esac
+        [ -f "$HERE/deviations/wd-3.patch" ] || die "deviations/wd-3.patch is missing."
+        WANT_WD3=yes
+        ;;
+      wd-1)
+        die "wd-1 is recorded in deviations.md and is not built. It needs an ETSI TS 119 602 list
+    of **issuer** anchors published and reachable, which does not exist — scripts/make-test-lote.mjs
+    produces the WRPAC list only. A flag that is accepted and does nothing would put a false claim
+    in a test record."
+        ;;
+      *)
+        die "unknown deviation '$d'. Accepted: none, wd-2, wd-3, or a comma-separated set of them."
+        ;;
     esac
-    [ -f "$HERE/deviations/wd-3.patch" ] || die "deviations/wd-3.patch is missing."
-    ;;
-  *)
-    die "unknown or unimplemented deviation '$DEVIATIONS'.
-    Accepted: none, wd-3. WD-1 and WD-2 are recorded in deviations.md and are not built — and a
-    flag that is accepted and does nothing would put a false claim in a test record."
-    ;;
-esac
+  done
+  IFS="$OLD_IFS"
+fi
+
+if [ "$WANT_WD2" = "yes" ]; then
+  cat >&2 <<'WARN'
+
+  WD-2 is a SECURITY RELAXATION, not a configuration of an intended mechanism. It accepts unsigned
+  issuer metadata, and it additionally switches off the issuer registration-certificate check —
+  `IssuerCreator` applies that check only under RequireSigned, whatever the Wallet's own
+  *Check Registration Certificates* preference says.
+
+  So no result from this build may state that ARF §6.6.2.2 gate (a) is satisfied, and none can
+  evidence AS-AP-44-005 (RPRC_22a) or AS-AP-44-007 (RPRC_23). The gate is bypassed, not met.
+
+WARN
+fi
 
 case "$BUILD_TYPE" in
   release|debug) ;;
@@ -205,7 +245,20 @@ done
 # Separate from the patches in step 3 on purpose: those modify upstream files, while a deviation
 # modifies OUR copy of a per-flavour source set, which does not exist until step 4. Keeping them
 # apart is also what lets `--deviations none` produce a tree with no behavioural change at all.
-if [ "$DEVIATIONS" = "wd-3" ]; then
+if [ "$WANT_WD2" = "yes" ]; then
+  step "Applying WD-2 (requireSignedMetadata -> preferSignedMetadata)"
+  git apply --whitespace=nowarn "$HERE/deviations/wd-2.patch" ||
+    die "failed to apply deviations/wd-2.patch. It is a diff against the demo source set; if
+    upstream changed that file at the pinned tag, the deviation must be regenerated."
+  WD2_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  grep -q "preferSignedMetadata()" "$WD2_FILE" ||
+    die "WD-2 did not take effect: preferSignedMetadata() is not in $WD2_FILE."
+  grep -q "^ *requireSignedMetadata()" "$WD2_FILE" &&
+    die "WD-2 left requireSignedMetadata() in place, so the relaxation would be a no-op."
+  echo "    issuer metadata: unsigned accepted. Gate (a) BYPASSED, not met."
+fi
+
+if [ "$WANT_WD3" = "yes" ]; then
   step "Applying WD-3 (wrpacProviders -> our TEST LoTE)"
   git apply --whitespace=nowarn "$HERE/deviations/wd-3.patch" ||
     die "failed to apply deviations/wd-3.patch. It is a diff against the demo source set; if

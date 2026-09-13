@@ -272,7 +272,12 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     `docs/interop-findings.md` A9 and A11.
 15. **A database constraint violation is a client error, not a server error.** PostgreSQL class 23
     codes are translated in `error.filter.ts`: `23505` to a `409` naming the **constraint**, never
-    PostgreSQL's `detail`, which embeds the offending values. And an unhandled throw logs its
+    PostgreSQL's `detail`, which embeds the offending values. **The driver wraps the error**: Drizzle
+    0.44 throws its own `Error: Failed query: …` and hangs the `pg` error off `cause`, so the code
+    has to be found by walking that chain — reading it off the exception finds nothing and every
+    violation becomes a `500`, which is what happened until 13 September 2026. The test that covers
+    it provokes a real duplicate insert, because one that hand-builds `{code: "23505"}` would pass
+    throughout the regression. And an unhandled throw logs its
     message and a capped stack — through the redactor, which strips denied keys — because a 500
     that logs only `{"errorName":"Error"}` cannot be diagnosed. Both found by running the stack.
 16. **Issuer trust is two separate gates, and neither is satisfied.** (a) ARF §6.6.2.2, pre-issuance

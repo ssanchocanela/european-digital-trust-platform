@@ -4,6 +4,8 @@ import {
   assertStatusTransition,
   type CredentialStatus,
   type CredentialType,
+  compileEligibilityPresentation,
+  type EligibilityPresentation,
   type IssuancePolicy,
   type IssuancePolicyVersion,
   type IssuanceState,
@@ -18,13 +20,18 @@ import type { Database } from "../db.js";
 import {
   attestationProviders,
   credentialTypes,
+  intendedUses,
   issuancePolicies,
   issuancePolicyVersions,
   issuanceTransactions,
   issuanceTransactionTransitions,
   issuedCredentials,
   organisations,
+  presentationPolicies,
+  presentationPolicyVersions,
 } from "../schema.js";
+import { mapVersion } from "./policy.repository.js";
+import { mapIntendedUse } from "./registration.repository.js";
 
 /** What an issuance needs, loaded in one place so the service never assembles it piecemeal. */
 export interface IssuanceContext {
@@ -37,6 +44,8 @@ export interface IssuanceContext {
     readonly trustEnvironment: "TEST" | "PRODUCTION";
     readonly createdAt: Date;
     readonly signingKeyBindingRef?: string;
+    /** The provider's own access certificate, for a §7.3 eligibility presentation (A22). */
+    readonly accessKeyBindingRef?: string;
     readonly registrationCertificateJwt?: string;
     readonly registrationCertificateNotAfter?: Date;
     readonly engineTenantRef?: string;
@@ -104,6 +113,8 @@ export class IssuanceRepository {
     readonly attestationProviderId: string;
     readonly engineTenantRef: string;
     readonly signingKeyBindingRef: string;
+    /** The provider's own access certificate, for a §7.3 eligibility presentation (A22). */
+    readonly accessKeyBindingRef?: string;
     readonly registrationCertificateJwt?: string;
     readonly registrationCertificateNotAfter?: Date;
     readonly webhookEndpointId?: string;
@@ -130,6 +141,9 @@ export class IssuanceRepository {
       .set({
         engineTenantRef: input.engineTenantRef,
         signingKeyBindingRef: input.signingKeyBindingRef,
+        // Null when not supplied, so re-provisioning without one clears it rather than leaving a
+        // reference to a key chain on an engine tenant this provider may no longer be using.
+        accessKeyBindingRef: input.accessKeyBindingRef ?? null,
         registrationCertificateJwt: input.registrationCertificateJwt ?? null,
         registrationCertificateNotAfter: input.registrationCertificateNotAfter ?? null,
         ...(input.webhookEndpointId ? { webhookEndpointId: input.webhookEndpointId } : {}),
@@ -217,6 +231,9 @@ export class IssuanceRepository {
         ...(provider.signingKeyBindingRef
           ? { signingKeyBindingRef: provider.signingKeyBindingRef }
           : {}),
+        ...(provider.accessKeyBindingRef
+          ? { accessKeyBindingRef: provider.accessKeyBindingRef }
+          : {}),
         ...(provider.registrationCertificateJwt
           ? { registrationCertificateJwt: provider.registrationCertificateJwt }
           : {}),
@@ -265,7 +282,7 @@ export class IssuanceRepository {
 
     await this.db
       .update(attestationProviders)
-      .set({ engineTenantRef: null, signingKeyBindingRef: null })
+      .set({ engineTenantRef: null, signingKeyBindingRef: null, accessKeyBindingRef: null })
       .where(
         and(
           eq(attestationProviders.id, input.attestationProviderId),
@@ -293,13 +310,21 @@ export class IssuanceRepository {
   ): Promise<{
     /** The Credential Issuer's own display name — the organisation's legal name. */
     readonly issuerDisplayName: string;
-    /** Distinct presentation policies used as an eligibility gate, across the provider. */
-    readonly eligibilityPresentationPolicyIds: readonly string[];
+    /**
+     * Every eligibility presentation across the provider, with the content needed to write it on
+     * the provider's own engine tenant — `interop-findings.md` A22. Distinct by policy.
+     */
+    readonly eligibilityPresentations: readonly EligibilityPresentation[];
     /** True when at least one published policy issues without a presentation gate. */
     readonly requiresBuiltInAuthorizationServer: boolean;
+    /** The provider's own access certificate, when it has been provisioned with one. */
+    readonly accessKeyBindingRef?: string;
   }> {
     const [org] = await this.db
-      .select({ legalName: organisations.legalName })
+      .select({
+        legalName: organisations.legalName,
+        accessKeyBindingRef: attestationProviders.accessKeyBindingRef,
+      })
       .from(attestationProviders)
       .innerJoin(organisations, eq(attestationProviders.organisationId, organisations.id))
       .where(
@@ -333,13 +358,63 @@ export class IssuanceRepository {
       else ungated = true;
     }
 
+    // The content of each gating policy, so the issuer can write the presentation configuration
+    // itself. Compiled through the same domain function the verification side uses, because a
+    // second derivation of `vct_values` would drift from the registered credentials.
+    const eligibilityPresentations: EligibilityPresentation[] = [];
+    for (const policyId of gated) {
+      eligibilityPresentations.push(await this.eligibilityPresentationFor(tenantId, policyId));
+    }
+
     return {
       issuerDisplayName: org.legalName,
-      eligibilityPresentationPolicyIds: [...gated],
+      eligibilityPresentations,
       // A provider with no published policy at all still needs one server, because the engine
       // requires a non-empty list and the transaction being provisioned is about to need it.
       requiresBuiltInAuthorizationServer: ungated || gated.size === 0,
+      ...(org.accessKeyBindingRef ? { accessKeyBindingRef: org.accessKeyBindingRef } : {}),
     };
+  }
+
+  /**
+   * One gating policy's content, read through the verification side's own records.
+   *
+   * The intended use comes along because `vct_values` are derived from the **registered**
+   * credentials: a DCQL query built without it would ask for a credential type the Relying Party
+   * never registered for, which is the over-asking the §6.1 subset check exists to prevent.
+   */
+  private async eligibilityPresentationFor(
+    tenantId: TenantId,
+    presentationPolicyId: string,
+  ): Promise<EligibilityPresentation> {
+    const [row] = await this.db
+      .select({ version: presentationPolicyVersions, intendedUse: intendedUses })
+      .from(presentationPolicyVersions)
+      .innerJoin(
+        presentationPolicies,
+        eq(presentationPolicyVersions.policyId, presentationPolicies.id),
+      )
+      .innerJoin(intendedUses, eq(presentationPolicies.intendedUseId, intendedUses.id))
+      .where(
+        and(
+          eq(presentationPolicyVersions.tenantId, tenantId),
+          eq(presentationPolicyVersions.policyId, presentationPolicyId),
+          eq(presentationPolicyVersions.status, "PUBLISHED"),
+        ),
+      )
+      .orderBy(desc(presentationPolicyVersions.version))
+      .limit(1);
+    if (!row) {
+      throw PlatformError.conflict(
+        "eligibility_policy_not_published",
+        "An issuance policy gates on a presentation policy with no published version.",
+      );
+    }
+
+    return compileEligibilityPresentation({
+      policyVersion: mapVersion(row.version),
+      intendedUse: mapIntendedUse(row.intendedUse),
+    });
   }
 
   /** The provider's engine tenant, for the provider-authentication check (trust gate a). */

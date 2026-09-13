@@ -50,6 +50,13 @@
       "when": 1789281088230,
       "tag": "0006_engine_tenant_per_provider",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789284688230,
+      "tag": "0007_attestation_provider_access_certificate",
+      "breakpoints": true
     }
   ]
 }

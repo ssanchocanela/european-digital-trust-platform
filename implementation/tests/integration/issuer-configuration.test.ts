@@ -128,10 +128,17 @@ const seedPolicy = async (
   return policy;
 };
 
+/** The same, but with no published version — for the gate-compilation guard. */
+const seedUnpublishedPresentationPolicy = async (
+  seed: Awaited<ReturnType<typeof seedProvider>>,
+  name: string,
+): Promise<string> => seedPresentationPolicy(seed, name, { publish: false });
+
 /** A published presentation policy to gate on, created with the verification-side writes. */
 const seedPresentationPolicy = async (
   seed: Awaited<ReturnType<typeof seedProvider>>,
   name: string,
+  options: { readonly publish?: boolean } = {},
 ): Promise<string> => {
   // Inserted directly: this test is about the issuer-side read, and building the full
   // Relying Party chain to reach a presentation policy would obscure what is being asserted.
@@ -165,7 +172,10 @@ const seedPresentationPolicy = async (
     intendedUseIdentifier: `iu-${randomUUID().slice(0, 8)}`,
     purpose: [{ lang: "en", value: name }],
     privacyPolicyUris: [{ lang: "en", value: "https://example.test/privacy" }],
-    registeredCredentials: [],
+    // `vct_values` are derived from these, so an empty list would produce a DCQL query with none.
+    registeredCredentials: [
+      { format: "dc+sd-jwt", vctValues: ["urn:eudi:pid:1"], claims: [["birthdate"]] },
+    ],
     validFrom: seed.at,
     createdAt: seed.at,
   });
@@ -178,6 +188,35 @@ const seedPresentationPolicy = async (
     description: name,
     status: "ACTIVE",
     createdAt: seed.at,
+  });
+  // The version carries the content the issuer compiles its presentation configuration from, so a
+  // policy without one is not a usable gate — which is the point of the `publish: false` variant.
+  await harness.deps.db.insert(tables.presentationPolicyVersions).values({
+    id: randomUUID(),
+    tenantId: seed.tenantId,
+    policyId,
+    version: 1,
+    purpose: [{ lang: "en", value: name }],
+    credentialRequirements: [
+      { credentialType: "urn:eudi:pid:1", acceptedFormats: ["dc+sd-jwt"] },
+    ],
+    requestedClaims: [{ path: ["birthdate"] }],
+    trustPolicy: { anchorSources: [], statusCheckMode: "STRICT" },
+    resultPolicy: {
+      kind: "DERIVED_CLAIMS",
+      derivations: [
+        {
+          name: "AgeAtLeast",
+          sourcePath: ["birthdate"],
+          minimumAgeYears: 18,
+          outputClaim: "over_18",
+        },
+      ],
+    },
+    retentionPolicy: defaultRetentionPolicy(),
+    status: options.publish === false ? "DRAFT" : "PUBLISHED",
+    createdAt: seed.at,
+    publishedAt: options.publish === false ? null : seed.at,
   });
   return policyId;
 };
@@ -202,7 +241,7 @@ describe("the issuer configuration is composed from the provider, not from one p
     await seedPolicy(seed, { name: "Ordinary issuance" });
 
     const config = await issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId);
-    expect(config.eligibilityPresentationPolicyIds).toEqual([gate]);
+    expect(config.eligibilityPresentations.map((e) => e.policyId)).toEqual([gate]);
     expect(config.requiresBuiltInAuthorizationServer).toBe(true);
   });
 
@@ -212,8 +251,56 @@ describe("the issuer configuration is composed from the provider, not from one p
     await seedPolicy(seed, { name: "Gated issuance", gatedOn: gate });
 
     const config = await issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId);
-    expect(config.eligibilityPresentationPolicyIds).toEqual([gate]);
+    expect(config.eligibilityPresentations.map((e) => e.policyId)).toEqual([gate]);
     expect(config.requiresBuiltInAuthorizationServer).toBe(false);
+  });
+
+  it("carries the gating policy's content, not just its id", async () => {
+    // A22: the issuer writes the presentation configuration itself, on its own engine tenant. That
+    // needs the DCQL, which needs the policy's credential requirement and claims — and `vct_values`
+    // come from the intended use's **registered** credentials, so a query built without it would
+    // ask for a credential type the Relying Party never registered for.
+    const seed = await seedProvider("Example Organisation BV");
+    const gate = await seedPresentationPolicy(seed, "Adult verification");
+    await seedPolicy(seed, { name: "Gated issuance", gatedOn: gate });
+
+    const config = await issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId);
+    const presentation = config.eligibilityPresentations[0];
+    expect(presentation?.policyId).toBe(gate);
+    expect(presentation?.policyVersion).toBe(1);
+    expect(presentation?.credentialRequirement.credentialType).toBe("urn:eudi:pid:1");
+    expect(presentation?.requestedClaims).toEqual([{ path: ["birthdate"] }]);
+    expect(presentation?.statusCheckMode).toBe("STRICT");
+  });
+
+  it("reports the provider's own access certificate, which the gate is signed with", async () => {
+    // Not the Relying Party's. In the eligibility exchange the issuer *is* the Relying Party, and
+    // there had been no field for its certificate at all.
+    const seed = await seedProvider("Example Organisation BV");
+    await issuance().provisionAttestationProvider({
+      tenantId: seed.tenantId,
+      attestationProviderId: seed.providerId,
+      engineTenantRef: `engine-${seed.providerId}`,
+      signingKeyBindingRef: "attestation-key-1",
+      accessKeyBindingRef: "access-key-1",
+    });
+    await seedPolicy(seed, { name: "Ordinary issuance" });
+
+    const config = await issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId);
+    expect(config.accessKeyBindingRef).toBe("access-key-1");
+  });
+
+  it("refuses to compile a gate whose presentation policy has no published version", async () => {
+    // The issuance policy's foreign key guarantees the *policy* exists. It says nothing about
+    // whether anything was published, and a configuration compiled from a draft would advertise
+    // something nobody validated for use.
+    const seed = await seedProvider("Example Organisation BV");
+    const gate = await seedUnpublishedPresentationPolicy(seed, "Draft gate");
+    await seedPolicy(seed, { name: "Gated issuance", gatedOn: gate });
+
+    await expect(
+      issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId),
+    ).rejects.toMatchObject({ code: "eligibility_policy_not_published" });
   });
 
   it("ignores a draft version, because it has not been validated for use", async () => {
@@ -224,7 +311,7 @@ describe("the issuer configuration is composed from the provider, not from one p
     await seedPolicy(seed, { name: "Ordinary issuance" });
 
     const config = await issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId);
-    expect(config.eligibilityPresentationPolicyIds).toEqual([]);
+    expect(config.eligibilityPresentations).toEqual([]);
   });
 
   it("does not see another provider's policies", async () => {
@@ -235,7 +322,7 @@ describe("the issuer configuration is composed from the provider, not from one p
     await seedPolicy(mine, { name: "My issuance" });
 
     const config = await issuance().issuerConfigurationInputs(mine.tenantId, mine.providerId);
-    expect(config.eligibilityPresentationPolicyIds).toEqual([]);
+    expect(config.eligibilityPresentations).toEqual([]);
     expect(config.issuerDisplayName).toBe("Mine BV");
   });
 });

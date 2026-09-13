@@ -149,9 +149,12 @@ export class IssuanceService {
         signingKeyBindingRef,
         engineTenantRef,
         issuerDisplayName: issuerConfiguration.issuerDisplayName,
-        eligibilityPresentationPolicyIds: issuerConfiguration.eligibilityPresentationPolicyIds,
+        eligibilityPresentations: issuerConfiguration.eligibilityPresentations,
         requiresBuiltInAuthorizationServer:
           issuerConfiguration.requiresBuiltInAuthorizationServer,
+        ...(issuerConfiguration.accessKeyBindingRef
+          ? { accessKeyBindingRef: issuerConfiguration.accessKeyBindingRef }
+          : {}),
       },
       at: now,
     });

@@ -36,18 +36,13 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    valid.
 2. **The §7.3 PID-during-issuance flow, against the wallet.** Exercised at the platform and engine
    layer (`smoke-issuance.sh`, and the adapter contract test that decodes the nested request object
-   as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone —
-   and A22 first**, or it tests a coincidence of this stack's configuration.
+   as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone.**
+   A22 is fixed, so this now tests the flow rather than a coincidence of this stack's configuration.
 3. **Re-run the `hash_pid` stability test** with identical form values — the earlier run was
    inconclusive because the issuer had different values typed in. **Needs the phone**, and is free
    while nothing is registered.
-4. **A22 — the §7.3 seam, and the largest open item that needs no phone.** The eligibility
-   presentation is provisioned on the Relying Party Instance's engine tenant, lazily, with the
-   Relying Party's access certificate; the issuer resolves it on the Attestation Provider's tenant,
-   at provisioning, and has no access certificate of its own. All three work here only because
-   `rpi-1` is both the Relying Party Instance and the Attestation Provider. Full trace, with the
-   evidence for each of the three: `interop-findings.md` A22. **Do this before testing §7.3 against
-   a wallet** — otherwise the wallet run would prove the shared-tenant coincidence, not the flow.
+4. **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
+   first is a rename, the second needs a decision about what it should do.
 
 ## The two blockers, and which one moved
 
@@ -60,6 +55,14 @@ the wallet build and the trust list described below exist.
 **B5 — public HTTPS.** Was closed on the previous machine; the tunnel died with it and the hostnames
 are gone. It is open again *operationally* and reopening it is a matter of running the tunnel, not of
 solving anything.
+
+**A22 is fixed, and it is what made §7.3 worth testing.** The eligibility presentation used to be
+provisioned on the Relying Party Instance's engine tenant, lazily, with that Relying Party's access
+certificate — while the issuer resolved it on the Attestation Provider's tenant, at provisioning,
+with no certificate of its own. All three worked here only because `rpi-1` serves both roles. The
+provider now takes its own access certificate (migration 0007), and the issuer writes the
+presentation configuration itself. Verified live through the platform API, not just the adapter:
+`interop-findings.md` A22.
 
 **A20 is fixed, and it was bigger than recorded.** The engine's `POST /issuer/config` is
 tenant-scoped, and the platform was writing three tenant-level fields from whichever credential type
@@ -127,7 +130,7 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **280 unit, 105 integration**. The adapter contract suite is separate and
+`pnpm verify` passes: **280 unit, 115 integration**. The adapter contract suite is separate and
 needs a reachable engine: `ENGINE_BASE_URL=… ENGINE_TENANT_CREDENTIALS=… pnpm test:adapter` — 25
 tests, all passing against the live engine on 13 September 2026. Docker stack up, with a tenant and credentials
 in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.

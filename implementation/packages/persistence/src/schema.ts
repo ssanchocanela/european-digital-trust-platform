@@ -601,6 +601,14 @@ export const attestationProviders = pgTable(
     registrar: text("registrar"),
     /** Opaque reference to the engine key chain holding the attestation-signing key. */
     signingKeyBindingRef: text("signing_key_binding_ref"),
+    /**
+     * The provider's **own** access certificate, for the §7.3 eligibility presentation.
+     *
+     * In that exchange the issuer is the Relying Party and signs the request itself, so this is not
+     * the Relying Party Service's certificate. Nullable: only a provider that gates issuance on a
+     * presentation needs one. `interop-findings.md` A22, migration 0007.
+     */
+    accessKeyBindingRef: text("access_key_binding_ref"),
     /** The registration certificate published in the Credential Issuer metadata (gate a). */
     registrationCertificateJwt: text("registration_certificate_jwt"),
     registrationCertificateNotAfter: ts("registration_certificate_not_after"),

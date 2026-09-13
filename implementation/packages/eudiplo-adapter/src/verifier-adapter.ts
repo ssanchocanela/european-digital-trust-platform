@@ -12,8 +12,8 @@ import type {
 } from "@edtp/eudi-verifier-port";
 import { asId, PlatformError } from "@edtp/shared";
 import type { EngineClient } from "./client.js";
-import { buildDcqlQuery, toEngineStatusCheckMode } from "./dcql.js";
 import { normaliseOutcome } from "./outcome-mapping.js";
+import { buildPresentationConfigBody } from "./presentation-config.js";
 import {
   type EngineSessionResponse,
   engineOfferResponseSchema,
@@ -171,38 +171,21 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
     configId: string,
     plan: VerificationPlan,
   ): Promise<void> {
-    const body: Record<string, unknown> = {
-      id: configId,
-      // The engine's own documentation notes this description is not shown to the end
-      // user. The user-facing text is the registration certificate's `purpose`.
-      description: `Platform policy ${plan.policyId} version ${plan.policyVersion}`,
-      dcql_query: buildDcqlQuery(plan),
-      statusCheckMode: toEngineStatusCheckMode(plan.trustConstraints.statusCheckMode),
+    // The body itself is built by the shared function, because the **issuer** writes one too — for
+    // a §7.3 eligibility gate, on its own engine tenant, with its own access certificate. See
+    // `presentation-config.ts` and `interop-findings.md` A22.
+    const body = buildPresentationConfigBody({
+      configId,
+      policyId: plan.policyId,
+      policyVersion: plan.policyVersion,
+      credentialRequirement: plan.credentialRequirement,
+      requestedClaims: plan.requestedClaims,
+      statusCheckMode: plan.trustConstraints.statusCheckMode,
       accessKeyChainId: plan.relyingPartyContext.accessKeyBindingRef,
-    };
-
-    const jwt = plan.relyingPartyContext.registrationCertificateJwt;
-    if (jwt) {
-      // `registrationCertImportJwt` attaches a certificate we already hold, with no registrar
-      // call to issue one. The engine validates it and checks that it authorises every
-      // credential in the DCQL query — the engine-side half of the over-asking prevention in
-      // ADR 0005 Decision 2; it refuses a certificate with no authorised-credentials claim.
-      //
-      // **The field name and its type were both wrong here.** This sent
-      // `registrationCert: { jwt }`, which `PresentationConfigCreateDto` rejects outright —
-      // it declares `additionalProperties: false`, so the engine answers
-      // `unrecognized key(s) "registrationCert"` with a 400. The defect was invisible because
-      // V0 holds no certificate, so the branch never executed. Verified empirically against
-      // v7.6.0 on 11 September 2026; see `docs/interop-findings.md` A12.
-      //
-      // A second trap: the engine's own OpenAPI document declares this field as
-      // `{type: "array", items: {type: "string"}}`, but its zod validator wants a **string**
-      // and rejects an array with `expected string, received array`. The validator is the
-      // authority, as CLAUDE.md §6 item 10 says of this engine generally.
-      body.registrationCertImportJwt = jwt;
-    }
-    // With no registration certificate the request goes without one. V0 has no reachable
-    // provider (blocker B3); the omission is reported upward, never faked.
+      ...(plan.relyingPartyContext.registrationCertificateJwt
+        ? { registrationCertificateJwt: plan.relyingPartyContext.registrationCertificateJwt }
+        : {}),
+    });
 
     await this.client.request(engineTenantRef, "POST", "/verifier/config", body);
   }

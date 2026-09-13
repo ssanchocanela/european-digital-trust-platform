@@ -530,7 +530,7 @@ describe("issuance plan compilation", () => {
     // Provider-scoped, not policy-scoped: the engine's issuer configuration describes the
     // Credential Issuer, and composing it from one policy is `interop-findings.md` A20.
     issuerDisplayName: "Example Organisation BV",
-    eligibilityPresentationPolicyIds: [],
+    eligibilityPresentations: [],
     requiresBuiltInAuthorizationServer: true,
   };
 

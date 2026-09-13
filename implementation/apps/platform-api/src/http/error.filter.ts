@@ -52,17 +52,38 @@ interface PostgresError {
   readonly table?: string;
 }
 
-const asPostgresError = (e: unknown): PostgresError | undefined => {
-  if (typeof e !== "object" || e === null) return undefined;
-  const code = (e as { code?: unknown }).code;
-  if (typeof code !== "string") return undefined;
-  const record = e as Record<string, unknown>;
-  return {
-    code,
-    ...(typeof record.constraint === "string" ? { constraint: record.constraint } : {}),
-    ...(typeof record.detail === "string" ? { detail: record.detail } : {}),
-    ...(typeof record.table === "string" ? { table: record.table } : {}),
-  };
+/**
+ * Finds the PostgreSQL error, **including when the driver has wrapped it**.
+ *
+ * Drizzle 0.44 does not rethrow the `pg` error: it throws its own
+ * `Error: Failed query: insert into …` and hangs the original off `cause`. So reading `code` from
+ * the exception alone finds nothing, and every integrity violation fell through to the
+ * unhandled-error branch as a `500 internal_error` — the exact outcome the translation below exists
+ * to prevent, and which `CLAUDE.md` §6.15 describes as already fixed.
+ *
+ * Found on 13 September 2026 by colliding with `relying_parties_identifier_key` while testing
+ * something else. Nothing caught it because nothing tested it, and the test added with this fix
+ * provokes a **real** duplicate insert rather than hand-building an error shape — a hand-built one
+ * would keep passing the next time the driver changes how it wraps.
+ *
+ * The chain is walked with a bound, so a cyclic `cause` cannot spin.
+ */
+export const asPostgresError = (e: unknown): PostgresError | undefined => {
+  let current = e;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (typeof current !== "object" || current === null) return undefined;
+    const record = current as Record<string, unknown>;
+    if (typeof record.code === "string") {
+      return {
+        code: record.code,
+        ...(typeof record.constraint === "string" ? { constraint: record.constraint } : {}),
+        ...(typeof record.detail === "string" ? { detail: record.detail } : {}),
+        ...(typeof record.table === "string" ? { table: record.table } : {}),
+      };
+    }
+    current = record.cause;
+  }
+  return undefined;
 };
 
 /**

@@ -12,6 +12,7 @@ import type {
 import { asId, PlatformError } from "@edtp/shared";
 import type { EngineClient } from "./client.js";
 import { normaliseIssuanceOutcome } from "./issuance-outcome-mapping.js";
+import { buildPresentationConfigBody } from "./presentation-config.js";
 import {
   engineCredentialIssuerMetadataSchema,
   engineIssuerOfferResponseSchema,
@@ -161,13 +162,52 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       // and makes the engine-side object traceable to us.
       authorizationServers.push({ type: "built-in", id: "edtp-issuer-as", enabled: true });
     }
-    for (const policyId of context.eligibilityPresentationPolicyIds) {
+    if (context.eligibilityPresentations.length > 0 && !context.accessKeyBindingRef) {
+      // The eligibility presentation is a **signed request object from the issuer**, and a Wallet
+      // Unit accepts only an access certificate chaining to an anchor from a notified list
+      // (`AS-WP-06-005` / `RPA_04`). Without one, provisioning would produce an authorization step
+      // that fails on the phone with a message about the relying party — a failure a long way from
+      // its cause, which is the whole lesson of `interop-findings.md` A22.
+      throw PlatformError.engine(
+        "attestation_provider_has_no_access_certificate",
+        "This Attestation Provider gates issuance on a presentation but was provisioned without " +
+          "an access certificate. The request object would be signed by the wrong party, or not " +
+          "at all, and no Wallet would accept it.",
+      );
+    }
+
+    for (const eligibility of context.eligibilityPresentations) {
+      // **Written here, on the issuer's own engine tenant.** It used to be referenced and never
+      // written: the verifier adapter creates presentation configurations lazily, on the *Relying
+      // Party Instance's* tenant, at the first presentation. A gating policy nobody had presented
+      // against therefore resolved to nothing, and the engine accepts that silently (A21). It
+      // worked only where one engine tenant served both roles. `interop-findings.md` A22.
+      //
+      // Signed with the provider's access certificate, not the Relying Party's: reusing a
+      // verification policy means reusing its *content*, not the other party's credentials.
+      const configId = presentationConfigIdFor(eligibility.policyId);
+      await this.client.request(
+        engineTenantRef,
+        "POST",
+        "/verifier/config",
+        buildPresentationConfigBody({
+          configId,
+          policyId: eligibility.policyId,
+          policyVersion: eligibility.policyVersion,
+          credentialRequirement: eligibility.credentialRequirement,
+          requestedClaims: eligibility.requestedClaims,
+          statusCheckMode: eligibility.statusCheckMode,
+          // The provider's own, guaranteed present by the check above.
+          accessKeyChainId: context.accessKeyBindingRef as string,
+        }),
+      );
+
       authorizationServers.push({
         type: "oid4vp",
         // One per gating policy, so two PID-gated credential types on one provider do not collide
         // on a shared id — which would be A20 again, one level down.
-        id: eligibilityAuthorizationServerId(policyId),
-        presentationConfigId: presentationConfigIdFor(policyId),
+        id: eligibilityAuthorizationServerId(eligibility.policyId),
+        presentationConfigId: configId,
         enabled: true,
       });
     }
@@ -254,6 +294,31 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         // reading the field name. (`trustList` is the usage for signing a published ETSI TS 119 602
         // list, which is what `TrustAnchorPublication` will need.)
         usageType: "attestation",
+        description: input.name,
+        crt: [...input.certificateChain],
+      }),
+    );
+    return { keyBindingRef: response.id };
+  }
+
+  /**
+   * The provider's own access certificate, for the §7.3 eligibility presentation.
+   *
+   * `usageType: "access"` — the same value the verifier adapter uses, and for the same reason: this
+   * key signs a presentation *request*. What makes it a separate method rather than a flag is that
+   * the two keys belong to different roles the same organisation plays, and one method taking a
+   * usage type would make it possible to pass the wrong one. `interop-findings.md` A22.
+   */
+  async importAccessCertificate(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+    readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+    readonly certificateChain: readonly string[];
+  }): Promise<{ readonly keyBindingRef: string }> {
+    const response = keyChainIdSchema.parse(
+      await this.client.request(input.engineTenantRef, "POST", "/key-chain/import", {
+        key: input.privateKeyJwk,
+        usageType: "access",
         description: input.name,
         crt: [...input.certificateChain],
       }),

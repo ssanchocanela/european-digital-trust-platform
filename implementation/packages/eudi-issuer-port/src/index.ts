@@ -175,6 +175,21 @@ export interface EudiIssuerProvisioningPort {
     readonly certificateChain: readonly string[];
   }): Promise<{ readonly keyBindingRef: string }>;
 
+  /**
+   * Imports the provider's **own** access certificate, for the §7.3 eligibility presentation.
+   *
+   * Separate from `importSigningCertificate` because the two keys are not interchangeable: the
+   * engine keys trust decisions off the usage type, and an attestation-signing key used to sign a
+   * presentation request would be the wrong key in the wrong role. In that exchange the issuer is
+   * the Relying Party — `interop-findings.md` A22.
+   */
+  importAccessCertificate(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+    readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+    readonly certificateChain: readonly string[];
+  }): Promise<{ readonly keyBindingRef: string }>;
+
   /** Fetches the provider-authentication evidence a Wallet would see. Trust gate (a). */
   fetchProviderAuthenticationEvidence(
     engineTenantRef: string,

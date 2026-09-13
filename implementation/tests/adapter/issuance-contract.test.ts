@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   compileIssuancePolicy,
   defaultRetentionPolicy,
+  type EligibilityPresentation,
   type IssuancePlan,
   type IssuancePolicyVersion,
 } from "@edtp/domain";
@@ -53,6 +54,24 @@ const baseUrl = process.env.ENGINE_BASE_URL;
  * deliberately one that resolves to nothing.
  */
 const ELIGIBILITY_POLICY_ID = "00000000-0000-4000-8000-00000000a20a";
+
+/**
+ * The eligibility presentation the issuer will write on its **own** engine tenant.
+ *
+ * Content only — a credential requirement, claims, a status-check mode. No Relying Party context,
+ * because in this exchange the issuer is the Relying Party: `interop-findings.md` A22.
+ */
+const eligibilityFor = (policyId: string): EligibilityPresentation => ({
+  policyId,
+  policyVersion: 1,
+  credentialRequirement: {
+    credentialType: "urn:eudi:pid:1",
+    acceptedFormats: ["dc+sd-jwt"],
+    vctValues: ["urn:eudi:pid:1"],
+  },
+  requestedClaims: [{ path: ["birthdate"] }],
+  statusCheckMode: "STRICT",
+});
 const credentialsRaw = process.env.ENGINE_TENANT_CREDENTIALS;
 
 let adapter: EudiploIssuerAdapter | undefined;
@@ -89,7 +108,8 @@ const planFor = (
   registrationCertificateJwt?: string,
   over?: {
     readonly issuerDisplayName?: string;
-    readonly eligibilityPresentationPolicyIds?: readonly string[];
+    readonly eligibilityPresentations?: readonly EligibilityPresentation[];
+    readonly accessKeyBindingRef?: string;
     readonly requiresBuiltInAuthorizationServer?: boolean;
   },
 ): IssuancePlan => {
@@ -154,7 +174,8 @@ const planFor = (
       signingKeyBindingRef,
       engineTenantRef,
       issuerDisplayName: over?.issuerDisplayName ?? "Contract Test Organisation BV",
-      eligibilityPresentationPolicyIds: over?.eligibilityPresentationPolicyIds ?? [],
+      eligibilityPresentations: over?.eligibilityPresentations ?? [],
+      ...(over?.accessKeyBindingRef ? { accessKeyBindingRef: over.accessKeyBindingRef } : {}),
       requiresBuiltInAuthorizationServer: over?.requiresBuiltInAuthorizationServer ?? true,
     },
     at,
@@ -521,7 +542,8 @@ describe("issuance contract against a real engine (skipped when none is reachabl
     await adapter.provisionCredentialConfiguration({
       engineTenantRef,
       plan: planFor(undefined, {
-        eligibilityPresentationPolicyIds: [ELIGIBILITY_POLICY_ID],
+        eligibilityPresentations: [eligibilityFor(ELIGIBILITY_POLICY_ID)],
+        accessKeyBindingRef: accessKeyBindingRefForPresentation,
         requiresBuiltInAuthorizationServer: true,
       }),
     });
@@ -540,6 +562,50 @@ describe("issuance contract against a real engine (skipped when none is reachabl
     );
     // Both, which is the whole of A20: before the fix this list held exactly one.
     expect(list).toHaveLength(2);
+  }, 60_000);
+
+  it("writes the eligibility presentation configuration on the issuer's own engine tenant", async () => {
+    if (!reachable || !adapter || !client) return;
+    // A22. It used to be referenced and never written: the verifier adapter creates presentation
+    // configurations lazily, at the first presentation, on the *Relying Party Instance's* tenant.
+    // This asserts the configuration exists on the **issuer's** tenant after provisioning alone,
+    // with no presentation ever having been created — which is the state a gated issuance is in.
+    const policyId = "00000000-0000-4000-8000-00000000a22a";
+    await adapter.provisionCredentialConfiguration({
+      engineTenantRef,
+      plan: planFor(undefined, {
+        eligibilityPresentations: [eligibilityFor(policyId)],
+        accessKeyBindingRef: accessKeyBindingRefForPresentation,
+        requiresBuiltInAuthorizationServer: false,
+      }),
+    });
+
+    const configs = await client.request<{ id: string; accessKeyChainId?: string }[]>(
+      engineTenantRef,
+      "GET",
+      "/verifier/config",
+    );
+    const written = configs.find((c) => c.id === `p-${policyId}-v1`);
+    expect(written).toBeDefined();
+    // Signed with the **provider's** access certificate, not a Relying Party's. Reusing a
+    // verification policy means reusing its content, not another party's credentials.
+    expect(written?.accessKeyChainId).toBe(accessKeyBindingRefForPresentation);
+  }, 60_000);
+
+  it("refuses a gating policy when the provider has no access certificate of its own", async () => {
+    if (!reachable || !adapter) return;
+    // Without one the request object would be unsigned or signed by the wrong party, and a Wallet
+    // accepts only an access certificate chaining to a notified anchor (`AS-WP-06-005` / `RPA_04`).
+    // The failure belongs here, not on the phone.
+    await expect(
+      adapter.provisionCredentialConfiguration({
+        engineTenantRef,
+        plan: planFor(undefined, {
+          eligibilityPresentations: [eligibilityFor(ELIGIBILITY_POLICY_ID)],
+          requiresBuiltInAuthorizationServer: true,
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "attestation_provider_has_no_access_certificate" });
   }, 60_000);
 
   it("names the Credential Issuer after the organisation, not after a credential", async () => {
@@ -565,7 +631,7 @@ describe("issuance contract against a real engine (skipped when none is reachabl
       adapter.provisionCredentialConfiguration({
         engineTenantRef,
         plan: planFor(undefined, {
-          eligibilityPresentationPolicyIds: [],
+          eligibilityPresentations: [],
           requiresBuiltInAuthorizationServer: false,
         }),
       }),

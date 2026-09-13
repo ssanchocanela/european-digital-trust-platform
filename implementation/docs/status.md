@@ -34,13 +34,16 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    tunnel is not left running, and the access certificate's SAN carries today's hostname, so the
    next session needs one command to reissue the leaf — the CA is reused, so the wallet build stays
    valid.
-2. **Issuance, at the platform and engine layer** — a `smoke-issuance.sh` sibling of the VaaS one.
-   It exercises the four accepted-then-wrong engine payload shapes (`interop-findings.md` A14) on a
-   live stack for the first time, and makes `provider-authentication` report B7 with evidence
-   instead of by code reading. Needs no wallet.
-3. **File the Registrar defect report.** Drafted, unfiled, outward-facing.
-4. **Re-run the `hash_pid` stability test** with identical form values (needs the phone; free while
-   nothing is registered).
+2. **The §7.3 PID-during-issuance flow, against the wallet.** Exercised at the platform and engine
+   layer (`smoke-issuance.sh`, and the adapter contract test that decodes the nested request object
+   as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone.**
+3. **Re-run the `hash_pid` stability test** with identical form values — the earlier run was
+   inconclusive because the issuer had different values typed in. **Needs the phone**, and is free
+   while nothing is registered.
+4. **A21** — the platform now writes an `oid4vp` authorization server for every gating policy on a
+   provider, and the engine does not check that the presentation configuration exists. It needs the
+   verification and issuance provisioning paths to agree on when one is written: a design question,
+   not a patch.
 
 ## The two blockers, and which one moved
 
@@ -150,6 +153,10 @@ survive the move between machines, so nothing signed by the old key can be updat
 
 ## Open decisions
 
-- **File the Registrar defect report?** Drafted and unfiled; filing is outward-facing.
+- ~~**File the Registrar defect report?**~~ **Decided 13 September 2026: parked, not filed.** All six
+  reports in [`upstream/`](upstream/) stay as drafts; what to do with them is the repository owner's
+  call and is not a task a session should keep re-proposing. If it is ever picked up, the report says
+  what to check first: the observation is one afternoon's, and a silent server-side failure is the
+  kind of thing that gets fixed without an announcement — so retry the call before sending anything.
 - **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
   first is a rename, the second needs a decision about what it should do.

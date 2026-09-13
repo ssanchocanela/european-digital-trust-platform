@@ -45,8 +45,12 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1d.
 4. **Open PR #6.** Description drafted in [`pr-6-description.md`](pr-6-description.md), not filed —
    opening it is outward-facing. 46 commits, and the branch was reviewed for it: that pass found A23.
-5. **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
-   first is a rename, the second needs a decision about what it should do.
+5. ~~`pnpm db:migrate` and `pnpm api:openapi`~~ **Written, 13 September 2026.** Both scripts named
+   files that did not exist. `db:migrate` applies the checked-in migrations on purpose and reports
+   what it did — which matters now that 0006 changes data. `api:openapi` writes the business API's
+   contract to [`openapi.json`](openapi.json), 32 paths, so a route that changes shape is visible in
+   a diff rather than only in a hundred decorators. It needs `DATABASE_URL` and `ENGINE_BASE_URL`
+   set, though it contacts neither.
 
 ## The two blockers, and which one moved
 
@@ -182,5 +186,5 @@ survive the move between machines, so nothing signed by the old key can be updat
   call and is not a task a session should keep re-proposing. If it is ever picked up, the report says
   what to check first: the observation is one afternoon's, and a silent server-side failure is the
   kind of thing that gets fixed without an announcement — so retry the call before sending anything.
-- **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
-  first is a rename, the second needs a decision about what it should do.
+- ~~`pnpm db:migrate` / `pnpm api:openapi`~~ — **resolved 13 September 2026**, both written rather
+  than removed.

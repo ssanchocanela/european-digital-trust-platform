@@ -9,6 +9,7 @@ import { ApiKeyGuard } from "./http/auth.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
 import { Logger } from "./logging/logger.js";
 import { migrationsPath } from "./migrations-path.js";
+import { openApiConfig } from "./openapi.js";
 
 /**
  * Entry point.
@@ -45,16 +46,9 @@ const bootstrap = async (): Promise<void> => {
   app.useGlobalGuards(app.get(ApiKeyGuard));
   app.useGlobalFilters(new PlatformErrorFilter(logger));
 
-  const openapi = new DocumentBuilder()
-    .setTitle("European Digital Trust Platform — Verification as a Service")
-    .setDescription(
-      "V0 business API. Customers work with presentation policies and transactions; " +
-        "protocol details (DCQL, OpenID4VP, engine sessions) are not part of this contract. " +
-        "No ARF or Technical Specification conformance and no production readiness is claimed.",
-    )
-    .setVersion("0.1.0")
-    .addBearerAuth({ type: "http", scheme: "bearer", description: "Tenant API key" })
-    .build();
+  // Shared with `openapi-cli.ts`, which writes the same document to a file so the contract can be
+  // diffed in review. One definition, or the served and the checked-in one drift apart.
+  const openapi = openApiConfig(new DocumentBuilder());
   SwaggerModule.setup("openapi", app, SwaggerModule.createDocument(app, openapi));
 
   deps.jobs.start();

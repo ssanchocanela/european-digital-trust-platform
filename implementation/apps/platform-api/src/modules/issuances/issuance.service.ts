@@ -191,12 +191,87 @@ export class IssuanceService {
 
     // The attribute values for the offer. Fetched now because the pre-authorised-code flow puts
     // them in the offer, and discarded as soon as the port has them.
-    const claims = await this.fetchAndNarrow(
+    const sourceAttributes = await this.fetchFromSource(
       connector,
       plan,
       command.subjectReference,
       version,
     );
+
+    // The eligibility gate, for every flow that already knows who the subject is.
+    //
+    // Which is every flow except PID-during-issuance: with a pre-authorised code the business
+    // client named the subject and the attributes above were fetched to build the offer, so the
+    // question can be answered now. Answering it now asks the authentic source **once** rather than
+    // twice, and refuses the business client synchronously instead of refusing a person who has
+    // already scanned a code. With `eligibilityPresentationPolicyId` nobody knows who the subject
+    // is until the presentation lands, so that flow keeps its gate after the Wallet arrives.
+    //
+    // Until 13 September 2026 no flow evaluated anything: `advanceToIssuing` walked through
+    // ELIGIBILITY_CHECK unconditionally, so the transition log asserted a decision nobody had made
+    // and NOT_ELIGIBLE was unreachable. `interop-findings.md` A19.
+    if (!version.eligibilityPresentationPolicyId) {
+      await this.issuance.transition({
+        tenantId: command.tenantId,
+        id: issuanceId,
+        from: "CREATED",
+        to: "ELIGIBILITY_CHECK",
+        at: this.clock.now(),
+      });
+
+      const evaluator = this.resolveEvaluator(version.eligibilityRule.evaluator);
+      const decision = evaluator.evaluate({
+        // The source's answer, not the narrowed one: the rule may turn on an attribute the
+        // credential deliberately does not carry.
+        attributes: sourceAttributes,
+        parameters: version.eligibilityRule.parameters,
+        at: this.clock.now(),
+      });
+
+      if (!decision.eligible) {
+        await this.issuance.transition({
+          tenantId: command.tenantId,
+          id: issuanceId,
+          from: "ELIGIBILITY_CHECK",
+          to: "NOT_ELIGIBLE",
+          at: this.clock.now(),
+          // The reason is the evaluator's own words about a rule, never an attribute value: it
+          // reaches the customer-facing result, and `OIA_16` keeps disclosed values out of that.
+          patch: decision.reason ? { eligibilityReason: decision.reason } : {},
+        });
+        await this.audit.record({
+          tenantId: command.tenantId,
+          actor: "platform",
+          action: "issuance.not_eligible",
+          subjectType: "issuance",
+          subjectId: issuanceId,
+          detail: {
+            policyId: policy.id,
+            policyVersion: version.version,
+            evaluator: version.eligibilityRule.evaluator,
+          },
+        });
+
+        // No offer is created. Inviting a Wallet to collect something that will not be issued
+        // wastes an engine session and tells the holder nothing useful.
+        return {
+          issuanceId,
+          status: "NOT_ELIGIBLE",
+          ...(command.businessReference
+            ? { businessReference: command.businessReference }
+            : {}),
+          policyId: policy.id,
+          policyVersion: version.version,
+          ...(decision.reason ? { notEligibleReason: decision.reason } : {}),
+          expiresAt,
+          ...this.warningsFor(false, connector.kind),
+        };
+      }
+    }
+
+    // Narrowed only now, and only for the credential: everything the type does not declare is
+    // dropped before the attributes reach the engine.
+    const claims = this.narrowForCredential(sourceAttributes, plan, version);
 
     const offer = await this.issuer.createCredentialOffer({
       plan,
@@ -207,7 +282,7 @@ export class IssuanceService {
     await this.issuance.transition({
       tenantId: command.tenantId,
       id: issuanceId,
-      from: "CREATED",
+      from: version.eligibilityPresentationPolicyId ? "CREATED" : "ELIGIBILITY_CHECK",
       to: "OFFER_READY",
       at: this.clock.now(),
       patch: {
@@ -409,7 +484,16 @@ export class IssuanceService {
    * caller's stack frame. The eligibility decision happens here too, because it needs the values
    * and they must not outlive this call.
    */
-  private async fetchAndNarrow(
+  /**
+   * What the authentic source said, before anything is dropped.
+   *
+   * Separate from narrowing because the eligibility rule and the credential need different sets.
+   * A badge gated on age is the ordinary case: `birthdate` decides whether it may be issued and
+   * has no business being *in* it, so narrowing first leaves the evaluator with nothing to read —
+   * which is exactly what happened on 13 September 2026, when the adult fixture subject was
+   * refused for having "no usable date of birth".
+   */
+  private async fetchFromSource(
     connector: AuthenticSourceConnector,
     plan: IssuancePlan,
     subjectReference: string,
@@ -422,11 +506,17 @@ export class IssuanceService {
       requestedClaimPaths: plan.claimPathsToFetch,
       parameters: version.authenticSource.parameters,
     });
+    if (!raw) throw PlatformError.notFound("Subject at the authentic source");
+    return raw;
+  }
 
-    if (!raw) {
-      throw PlatformError.notFound("Subject at the authentic source");
-    }
-
+  private narrowForCredential(
+    raw: SourceAttributes,
+    plan: IssuancePlan,
+    version: {
+      readonly authenticSource: { readonly parameters: Readonly<Record<string, unknown>> };
+    },
+  ): SourceAttributes {
     // Validates and drops anything the type does not declare. The error carries claim paths only.
     return narrowToDeclaredClaims(raw, {
       id: "",
@@ -452,8 +542,14 @@ export class IssuanceService {
 
   private async advanceToIssuing(tenantId: TenantId, id: string): Promise<void> {
     const at = this.clock.now();
-    // The eligibility gate sits between the Wallet arriving and the attestation being signed, so
-    // the sequence is recorded even when the evaluator trivially approves.
+    // Walking through ELIGIBILITY_CHECK here records that the Wallet arrived and issuance began.
+    //
+    // For every flow the platform currently runs, the decision was already taken at creation and
+    // an ineligible subject never reached AWAITING_WALLET — so this is a passage, not a gate, and
+    // the comment says so rather than describing a check that does not happen here. The
+    // PID-during-issuance flow is where this becomes a real gate, and it is **not yet exercised**
+    // end to end (`interop-findings.md` A17): when it is, the evaluator must be consulted at this
+    // point, against the attributes the presentation identified.
     await this.issuance.transition({
       tenantId,
       id,

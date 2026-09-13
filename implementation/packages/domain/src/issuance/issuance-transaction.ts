@@ -61,13 +61,22 @@ export const isIssuanceTerminal = (state: IssuanceState): state is IssuanceTermi
  * - **`NOT_ELIGIBLE` is reachable only from `ELIGIBILITY_CHECK`**, because it is an answer to a
  *   question that must actually have been asked. Reaching it from anywhere else would mean
  *   reporting an eligibility decision that was never made.
+ * - **`ELIGIBILITY_CHECK` is reachable from `CREATED` as well as from `AWAITING_WALLET`**, because
+ *   the two issuance flows learn who the subject is at different moments. With a pre-authorised
+ *   code the business client names the subject up front and the attributes are fetched to build the
+ *   offer, so the question can be answered before a Wallet is invited to collect anything — which
+ *   asks the authentic source once instead of twice, and refuses the business client synchronously
+ *   rather than refusing a person who has already scanned a code. With PID-during-issuance
+ *   (`eligibilityPresentationPolicyId`) nobody knows who the subject is until the presentation
+ *   lands, so the gate stays after `AWAITING_WALLET`. The invariant that matters is unchanged: the
+ *   question is still asked before it is answered.
  * - **`EXPIRED` is reachable from every non-terminal state**, because the transaction lifetime is
  *   the platform's promise to the customer and must hold even if the engine stops responding.
  *
  * Nothing leaves a terminal state.
  */
 const ISSUANCE_TRANSITIONS: Readonly<Record<IssuanceState, readonly IssuanceState[]>> = {
-  CREATED: ["OFFER_READY", "PROTOCOL_ERROR", "CANCELLED", "EXPIRED"],
+  CREATED: ["ELIGIBILITY_CHECK", "OFFER_READY", "PROTOCOL_ERROR", "CANCELLED", "EXPIRED"],
   OFFER_READY: ["AWAITING_WALLET", "PROTOCOL_ERROR", "CANCELLED", "EXPIRED"],
   AWAITING_WALLET: [
     "ELIGIBILITY_CHECK",
@@ -77,7 +86,8 @@ const ISSUANCE_TRANSITIONS: Readonly<Record<IssuanceState, readonly IssuanceStat
     "CANCELLED",
     "EXPIRED",
   ],
-  ELIGIBILITY_CHECK: ["ISSUING", "NOT_ELIGIBLE", "PROTOCOL_ERROR", "EXPIRED"],
+  // `OFFER_READY` because the pre-authorised-code flow passes the gate before the offer exists.
+  ELIGIBILITY_CHECK: ["OFFER_READY", "ISSUING", "NOT_ELIGIBLE", "PROTOCOL_ERROR", "EXPIRED"],
   ISSUING: ["ISSUED", "TRUST_ERROR", "PROTOCOL_ERROR", "EXPIRED"],
   ISSUED: [],
   NOT_ELIGIBLE: [],

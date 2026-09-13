@@ -325,6 +325,17 @@ describe("issuance transaction state machine", () => {
     expect(canTransitionIssuance("ISSUING", "ISSUED")).toBe(true);
   });
 
+  it("allows the eligibility gate before the offer as well as after the wallet", () => {
+    // The two flows learn who the subject is at different moments: a pre-authorised code names the
+    // subject up front, PID-during-issuance only when the presentation lands. Both must be able to
+    // ask the question — asking it early is what lets the authentic source be consulted once and
+    // the business client refused synchronously. `interop-findings.md` A19.
+    expect(canTransitionIssuance("CREATED", "ELIGIBILITY_CHECK")).toBe(true);
+    expect(canTransitionIssuance("AWAITING_WALLET", "ELIGIBILITY_CHECK")).toBe(true);
+    expect(canTransitionIssuance("ELIGIBILITY_CHECK", "OFFER_READY")).toBe(true);
+    expect(canTransitionIssuance("ELIGIBILITY_CHECK", "ISSUING")).toBe(true);
+  });
+
   it("allows NOT_ELIGIBLE only from ELIGIBILITY_CHECK", () => {
     // It is an answer to a question that must actually have been asked.
     expect(canTransitionIssuance("ELIGIBILITY_CHECK", "NOT_ELIGIBLE")).toBe(true);

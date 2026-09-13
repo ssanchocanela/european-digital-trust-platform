@@ -196,8 +196,14 @@ no wallet can complete a collection and the register stays empty however many of
 console that showed offers without saying so would let an operator hand out a link and learn from a
 user that nothing works.
 
-Two of the eight planned screens remain unbuilt — Certificates and Tenants — plus Policies and
-Services, which the two builders partly cover. None is blocked.
+**All eight planned screens now exist.** Services shows what each registered and whether it holds an
+access certificate; Audit shows one presentation's trail, evidence only; Tenant shows what this
+credential can see and says why tenant creation is not there — it needs the admin key, and the
+console deliberately holds only a tenant key.
+
+The registry screens are **read-only on purpose**. A Service and its intended use record an
+authorisation, and a creation form would make that look like ordinary configuration while omitting
+the registration it stands for.
 
 ## mdoc: it works, and revocation checking does not
 

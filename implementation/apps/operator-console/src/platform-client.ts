@@ -139,6 +139,16 @@ export interface ProviderAuthentication {
   readonly message?: string;
 }
 
+/** One recorded step of a presentation. Evidence, never content. */
+export interface AuditEvent {
+  readonly at: string;
+  readonly action: string;
+  readonly actor?: string;
+  readonly outcome?: string;
+  readonly correlationId?: string;
+  readonly detail?: Readonly<Record<string, unknown>>;
+}
+
 export interface PlatformHealth {
   readonly status: string;
   readonly engine: string;
@@ -227,6 +237,11 @@ export class PlatformClient {
       })),
       truncated: page.nextCursor !== undefined,
     };
+  }
+
+  /** Which tenant this credential belongs to. */
+  async whoAmI(): Promise<{ readonly tenantId: string }> {
+    return this.call<{ tenantId: string }>("GET", "/v1/me");
   }
 
   /** The Relying Party Services an offer can be defined under. */
@@ -406,6 +421,44 @@ export class PlatformClient {
       `/v1/tenants/${encodeURIComponent(tenantId)}/attestation-providers?limit=100`,
     );
     return page.items;
+  }
+
+  /** The audit trail of one presentation. */
+  async listAudit(presentationId: string): Promise<readonly AuditEvent[]> {
+    const body = await this.call<unknown>(
+      "GET",
+      `/v1/presentations/${encodeURIComponent(presentationId)}/audit`,
+    );
+    // `{ presentationId, events }`, read from the route rather than assumed — the first version of
+    // this looked for `items` and rendered "No recorded events" over a trail that was there. Three
+    // defects in this codebase have now come from a shape that was guessed instead of checked
+    // (`interop-findings.md` A18, A24, and the console's own error envelope), so the other plausible
+    // shapes are tolerated rather than left to fail the same way.
+    if (Array.isArray(body)) return body as AuditEvent[];
+    const bag = body as { events?: unknown; items?: unknown };
+    if (Array.isArray(bag.events)) return bag.events as AuditEvent[];
+    return Array.isArray(bag.items) ? (bag.items as AuditEvent[]) : [];
+  }
+
+  /** Whether a Service's Relying Party Instance has been provisioned, and in which environment. */
+  async readInstance(
+    serviceId: string,
+  ): Promise<{ provisioned: boolean; trustEnvironment?: string }> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    try {
+      const service = await this.call<{ instance?: { trustEnvironment?: string } }>(
+        "GET",
+        `/v1/tenants/${encodeURIComponent(tenantId)}/rp-services/${encodeURIComponent(serviceId)}`,
+      );
+      const env = service.instance?.trustEnvironment;
+      return {
+        provisioned: service.instance !== undefined,
+        ...(env ? { trustEnvironment: env } : {}),
+      };
+    } catch {
+      // A Service with no instance is a normal state, not an error to surface on a list screen.
+      return { provisioned: false };
+    }
   }
 
   async health(): Promise<PlatformHealth> {

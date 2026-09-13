@@ -58,6 +58,7 @@ export const page = (options: LayoutOptions): string =>
     options.authenticated
       ? rawHtml(
           '<nav><a href="/offers">Verification</a> <a href="/issuance">Issuance</a> ' +
+            '<a href="/services">Services</a> <a href="/tenant">Tenant</a> ' +
             '<a href="/">Test driver</a> ' +
             '<a href="/registration">Registration</a> <a href="/health">Health</a>' +
             '<form method="post" action="/logout" class="inline"><button type="submit">Sign out</button></form></nav>',
@@ -191,6 +192,9 @@ button.link {
 }
 form.inline { display: inline; }
 code.format { color: var(--muted); font-size: 12px; }
+.kv { display: inline-block; margin-right: 12px; white-space: nowrap; }
+.claims code { margin-right: 10px; }
+header.top nav { flex-wrap: wrap; row-gap: 6px; }
 a { color: var(--accent); }
 main { max-width: 1000px; margin: 0 auto; padding: 24px 20px 64px; }
 h1 { font-size: 20px; margin: 0 0 4px; }

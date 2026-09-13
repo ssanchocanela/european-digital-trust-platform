@@ -11,7 +11,9 @@
           }
         },
         "summary": "Create a tenant (administrative)",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       }
     },
     "/v1/tenants/{tenantId}": {
@@ -33,7 +35,9 @@
           }
         },
         "summary": "Read a tenant",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/organisations": {
@@ -55,7 +59,9 @@
           }
         },
         "summary": "Register an Organisation",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_organisations",
@@ -75,7 +81,9 @@
           }
         },
         "summary": "List organisations",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/relying-parties": {
@@ -97,7 +105,9 @@
           }
         },
         "summary": "Register a Relying Party (TEST registration data)",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/rp-services": {
@@ -119,7 +129,9 @@
           }
         },
         "summary": "Register a Relying Party Service",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_relyingPartyServices",
@@ -139,7 +151,9 @@
           }
         },
         "summary": "List Relying Party Services",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/rp-services/{serviceId}": {
@@ -169,7 +183,9 @@
           }
         },
         "summary": "Read a Relying Party Service",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/rp-services/{serviceId}/intended-uses": {
@@ -199,7 +215,9 @@
           }
         },
         "summary": "Register an intended use",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_intendedUses",
@@ -227,7 +245,9 @@
           }
         },
         "summary": "List the intended uses of one Relying Party Service",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/rp-services/{serviceId}/registration-certificates": {
@@ -257,7 +277,9 @@
           }
         },
         "summary": "Record a registration certificate for one intended use",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/rp-services/{serviceId}/instance": {
@@ -287,7 +309,9 @@
           }
         },
         "summary": "Provision the Relying Party Instance and import its access certificate",
-        "tags": ["Tenants"]
+        "tags": [
+          "Tenants"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/presentation-policies": {
@@ -309,7 +333,9 @@
           }
         },
         "summary": "Create a presentation policy",
-        "tags": ["Presentation policies"]
+        "tags": [
+          "Presentation policies"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_presentationPolicies",
@@ -329,7 +355,9 @@
           }
         },
         "summary": "List presentation policies",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/presentation-policies/{policyId}": {
@@ -359,7 +387,9 @@
           }
         },
         "summary": "Read a presentation policy and its versions",
-        "tags": ["Presentation policies"]
+        "tags": [
+          "Presentation policies"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/presentation-policies/{policyId}/versions": {
@@ -389,7 +419,9 @@
           }
         },
         "summary": "Create a presentation policy version",
-        "tags": ["Presentation policies"]
+        "tags": [
+          "Presentation policies"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/presentation-policies/{policyId}/versions/{version}/publish": {
@@ -427,7 +459,9 @@
           }
         },
         "summary": "Publish a draft policy version",
-        "tags": ["Presentation policies"]
+        "tags": [
+          "Presentation policies"
+        ]
       }
     },
     "/v1/presentations": {
@@ -440,18 +474,30 @@
           }
         },
         "summary": "Create a presentation transaction",
-        "tags": ["Presentations"]
+        "tags": [
+          "Presentations"
+        ]
       },
       "get": {
         "operationId": "TransactionListingController_presentations",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "policyId",
+            "required": false,
+            "in": "query",
+            "description": "Narrows to one presentation policy.",
+            "schema": {}
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
           }
         },
         "summary": "List presentation transactions. Metadata only — never a result",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/presentations/{presentationId}": {
@@ -473,7 +519,9 @@
           }
         },
         "summary": "Read a presentation transaction and its result",
-        "tags": ["Presentations"]
+        "tags": [
+          "Presentations"
+        ]
       }
     },
     "/v1/presentations/{presentationId}/cancel": {
@@ -495,7 +543,9 @@
           }
         },
         "summary": "Cancel a presentation transaction",
-        "tags": ["Presentations"]
+        "tags": [
+          "Presentations"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/attestation-providers": {
@@ -517,7 +567,9 @@
           }
         },
         "summary": "Register an Organisation as an Attestation Provider (TEST)",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_attestationProviders",
@@ -537,7 +589,9 @@
           }
         },
         "summary": "List Attestation Providers",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/attestation-providers/{providerId}/provision": {
@@ -567,7 +621,9 @@
           }
         },
         "summary": "Release the provider's engine tenant so another provider can be given it",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       },
       "post": {
         "operationId": "IssuanceConfigurationController_provision",
@@ -595,7 +651,9 @@
           }
         },
         "summary": "Provision the engine tenant, signing key and registration certificate",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/attestation-providers/{providerId}/provider-authentication": {
@@ -625,7 +683,9 @@
           }
         },
         "summary": "What a Wallet would see when authenticating this provider (ARF §6.6.2.2)",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/credential-types": {
@@ -647,7 +707,9 @@
           }
         },
         "summary": "Define a credential type and the Rulebook that governs it",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_credentialTypes",
@@ -667,7 +729,9 @@
           }
         },
         "summary": "List credential types",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/credential-types/{credentialTypeId}": {
@@ -697,7 +761,9 @@
           }
         },
         "summary": "Read a credential type",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/issuance-policies": {
@@ -719,7 +785,9 @@
           }
         },
         "summary": "Create an issuance policy",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       },
       "get": {
         "operationId": "TenantListingController_issuancePolicies",
@@ -739,7 +807,9 @@
           }
         },
         "summary": "List issuance policies",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/issuance-policies/{policyId}": {
@@ -769,7 +839,9 @@
           }
         },
         "summary": "Read an issuance policy and its versions",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       }
     },
     "/v1/tenants/{tenantId}/issuance-policies/{policyId}/versions": {
@@ -799,7 +871,9 @@
           }
         },
         "summary": "Create, and optionally publish, an issuance policy version",
-        "tags": ["issuance-configuration"]
+        "tags": [
+          "issuance-configuration"
+        ]
       }
     },
     "/v1/issuances": {
@@ -812,18 +886,30 @@
           }
         },
         "summary": "Create an issuance and obtain a credential offer",
-        "tags": ["issuances"]
+        "tags": [
+          "issuances"
+        ]
       },
       "get": {
         "operationId": "TransactionListingController_issuances",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "policyId",
+            "required": false,
+            "in": "query",
+            "description": "Narrows to one issuance policy.",
+            "schema": {}
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
           }
         },
         "summary": "List issuance transactions",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/issuances/{issuanceId}": {
@@ -845,7 +931,9 @@
           }
         },
         "summary": "Read an issuance transaction",
-        "tags": ["issuances"]
+        "tags": [
+          "issuances"
+        ]
       }
     },
     "/v1/issued-credentials/{issuedCredentialId}/revoke": {
@@ -867,7 +955,9 @@
           }
         },
         "summary": "Revoke an issued attestation. Irreversible — `AS-AP-07-007` (`VCR_04`)",
-        "tags": ["issuances"]
+        "tags": [
+          "issuances"
+        ]
       }
     },
     "/v1/issued-credentials/{issuedCredentialId}/status": {
@@ -889,7 +979,9 @@
           }
         },
         "summary": "Suspend or reinstate an issued attestation. `VALID` only from `SUSPENDED`",
-        "tags": ["issuances"]
+        "tags": [
+          "issuances"
+        ]
       }
     },
     "/v1/me": {
@@ -902,7 +994,9 @@
           }
         },
         "summary": "The tenant the presented credential belongs to",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/issued-credentials": {
@@ -915,7 +1009,9 @@
           }
         },
         "summary": "List issued attestations. No status-list index, no engine reference",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/v1/presentations/{presentationId}/audit": {
@@ -937,7 +1033,9 @@
           }
         },
         "summary": "The audit trail of one presentation. Evidence, never content",
-        "tags": ["Listing"]
+        "tags": [
+          "Listing"
+        ]
       }
     },
     "/health": {
@@ -950,7 +1048,9 @@
           }
         },
         "summary": "Health check",
-        "tags": ["Health"]
+        "tags": [
+          "Health"
+        ]
       }
     }
   },

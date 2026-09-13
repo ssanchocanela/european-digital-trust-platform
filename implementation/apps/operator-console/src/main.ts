@@ -41,6 +41,7 @@ import {
   registrationLoginView,
   registrationView,
 } from "./registration-views.js";
+import { auditView, servicesView, tenantView } from "./registry-views.js";
 import { clearSession, hasValidSession, isCorrectPassword, issueSession } from "./session.js";
 import {
   CONSOLE_JS,
@@ -245,6 +246,94 @@ const main = async (): Promise<void> => {
       return;
     }
     response.status(401).type("text").send("Not signed in.");
+  });
+
+  // --- the registry: what this tenant is ---------------------------------------------------------
+
+  app.get("/services", async (_request, response) => {
+    try {
+      const services = await platform.listServices();
+      const detailed = await Promise.all(
+        services.map(async (service) => ({
+          ...service,
+          intendedUses: await platform.listIntendedUses(service.id).catch(() => []),
+          instance: await platform.readInstance(service.id),
+        })),
+      );
+      render(response, "Relying Party Services", servicesView({ services: detailed }), true);
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Relying Party Services",
+        servicesView({ services: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.get("/presentations/:presentationId/audit", async (request, response) => {
+    const id = request.params.presentationId ?? "";
+    try {
+      const events = await platform.listAudit(id);
+      render(response, "Audit trail", auditView({ presentationId: id, events }), true);
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Audit trail",
+        auditView({ presentationId: id, events: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.get("/tenant", async (_request, response) => {
+    try {
+      // Counted from the same list routes every other screen uses. The console has no privileged
+      // view, so these are the numbers its own credential can see and no others.
+      const [me, services, offers, issuance, providers, gate, health] = await Promise.all([
+        platform.whoAmI(),
+        platform.listServices(),
+        platform.listPresentationPolicies(),
+        platform.listIssuancePolicies(),
+        platform.listAttestationProviders(),
+        readGate(),
+        platform.health(),
+      ]);
+      render(
+        response,
+        "This tenant",
+        tenantView({
+          tenantId: me.tenantId,
+          services: services.length,
+          presentationPolicies: offers.options.length,
+          issuancePolicies: issuance.length,
+          providers: providers.length,
+          ...(gate ? { gate } : {}),
+          platform: health.status,
+          engine: health.engine,
+        }),
+        true,
+      );
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "This tenant",
+        tenantView({
+          tenantId: "—",
+          services: 0,
+          presentationPolicies: 0,
+          issuancePolicies: 0,
+          providers: 0,
+          platform: "unknown",
+          engine: "unknown",
+          error: messageOf(error),
+        }),
+        true,
+      );
+    }
   });
 
   // --- issuance ----------------------------------------------------------------------------------

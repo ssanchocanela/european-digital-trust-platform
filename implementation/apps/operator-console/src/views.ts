@@ -221,6 +221,10 @@ export const presentationView = (options: {
 
   return html`
     <h1>Presentation</h1>
+    <p class="crumb">
+      <a href="/presentations/${created.presentationId}/audit">Audit trail</a> — evidence, never
+      content
+    </p>
     <p class="lead">
       <code>${view.presentationId}</code> · policy <code>${view.policyId}</code> v${view.policyVersion}
       · expires ${view.expiresAt}

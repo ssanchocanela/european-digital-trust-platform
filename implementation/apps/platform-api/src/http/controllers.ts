@@ -174,12 +174,26 @@ export class TenantController {
       id,
       asId<"RelyingPartyServiceId">(serviceId),
     );
+    // Whether the Service has a provisioned Relying Party Instance, and in which trust environment.
+    // **Not the certificate, and not the engine tenant reference** — the first is material a console
+    // has no use for and the second is internal correlation metadata that never leaves the platform.
+    // What a caller needs to know is whether this Service can sign a presentation request at all,
+    // and without this there was no way to ask: the operator console's certificate view had to
+    // report "none" for a Service that has held one all along.
+    const instance = await this.registration.findInstanceForService(
+      id,
+      asId<"RelyingPartyServiceId">(serviceId),
+    );
+
     return {
       serviceId: service.id,
       serviceIdentifier: service.serviceIdentifier,
       serviceTradeName: service.serviceTradeName,
       description: service.description,
       callbackUrlAllowList: service.callbackUrlAllowList,
+      ...(instance
+        ? { instance: { provisioned: true, trustEnvironment: instance.trustEnvironment } }
+        : { instance: { provisioned: false } }),
     };
   }
 

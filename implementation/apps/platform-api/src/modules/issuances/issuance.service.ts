@@ -198,19 +198,26 @@ export class IssuanceService {
       version,
     );
 
-    // The eligibility gate, for every flow that already knows who the subject is.
+    // The eligibility gate, for every flow.
     //
-    // Which is every flow except PID-during-issuance: with a pre-authorised code the business
-    // client named the subject and the attributes above were fetched to build the offer, so the
-    // question can be answered now. Answering it now asks the authentic source **once** rather than
+    // Answered here because here is where the answer exists: the business client named the subject
+    // — `subjectReference` is required in every flow — and the attributes above were fetched from
+    // the authentic source to build the offer. Answering now asks that source **once** rather than
     // twice, and refuses the business client synchronously instead of refusing a person who has
-    // already scanned a code. With `eligibilityPresentationPolicyId` nobody knows who the subject
-    // is until the presentation lands, so that flow keeps its gate after the Wallet arrives.
+    // already scanned a code.
+    //
+    // PID-during-issuance does not change that. Its `oid4vp` authorization server makes the engine
+    // require a PID presentation before it will issue, which authorises the **holder**; it supplies
+    // no eligibility attributes and does not tell us who the subject is, since we were told. An
+    // earlier version of this code skipped the evaluation for that flow on the assumption that it
+    // would run at the later gate instead, and the later gate evaluates nothing — so that flow had
+    // no eligibility check at all. Whether the presented PID *matches* the named subject is a
+    // separate question, about holder binding rather than about a rule.
     //
     // Until 13 September 2026 no flow evaluated anything: `advanceToIssuing` walked through
     // ELIGIBILITY_CHECK unconditionally, so the transition log asserted a decision nobody had made
     // and NOT_ELIGIBLE was unreachable. `interop-findings.md` A19.
-    if (!version.eligibilityPresentationPolicyId) {
+    {
       await this.issuance.transition({
         tenantId: command.tenantId,
         id: issuanceId,
@@ -282,7 +289,7 @@ export class IssuanceService {
     await this.issuance.transition({
       tenantId: command.tenantId,
       id: issuanceId,
-      from: version.eligibilityPresentationPolicyId ? "CREATED" : "ELIGIBILITY_CHECK",
+      from: "ELIGIBILITY_CHECK",
       to: "OFFER_READY",
       at: this.clock.now(),
       patch: {

@@ -147,6 +147,10 @@ services:
       DATABASE_SSL: "false"
       PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:?set PLATFORM_ADMIN_API_KEY in .env}
       PLATFORM_PUBLIC_URL: ${PLATFORM_PUBLIC_URL:-http://localhost:3100}
+      # PID-during-issuance (§7.3). Off unless .env says otherwise, and it was not forwarded at all
+      # until 13 September 2026 — so setting it in .env changed nothing and the API kept refusing
+      # the flow with a message about a flag that was, from its point of view, correctly false.
+      FEATURE_PID_DURING_ISSUANCE: ${FEATURE_PID_DURING_ISSUANCE:-false}
       # The engine is reached over the internal compose network only.
       ENGINE_BASE_URL: http://eudiplo:3000
       ENGINE_TENANT_CREDENTIALS: ${ENGINE_TENANT_CREDENTIALS:?set ENGINE_TENANT_CREDENTIALS in .env}

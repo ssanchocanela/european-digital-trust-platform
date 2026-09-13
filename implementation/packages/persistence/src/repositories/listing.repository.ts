@@ -1,5 +1,5 @@
 import type { TenantId } from "@edtp/shared";
-import { and, desc, eq, lt, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, lt, or, type SQL, sql } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { Database } from "../db.js";
 import { type Page, type PageRequest, toPage } from "../pagination.js";
@@ -12,6 +12,7 @@ import {
   issuedCredentials,
   organisations,
   presentationPolicies,
+  presentationPolicyVersions,
   presentationTransactions,
   relyingPartyServices,
 } from "../schema.js";
@@ -151,22 +152,93 @@ export class ListingRepository {
     );
   }
 
+  /**
+   * The one list that does not use `keyset`, because the only two things that make it usable are
+   * not in its own table.
+   *
+   * A caller choosing a policy to start a transaction with needs two answers the policy row cannot
+   * give. **Which Relying Party Service it belongs to**, because two policies may carry almost the
+   * same name while their Services hold different access certificates — a distinction that is
+   * invisible here and decides whether a wallet accepts the request at all. And **whether it has a
+   * published version**, because `resolvePublishedVersion` rejects a policy that does not, so
+   * offering one is offering a failure that arrives later and looks like something else.
+   *
+   * Both are joins, and they are the reason a picker is worth more than a text box: a text box is
+   * honestly blank, whereas a list that omits these actively invites the wrong choice.
+   *
+   * The keyset semantics are preserved exactly — same ordering, same `limit + 1`, same cursor
+   * comparison on the `(createdAt, id)` pair — because pagination correctness does not become
+   * negotiable just because the query grew a join.
+   */
   async presentationPolicies(
     tenantId: TenantId,
     page: PageRequest,
   ): Promise<Page<NamedListItem>> {
-    const rows = await this.keyset(
-      presentationPolicies,
-      presentationPolicies.createdAt,
-      tenantId,
-      page,
-    );
+    const conditions: SQL[] = [eq(presentationPolicies.tenantId, tenantId)];
+    if (page.cursor) {
+      const afterCursor = or(
+        lt(presentationPolicies.createdAt, page.cursor.createdAt),
+        and(
+          eq(presentationPolicies.createdAt, page.cursor.createdAt),
+          lt(presentationPolicies.id, page.cursor.id),
+        ),
+      );
+      if (afterCursor) {
+        conditions.push(afterCursor);
+      }
+    }
+
+    // The highest published version, or null when there is none. A correlated subquery rather than
+    // a join with a GROUP BY: the policy row must survive having no published version at all, which
+    // is precisely the case the picker has to be able to show.
+    const latestPublished = sql<number | null>`(
+      select max(${presentationPolicyVersions.version})
+      from ${presentationPolicyVersions}
+      where ${presentationPolicyVersions.policyId} = ${presentationPolicies.id}
+        and ${presentationPolicyVersions.status} = 'PUBLISHED'
+    )`;
+
+    const rows = await this.db
+      .select({
+        id: presentationPolicies.id,
+        name: presentationPolicies.name,
+        createdAt: presentationPolicies.createdAt,
+        status: presentationPolicies.status,
+        intendedUseId: presentationPolicies.intendedUseId,
+        relyingPartyServiceId: presentationPolicies.relyingPartyServiceId,
+        relyingPartyServiceName: relyingPartyServices.serviceTradeName,
+        publishedVersion: latestPublished,
+      })
+      .from(presentationPolicies)
+      // Inner join is correct and is not a filter in disguise: the column is `notNull` with a
+      // foreign key, so every policy has exactly one Service and none can be hidden by this.
+      .innerJoin(
+        relyingPartyServices,
+        eq(presentationPolicies.relyingPartyServiceId, relyingPartyServices.id),
+      )
+      .where(and(...conditions))
+      .orderBy(desc(presentationPolicies.createdAt), desc(presentationPolicies.id))
+      .limit(page.limit + 1);
+
     return toPage(
       rows.map((r) => ({
         id: r.id,
         name: r.name,
         createdAt: r.createdAt,
-        detail: { intendedUseId: r.intendedUseId },
+        detail: {
+          /** `ACTIVE` or `RETIRED` — the container, not the version. */
+          status: r.status,
+          intendedUseId: r.intendedUseId,
+          relyingPartyServiceId: r.relyingPartyServiceId,
+          relyingPartyServiceName: r.relyingPartyServiceName,
+          /**
+           * The version an omitted `policyVersion` resolves to, or `null` when the policy has no
+           * published version and therefore cannot start a transaction at all. Not a boolean: a
+           * caller that wants to pin the version needs the number, and a caller that only wants to
+           * know whether it can start reads it as present-or-not.
+           */
+          publishedVersion: r.publishedVersion ?? null,
+        },
       })),
       page.limit,
       keyOf,

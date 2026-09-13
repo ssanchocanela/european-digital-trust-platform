@@ -38,9 +38,8 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    It exercises the four accepted-then-wrong engine payload shapes (`interop-findings.md` A14) on a
    live stack for the first time, and makes `provider-authentication` report B7 with evidence
    instead of by code reading. Needs no wallet.
-3. **The console's policy picker.** The Test driver still says the platform API has no list route;
-   it has had one since web phase B1, which is why a policy UUID is typed by hand.
-4. **File the Registrar defect report.** Drafted, unfiled, outward-facing.
+3. **File the Registrar defect report.** Drafted, unfiled, outward-facing.
+4. **A20** — one engine tenant per Attestation Provider.
 
 ## The two blockers, and which one moved
 
@@ -109,14 +108,20 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **275 unit, 92 integration**. Docker stack up, with a tenant and credentials
+`pnpm verify` passes: **280 unit, 97 integration**. Docker stack up, with a tenant and credentials
 in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.
 
 Two published policies, and the difference matters. `f7013836-…` belongs to the smoke test's
 service, whose instance holds a **self-signed** certificate no wallet will accept.
 **`30627f9a-3e6b-4d56-89ed-3e9b1e0af801`** belongs to the service provisioned with the development
 CA's certificate, and is the one a wallet test must use — `test-session.sh present` now refuses the
-other one rather than leaving it to be discovered on the phone. There is no route to replace an instance's
+other one rather than leaving it to be discovered on the phone, and the console's picker names the
+Relying Party Service beside each policy so the two are told apart before anything is started.
+
+**The platform cannot show which certificate an instance holds.** It lives in the engine and
+`RelyingPartyInstance` keeps only an opaque `engineTenantRef`. The Service name is the closest
+honest proxy, which is why both the script and the console stop at it — the script can go further
+only because it reads the `client_id` back out of a presentation it already created. There is no route to replace an instance's
 certificate — `POST …/instance` creates, and nothing updates — which is why a second service exists
 rather than the first being corrected.
 
@@ -132,7 +137,5 @@ survive the move between machines, so nothing signed by the old key can be updat
 ## Open decisions
 
 - **File the Registrar defect report?** Drafted and unfiled; filing is outward-facing.
-- **The policy picker in the Test driver.** That screen still says the platform API has no list
-  route. It has had one since web phase B1, which is why a policy UUID has to be typed by hand.
 - **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
   first is a rename, the second needs a decision about what it should do.

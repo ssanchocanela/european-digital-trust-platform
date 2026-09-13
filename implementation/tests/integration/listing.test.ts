@@ -205,6 +205,90 @@ describe("what a list item may contain", () => {
   });
 });
 
+describe("the policy list, which is the one a caller chooses from", () => {
+  /**
+   * This list is the only one that joins, and the joins are the reason it is usable at all.
+   *
+   * A caller picking a policy to start a transaction with needs two answers the policy row does not
+   * hold: which Relying Party Service it belongs to, because two Services may hold different access
+   * certificates while their policies read almost alike; and whether it has a published version,
+   * because `resolvePublishedVersion` rejects one that does not. Offering a policy that cannot start
+   * is worse than offering nothing, since the failure arrives later and looks like something else.
+   *
+   * Hand-rolling the keyset for this query is the risk the pagination tests below exist for.
+   */
+  it("names the Relying Party Service a policy belongs to", async () => {
+    const result = await listing().presentationPolicies(alice.tenantId, page());
+    const item = result.items.find((i) => i.id === alice.policyId);
+    expect(item?.detail?.relyingPartyServiceName).toBe("Example Age Gate");
+    expect(item?.detail?.relyingPartyServiceId).toBe(alice.serviceId);
+  });
+
+  it("reports the version an omitted policyVersion would resolve to", async () => {
+    const result = await listing().presentationPolicies(alice.tenantId, page());
+    const item = result.items.find((i) => i.id === alice.policyId);
+    expect(item?.detail?.publishedVersion).toBe(1);
+  });
+
+  it("lists a policy with no published version, and says it has none", async () => {
+    // Listed rather than filtered out: a caller who knows the policy exists must not have to wonder
+    // whether it was deleted. `null` rather than absent, so "no published version" is a value a
+    // caller can render instead of a field it has to infer from a missing key.
+    const draftOnly = await seedTenant(harness, {
+      name: "Carol Unpublished",
+      engineTenantRef: "engine-tenant-c",
+      publishPolicy: false,
+    });
+    const result = await listing().presentationPolicies(draftOnly.tenantId, page());
+    const item = result.items.find((i) => i.id === draftOnly.policyId);
+    expect(item).toBeDefined();
+    expect(item?.detail?.publishedVersion).toBeNull();
+  });
+
+  it("does not let the join reach another tenant's Services", async () => {
+    // The join is on `relying_party_service_id` alone; the tenant scope lives in the WHERE. A
+    // regression here would show another tenant's trade names, which is exactly the disclosure the
+    // list routes were reviewed for.
+    const result = await listing().presentationPolicies(alice.tenantId, page());
+    expect(result.items).toHaveLength(1);
+    expect(result.items.every((i) => i.id === alice.policyId)).toBe(true);
+    const serialised = JSON.stringify(result.items);
+    expect(serialised).not.toContain(bob.policyId);
+    expect(serialised).not.toContain(bob.serviceId);
+  });
+
+  it("paginates on the same keyset the other lists use", async () => {
+    // Written out by hand for this query, so it is walked rather than trusted — and the harness runs
+    // on a `FixedClock`, so all five rows carry the *same* `createdAt`. That makes this the strongest
+    // form of the case a naive keyset gets wrong: comparing the timestamp alone, every page after the
+    // first would be empty or would repeat, and the total below would not be five distinct ids.
+    const extra = 4;
+    for (let i = 0; i < extra; i += 1) {
+      await harness.deps.services.policies.createPolicy({
+        tenantId: alice.tenantId,
+        relyingPartyServiceId: alice.serviceId,
+        intendedUseId: alice.intendedUseId,
+        name: `Extra policy ${i}`,
+        description: "Seeded to walk page boundaries.",
+      });
+    }
+
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = await listing().presentationPolicies(alice.tenantId, {
+        limit: 2,
+        ...(cursor ? { cursor: parsePageRequest({ cursor }).cursor } : {}),
+      });
+      seen.push(...result.items.map((i) => i.id));
+      cursor = result.nextCursor;
+    } while (cursor);
+
+    expect(seen).toHaveLength(extra + 1);
+    expect(new Set(seen).size).toBe(extra + 1);
+  });
+});
+
 describe("page request parsing", () => {
   it("defaults the limit rather than returning everything", () => {
     expect(parsePageRequest({}).limit).toBe(DEFAULT_PAGE_SIZE);

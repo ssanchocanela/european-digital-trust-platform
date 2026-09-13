@@ -8,7 +8,8 @@
  */
 import { escapeHtml, html, rawHtml, toHtmlString } from "@edtp/operator-console/html.js";
 import { InteractionCache } from "@edtp/operator-console/interaction-cache.js";
-import { statusPayload } from "@edtp/operator-console/views.js";
+import type { PolicyOption } from "@edtp/operator-console/platform-client.js";
+import { statusPayload, testDriverView } from "@edtp/operator-console/views.js";
 import { describe, expect, it } from "vitest";
 
 describe("escaping", () => {
@@ -123,5 +124,85 @@ describe("the interaction cache", () => {
     now = 11 * 60 * 1_000;
     expect(cache.get("p-1")).toBeUndefined();
     expect(cache.size).toBe(0);
+  });
+});
+
+describe("the policy picker", () => {
+  /**
+   * The picker exists because of a specific hour lost on 13 September 2026: two policies whose names
+   * differ by a suffix belong to Relying Party Services whose instances hold different access
+   * certificates, and the wallet's refusal says only that the relying party could not be verified.
+   *
+   * So these tests are not about a `<select>` rendering. They pin the three properties that make the
+   * list safer than the text box it replaced, each of which is easy to lose in a later tidy-up.
+   */
+  const option = (over: Partial<PolicyOption> = {}): PolicyOption => ({
+    id: "30627f9a-3e6b-4d56-89ed-3e9b1e0af801",
+    name: "Adult verification",
+    relyingPartyServiceName: "Smoke Test Age Gate",
+    publishedVersion: 1,
+    status: "ACTIVE",
+    ...over,
+  });
+
+  const render = (options: Parameters<typeof testDriverView>[0]) =>
+    toHtmlString(testDriverView(options));
+
+  it("names the Relying Party Service beside every policy", () => {
+    // The whole point. Two near-identical names are told apart only by their Service.
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [
+        option(),
+        option({
+          id: "f7013836-7656-402b-9745-b762acfea774",
+          name: "Adult verification (WD-3)",
+          relyingPartyServiceName: "EDTP EUDI Gate (WD-3)",
+        }),
+      ],
+    });
+    expect(out).toContain("Adult verification — Smoke Test Age Gate");
+    expect(out).toContain("Adult verification (WD-3) — EDTP EUDI Gate (WD-3)");
+  });
+
+  it("disables a policy that cannot start a transaction, and says why", () => {
+    // Offering it would produce `no_published_policy_version` at submit — the same lesson, learned
+    // later and less clearly. Hiding it would leave someone hunting for a policy they know exists.
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [option({ publishedVersion: null }), option({ id: "b", status: "RETIRED" })],
+    });
+    expect(out).toContain("(no published version)");
+    expect(out).toContain("(retired)");
+    expect(out.match(/ disabled/g)?.length).toBe(3); // two policies plus the placeholder
+  });
+
+  it("falls back to the text box when the list could not be read, and says so", () => {
+    // A screen that cannot start a presentation because a *list* call failed would be worse than the
+    // screen that never had a list.
+    const out = render({ sameDeviceAvailable: true, policiesError: "engine_unreachable" });
+    expect(out).toContain('<input type="text" name="policyId"');
+    expect(out).toContain("engine_unreachable");
+    // Not "no <select> on the page" — the interaction type is one. The policy field specifically.
+    expect(out).not.toContain('<select name="policyId"');
+  });
+
+  it("escapes a Service name, which is customer-supplied text", () => {
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [option({ relyingPartyServiceName: '"><script>alert(1)</script>' })],
+    });
+    expect(out).not.toContain("<script>");
+    expect(out).toContain("&lt;script&gt;");
+  });
+
+  it("says when more policies exist than are listed", () => {
+    // Silently showing the first page of many is how someone concludes a policy was deleted.
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [option()],
+      policiesTruncated: true,
+    });
+    expect(out).toContain("More policies exist");
   });
 });

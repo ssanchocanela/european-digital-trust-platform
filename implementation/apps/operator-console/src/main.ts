@@ -209,13 +209,41 @@ const main = async (): Promise<void> => {
 
   // --- test driver ----------------------------------------------------------------------------
 
-  app.get("/", (_request, response) => {
-    render(
-      response,
-      "Test driver",
-      testDriverView({ sameDeviceAvailable: config.TEST_START_PUBLIC_URL !== undefined }),
-      true,
-    );
+  /**
+   * The test driver's options, including the policy list.
+   *
+   * **Never throws.** The picker is one extra call to the platform, and a screen that cannot start a
+   * presentation because a list call failed would be worse than the screen that had no list at all.
+   * A failure degrades to the text box, and says so on the page rather than in a log nobody reads.
+   */
+  const driverOptions = async (extra?: {
+    readonly error?: string;
+    readonly defaultPolicyId?: string;
+    readonly sameDeviceAvailable?: boolean;
+  }) => {
+    const base = {
+      sameDeviceAvailable:
+        extra?.sameDeviceAvailable ?? config.TEST_START_PUBLIC_URL !== undefined,
+      ...(extra?.error ? { error: extra.error } : {}),
+      ...(extra?.defaultPolicyId ? { defaultPolicyId: extra.defaultPolicyId } : {}),
+    };
+    try {
+      const { options, truncated } = await platform.listPresentationPolicies();
+      return { ...base, policies: options, policiesTruncated: truncated };
+    } catch (error) {
+      logger.warn("policy list unavailable, falling back to typed id", {
+        code: error instanceof PlatformApiError ? error.code : "unknown",
+      });
+      return {
+        ...base,
+        policiesError:
+          error instanceof PlatformApiError ? error.code : "the platform could not be reached",
+      };
+    }
+  };
+
+  app.get("/", async (_request, response) => {
+    render(response, "Test driver", testDriverView(await driverOptions()), true);
   });
 
   app.post("/presentations", async (request, response) => {
@@ -225,10 +253,13 @@ const main = async (): Promise<void> => {
       render(
         response,
         "Test driver",
-        testDriverView({
-          sameDeviceAvailable: config.TEST_START_PUBLIC_URL !== undefined,
-          error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
-        }),
+        testDriverView(
+          await driverOptions({
+            error: parsed.error.issues
+              .map((i) => `${i.path.join(".")}: ${i.message}`)
+              .join("; "),
+          }),
+        ),
         true,
       );
       return;
@@ -240,12 +271,15 @@ const main = async (): Promise<void> => {
       render(
         response,
         "Test driver",
-        testDriverView({
-          sameDeviceAvailable: false,
-          error:
-            "Same-device needs TEST_START_PUBLIC_URL, because the phone has to open a publicly " +
-            "reachable page. Use QR, or configure the start page.",
-        }),
+        testDriverView(
+          await driverOptions({
+            sameDeviceAvailable: false,
+            defaultPolicyId: form.policyId,
+            error:
+              "Same-device needs TEST_START_PUBLIC_URL, because the phone has to open a publicly " +
+              "reachable page. Use QR, or configure the start page.",
+          }),
+        ),
         true,
       );
       return;
@@ -282,10 +316,9 @@ const main = async (): Promise<void> => {
       render(
         response,
         "Test driver",
-        testDriverView({
-          sameDeviceAvailable: config.TEST_START_PUBLIC_URL !== undefined,
-          error: message,
-        }),
+        // The chosen policy is carried back, so a failure that is nothing to do with the choice
+        // does not make someone find it again.
+        testDriverView(await driverOptions({ defaultPolicyId: form.policyId, error: message })),
         true,
       );
     }

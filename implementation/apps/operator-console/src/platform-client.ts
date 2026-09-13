@@ -36,6 +36,23 @@ export interface PresentationView {
   readonly warnings?: readonly { readonly code: string; readonly message: string }[];
 }
 
+/**
+ * One entry in the policy picker.
+ *
+ * `relyingPartyServiceName` and `publishedVersion` are the two fields that make a list worth more
+ * than a text box, and they are why the API's list route grew a join — see the note on
+ * `ListingRepository.presentationPolicies`.
+ */
+export interface PolicyOption {
+  readonly id: string;
+  readonly name: string;
+  readonly relyingPartyServiceName: string;
+  /** `null` when the policy has no published version and therefore cannot start a transaction. */
+  readonly publishedVersion: number | null;
+  /** The container's own lifecycle: `ACTIVE` or `RETIRED`. */
+  readonly status: string;
+}
+
 export interface PlatformHealth {
   readonly status: string;
   readonly engine: string;
@@ -81,6 +98,49 @@ export class PlatformClient {
       "GET",
       `/v1/presentations/${encodeURIComponent(presentationId)}`,
     );
+  }
+
+  /**
+   * The policies this credential may start a transaction with.
+   *
+   * Two calls, because the list route is tenant-scoped in its path and the console is told its own
+   * tenant by the API rather than by configuration — a configured id can drift out of step with the
+   * key it sits beside, and the resulting `403` reads as an authentication failure rather than as
+   * the mismatch it is.
+   *
+   * One page. A picker that needs a second page is a picker that should have been a search, and
+   * pretending otherwise by silently showing the first page of many is worse than the text box it
+   * replaces. The caller is told when there are more.
+   */
+  async listPresentationPolicies(): Promise<{
+    readonly options: readonly PolicyOption[];
+    readonly truncated: boolean;
+  }> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const page = await this.call<{
+      items: readonly {
+        id: string;
+        name: string;
+        detail?: Record<string, unknown>;
+      }[];
+      nextCursor?: string;
+    }>("GET", `/v1/tenants/${encodeURIComponent(tenantId)}/presentation-policies?limit=100`);
+
+    return {
+      options: page.items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        relyingPartyServiceName: String(
+          item.detail?.relyingPartyServiceName ?? "unknown service",
+        ),
+        publishedVersion:
+          typeof item.detail?.publishedVersion === "number"
+            ? item.detail.publishedVersion
+            : null,
+        status: String(item.detail?.status ?? "unknown"),
+      })),
+      truncated: page.nextCursor !== undefined,
+    };
   }
 
   async health(): Promise<PlatformHealth> {

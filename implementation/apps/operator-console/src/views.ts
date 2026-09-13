@@ -1,5 +1,5 @@
 import { html, type SafeHtml } from "./html.js";
-import type { CreatedPresentation, PresentationView } from "./platform-client.js";
+import type { CreatedPresentation, PolicyOption, PresentationView } from "./platform-client.js";
 import { renderQrWithValue } from "./qr.js";
 import type { ReachabilityProblem } from "./reachability.js";
 
@@ -38,13 +38,35 @@ export const loginView = (error?: string): SafeHtml => html`
 /**
  * The test driver.
  *
- * The policy id is typed in rather than chosen from a list, because **the API has no list route** —
- * see `docs/web-interface-proposal.md` §5. That is stated on the page rather than hidden behind a
- * placeholder, so the gap is visible to whoever uses it instead of looking like a design choice.
+ * ## The policy is chosen, and each option says which Service it belongs to
+ *
+ * It used to be typed in, because the API had no list route. It has had one since web phase B1 and
+ * the note saying otherwise had simply gone stale.
+ *
+ * Each option carries its **Relying Party Service**, and that is the point rather than decoration.
+ * On 13 September 2026 an hour went into a wallet refusing a presentation, because two policies
+ * named `Adult verification` and `Adult verification (WD-3)` belong to Services whose instances
+ * hold different access certificates — one self-signed, one from the development CA. A list showing
+ * only the two names would have invited exactly the same mistake, with more confidence.
+ *
+ * The platform cannot show the certificate itself: it lives in the engine, and
+ * `RelyingPartyInstance` holds only an opaque reference to the engine tenant. So the Service name
+ * is as close to the real distinction as this screen can honestly get, and it is not presented as
+ * more than that.
+ *
+ * A policy with no published version is shown and **disabled**, with the reason. Hiding it would
+ * leave someone hunting for a policy they know exists; offering it would produce a
+ * `no_published_policy_version` at submit, which is a worse way to learn the same thing.
+ *
+ * The text box stays as a fallback, because a list is one page and an id from elsewhere must not
+ * become unusable just because a picker was added.
  */
 export const testDriverView = (options: {
   readonly defaultPolicyId?: string;
   readonly sameDeviceAvailable: boolean;
+  readonly policies?: readonly PolicyOption[];
+  readonly policiesTruncated?: boolean;
+  readonly policiesError?: string;
   readonly error?: string;
 }): SafeHtml => html`
   <h1>Test driver</h1>
@@ -57,12 +79,7 @@ export const testDriverView = (options: {
   <form method="post" action="/presentations">
     <fieldset>
       <legend>Start a presentation</legend>
-      <label>
-        <span>Published presentation policy (UUID)</span>
-        <input type="text" name="policyId" required spellcheck="false"
-               value="${options.defaultPolicyId ?? ""}"
-               pattern="[0-9a-fA-F-]{36}" placeholder="00000000-0000-0000-0000-000000000000">
-      </label>
+      ${policyChooser(options)}
       <label>
         <span>Policy version — leave empty for the latest published version</span>
         <input type="number" name="policyVersion" min="1" step="1">
@@ -96,11 +113,12 @@ export const testDriverView = (options: {
   <h2>Two things this page does not do</h2>
   <table>
     <tr>
-      <td class="k">List your policies</td>
+      <td class="k">Tell you which access certificate a policy will use</td>
       <td>
-        The platform API has no list route — every route is <code>POST</code> or <code>GET</code> by id.
-        Adding one is real API work with an enumeration-exposure decision attached, so the policy id is
-        typed in for now.
+        The certificate lives in the engine, and the platform holds only an opaque reference to the
+        engine tenant — so this screen shows the Relying Party Service a policy belongs to, which is as
+        close to that distinction as it can honestly get. Two Services can hold very different
+        certificates while their policies read almost alike.
       </td>
     </tr>
     <tr>
@@ -112,6 +130,82 @@ export const testDriverView = (options: {
     </tr>
   </table>
 `;
+
+/**
+ * The policy field: a list when the API answered, the text box when it did not.
+ *
+ * The fallback is not defensive decoration. The picker needs an extra round trip to the platform,
+ * and a screen whose only way to start a presentation disappears when a list call fails is a worse
+ * screen than one that never had a list.
+ */
+const policyChooser = (options: {
+  readonly defaultPolicyId?: string;
+  readonly policies?: readonly PolicyOption[];
+  readonly policiesTruncated?: boolean;
+  readonly policiesError?: string;
+}): SafeHtml => {
+  const policies = options.policies;
+  if (!policies || policies.length === 0) {
+    return html`
+      ${
+        options.policiesError
+          ? html`<p class="notice warn">
+              The policy list could not be read (${options.policiesError}), so the id has to be typed
+              in. Everything else on this page works.
+            </p>`
+          : policies
+            ? html`<p class="notice warn">
+                This tenant has no presentation policies. Create and publish one before starting a run.
+              </p>`
+            : ""
+      }
+      <label>
+        <span>Published presentation policy (UUID)</span>
+        <input type="text" name="policyId" required spellcheck="false"
+               value="${options.defaultPolicyId ?? ""}"
+               pattern="[0-9a-fA-F-]{36}" placeholder="00000000-0000-0000-0000-000000000000">
+      </label>
+    `;
+  }
+
+  return html`
+    <label>
+      <span>Published presentation policy</span>
+      <select name="policyId" required>
+        <option value="" disabled${options.defaultPolicyId ? "" : " selected"}>
+          Choose a policy…
+        </option>
+        ${policies.map((policy) => {
+          // Disabled rather than hidden: see the note on `testDriverView`.
+          const unusable =
+            policy.publishedVersion === null
+              ? "no published version"
+              : policy.status === "RETIRED"
+                ? "retired"
+                : undefined;
+          return html`<option value="${policy.id}"${unusable ? " disabled" : ""}${
+            policy.id === options.defaultPolicyId ? " selected" : ""
+          }>${policy.name} — ${policy.relyingPartyServiceName}${
+            unusable ? html` (${unusable})` : html` · v${String(policy.publishedVersion)}`
+          }</option>`;
+        })}
+      </select>
+    </label>
+    <p class="hint">
+      The name after the dash is the <strong>Relying Party Service</strong>. Two Services can hold
+      different access certificates, which decides whether a wallet accepts the request at all — so
+      when a run is refused for trust, this is the first thing to check.
+    </p>
+    ${
+      options.policiesTruncated
+        ? html`<p class="notice warn">
+            More policies exist than are listed here. This list shows one page; start by id if the one
+            you want is missing.
+          </p>`
+        : ""
+    }
+  `;
+};
 
 export const presentationView = (options: {
   readonly created: CreatedPresentation;

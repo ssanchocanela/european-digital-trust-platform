@@ -37,6 +37,27 @@ const toPageResponse = <T>(page: Page<T>): Record<string, unknown> => ({
   ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
 });
 
+/**
+ * Which tenant the presented credential belongs to.
+ *
+ * Every tenant-scoped route takes the id in the path and **checks** it against the credential
+ * (`assertTenantMatches`), so the path parameter carries no authority — it is redundancy for a
+ * client that holds one credential and therefore has exactly one answer. Without this route such a
+ * client has to be told its own tenant id by configuration, which can drift out of step with the
+ * key it sits beside and then fails as a `403` that reads like an authentication bug.
+ *
+ * It discloses nothing: the caller is being told the identity of the credential it already holds.
+ */
+@ApiTags("Listing")
+@Controller("v1")
+export class IdentityController {
+  @Get("me")
+  @ApiOperation({ summary: "The tenant the presented credential belongs to" })
+  me(@Ctx() ctx: RequestContext) {
+    return { tenantId: ctx.tenantId };
+  }
+}
+
 @ApiTags("Listing")
 @Controller("v1/tenants")
 export class TenantListingController {

@@ -13,6 +13,7 @@ import {
   IssuanceController,
 } from "./http/issuance.controllers.js";
 import {
+  IdentityController,
   TenantListingController,
   TransactionListingController,
 } from "./http/listing.controllers.js";
@@ -57,6 +58,7 @@ export class AppModule {
         PresentationController,
         IssuanceConfigurationController,
         IssuanceController,
+        IdentityController,
         TenantListingController,
         TransactionListingController,
         HealthController,

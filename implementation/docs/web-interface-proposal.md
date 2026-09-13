@@ -151,6 +151,14 @@ one thing that genuinely would — a rich policy editor — belongs to product C
 
 ## 5. The honest majority of the work is API, not UI
 
+> **Done, and this section is kept as written.** The list endpoints described below were built in
+> web phase B1 and the enumeration decision was taken with them — `ListingRepository`, the two
+> listing controllers, and the rule that a presentation list item carries no result. The paragraph
+> that follows describes the API as it was when this was proposed, not as it is. The one piece that
+> outlived it: the Test driver went on saying "the platform API has no list route" for a day after
+> the route existed, which is how a policy id came to be typed by hand into the screen whose whole
+> purpose is to remove hand-assembly. The picker landed 13 September 2026.
+
 Five of the eight screens above are blocked on endpoints that **do not exist**. I checked: every route is
 `POST` or `GET`-by-id, and there is **no list route anywhere** in the API. `AuditService` has
 `listForPresentation` and **no controller exposes it**.

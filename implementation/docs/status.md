@@ -38,9 +38,9 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    layer (`smoke-issuance.sh`, and the adapter contract test that decodes the nested request object
    as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone.**
    A22 is fixed, so this now tests the flow rather than a coincidence of this stack's configuration.
-3. **Re-run the `hash_pid` stability test** with identical form values — the earlier run was
-   inconclusive because the issuer had different values typed in. **Needs the phone**, and is free
-   while nothing is registered.
+3. **A wallet built with `wd-1` + `wd-2` + `wd-3`**, to get past B7 and exercise the §7.3 eligibility
+   presentation against a wallet. `wd-2` silently disables the issuer registration-certificate check
+   (`CLAUDE.md` §6.21), so whatever it shows must be reported with that caveat attached.
 4. **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
    first is a rename, the second needs a decision about what it should do.
 
@@ -96,7 +96,7 @@ registration-certificate check (`CLAUDE.md` §6.21), so a pass obtained that way
 |---|---|
 | **The Registrar cannot issue a certificate** | `POST /intended_use/create` reports `201 … created successfully`, returns a `null` id and persists nothing. Four attempts, different payloads. Ownership validation works, so the failure is after it and silent. Full diagnosis: [`interop-findings.md`](interop-findings.md) **C10**. Defect report drafted, **not filed**: [`upstream/registrar-intended-use-not-persisted.md`](upstream/registrar-intended-use-not-persisted.md) |
 | **`providerType: WALLET_PROVIDER` is accepted** | Answers `registration-session-plan.md` §3.1 as far as acceptance goes. Nothing says it is semantically right |
-| **`hash_pid` across a re-issued PID: still unknown** | The run was **inconclusive, not negative** — the issuer has the operator type the attributes at issue time and the second issuance used different values. See the note in [`certificate-intake-runbook.md`](certificate-intake-runbook.md). Re-testing needs identical form values, and is still free while nothing is registered |
+| **`hash_pid` identifies the wallet installation, not the person** | **Answered 13 September 2026.** Two different credentials with different attributes, issued into the same wallet, return the **same** `hash_pid`; the same credential twice returns the same value; a different wallet returns a different one. So re-issuing the PID is safe and the form values are irrelevant — but the **W1 installation is irreplaceable**, now by measurement. `interop-findings.md` **C11**, method and the four digests in [`certificate-intake-runbook.md`](certificate-intake-runbook.md) |
 | **WD-3 as the register described it cannot be built** | `EtsiTrustConfigBuilder` has no method that adds an anchor. Corrected in [`../tools/test-wallet/deviations.md`](../tools/test-wallet/deviations.md) |
 
 ---
@@ -111,9 +111,10 @@ law 253 · legal person 244 · identifier 248 · legal entity 236
 policy(wrp) 435 · provider 235 · credential 335 · policy(intended_use) 436
 ```
 
-`hash_pid` is live in `~/.edtp/registration/hash_pid`, mode 600. **Treat the W1 wallet and the PID
-inside it as irreplaceable** until the identical-values test says otherwise: there is no account, no
-key rotation and no recovery at that service.
+`hash_pid` is live in `~/.edtp/registration/hash_pid`, mode 600. **Treat the W1 wallet installation
+as irreplaceable** — measured, not assumed (C11): it is the installation the value tracks, and there
+is no account, no key rotation and no recovery at that service. The **PID inside it is not** precious
+and can be re-issued freely, which matters because it expires 11 December 2026.
 
 ---
 

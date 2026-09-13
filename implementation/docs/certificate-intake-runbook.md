@@ -56,29 +56,40 @@ So, concretely:
   but the failure mode here is a careless "reset this phone", and separate devices remove it.
 - Re-obtain the PID *before* it expires, not after.
 
-> **Attempted on 12 September 2026, and the run was inconclusive — through a confound worth writing
-> down, because the next person would hit it too.** Two logins either side of a re-issuance produced
-> different credentials (digests `527b981a96c8a35e` then `eb4bf3632d06987d`), which looks like
-> instability until you know how the reference issuer works: **the operator types the person's
-> attributes into a form at issue time**, and on the second issuance they were not the same values.
-> Different attributes, different credential. Nothing about stability was measured.
+> **ANSWERED on 13 September 2026, and the answer is the opposite of what was inferred here.**
+> Four measurements settle it:
 >
-> So the question stands, and the observation actually **strengthens** the original inference rather
-> than refuting it: a value that tracks the attributes is what a hash over those attributes would do.
+> | # | PID presented | Family name | Wallet | Digest |
+> |---|---|---|---|---|
+> | 1 | the original, issued 12 Sept | `Ted` | W1 | `eb4bf3632d06987d` |
+> | 2 | the same credential again | `Ted` | W1 | `eb4bf3632d06987d` |
+> | 3 | re-issued | `Tes` | W3 | `c7b2d4ab799f5d4e` |
+> | 4 | re-issued again | `Ted` | W3 | `c7b2d4ab799f5d4e` |
 >
-> **The real test, and it is still free while nothing is registered:** re-issue with the *identical*
-> form values and compare. Method and tooling:
-> [`registration-session-plan.md`](registration-session-plan.md) §1a.
+> (3) and (4) are **two different credentials with different attributes in the same wallet**, and they
+> produce the **same** value. (1) and (2) are the same credential in two sessions, and also match. W1
+> and W3 differ.
 >
-> **Meanwhile, one operational consequence holds whichever way it resolves, and it is cheap
-> insurance: record the exact values entered into the issuer's form.** If the credential is derived
-> from the attributes, those values *are* what makes the login reproducible — and they are typed by
-> hand, so they are lost the moment nobody remembers them. Keep them in the session directory
-> (`~/.edtp/registration/`, mode 700, outside the repository), not in a committed file: they are
-> synthetic, but the registration they control is not a thing to make guessable.
+> **So `hash_pid` is not derived from the PID's attributes. It identifies the wallet installation.**
+> It is deterministic — (2) rules out a per-presentation nonce — and it survives re-issuance, which
+> (4) proves directly.
 >
-> Until the identical-values test passes, keep treating the wallet installation and its PID as
-> irreplaceable. With one device and one wallet there is no redundancy either way.
+> Two consequences, and both invert what this section used to say.
+>
+> **Re-issuing the PID is safe, and the form values do not matter.** The PID behind the current login
+> expires 11 December 2026; renewing it will not change the login. The advice to write down the
+> values typed into the issuer's form was **cheap insurance against the wrong risk** — they are
+> recorded in `~/.edtp/registration/pid-attributes.json` anyway, and they buy nothing.
+>
+> **The wallet installation is irreplaceable, and now by measurement rather than by suspicion.** A new
+> installation produces a new `hash_pid`, and no re-issuance recovers the old one. Keep W1 installed;
+> a factory reset, an uninstall or a lost device ends that registration permanently. Nothing about
+> the identity can restore it.
+>
+> The earlier inconclusive run is worth keeping in mind for method, not for its conclusion: two
+> logins either side of a re-issuance produced different digests (`527b981a96c8a35e` then
+> `eb4bf3632d06987d`) and that looked like attribute sensitivity. It was not — both were on the same
+> wallet, so on this evidence something else changed, most likely a wallet reinstall between them.
 
 ---
 

@@ -306,6 +306,44 @@ The script itself is verified: run against a freshly generated self-signed leaf 
 anchors from the live list and correctly reports `FAIL`, so a `PASS` is meaningful rather than a
 default.
 
+### 8.1a First wallet run — Path B, modified build, **blocked at relying-party verification**
+
+The first end-to-end attempt against a wallet. It is recorded whatever it says, per `CLAUDE.md` §8.
+
+| Field | Value |
+|---|---|
+| Date run | **13 September 2026** |
+| Wallet | **MODIFIED build**, not the Reference Wallet: `eu.europa.ec.euidi.edtptest2`, `versionName 2026.09.42-edtptest`, APK SHA-256 `5a87a95dcca05f458b626dac1d960c721a0ff91c1beb7f7267dddb48094160bf` |
+| Upstream | tag `Wallet/Demo_Version=2026.09.42-Demo_Build=42`, commit `43f362d2`, wallet core `0.30.2` |
+| Active deviation | **WD-3** — `wrpacProviders` pointed at our published TEST LoTE |
+| Device | Pixel 9a |
+| Access certificate | issued by our development Access CA, `x509_hash:jIv6homAf8bSFFKU5tmBAUsXiq4Y_90K9sZ2vDKwNXc`, `x5c` of 2 |
+| Exposure | Cloudflare quick tunnels, allow-list enforced; all **14 negative checks returned 404** |
+| **Result** | **BLOCKED.** *"This presentation request has been blocked because the relying party could not be verified by your Wallet."* No data shared |
+
+**What this run does establish**, and it is not nothing:
+
+- **Blocker B5 is closed on this machine.** The wallet resolved the `request_uri` over public HTTPS,
+  fetched the signed request object and processed it far enough to evaluate relying-party trust. A
+  transport failure would have stopped earlier and said something else.
+- **The gateway allow-list holds under a real session.** Fourteen paths refused, including the
+  engine's Management API, its health endpoint and its OpenAPI documents.
+- **The wallet behaves as `RPA_04` requires**: a relying party it cannot verify is refused, and
+  nothing is disclosed.
+
+**What it does not establish — and why we cannot yet say:** which of three causes blocked it.
+
+1. the wallet never fetched our list;
+2. it fetched it and rejected the signature — the open half of WD-3, and the likeliest;
+3. it verified the list but did not match our anchor to the certificate chain.
+
+The screen deliberately does not distinguish them: a wallet should not tell a relying party why it
+distrusts it. **And `logcat` cannot either — the release build emits no application logging at all.**
+Verified: across a 3,829-line capture the wallet's process wrote only framework lines (a navigation
+`Bundle` warning, window callbacks) and nothing of its own. So the next diagnostic step needs a
+**debug build**, which both logs and is `run-as`-readable, letting the trust decision and any cached
+list be inspected directly.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

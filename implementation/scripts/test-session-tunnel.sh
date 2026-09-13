@@ -33,6 +33,20 @@ step() { printf '\n==> %s\n' "$*"; }
 command -v "$CLOUDFLARED" >/dev/null 2>&1 ||
   die "cloudflared not found. Install it, or set CLOUDFLARED to its path."
 
+# Does a name actually resolve?
+#
+# `host` is the obvious tool and is not installed everywhere — it comes from bind9-dnsutils, which a
+# minimal Ubuntu does not carry. `getent hosts` asks the same resolver through NSS and is part of
+# glibc, so it is always there. Both are tried rather than one assumed, because this check is the
+# reason a registered-but-unresolvable tunnel is retried instead of waited out.
+resolves() {
+  if command -v host >/dev/null 2>&1; then
+    host "$1" >/dev/null 2>&1
+  else
+    getent hosts "$1" >/dev/null 2>&1
+  fi
+}
+
 start_tunnel() {
   # $1 label, $2 local port. Writes the public hostname to $RUN_DIR/$1.host.
   #
@@ -60,7 +74,40 @@ start_tunnel() {
       waited=$((waited + 1))
     done
 
-    if [ -n "$host" ] && host "${host#https://}" >/dev/null 2>&1; then
+    # Wait BEFORE the first lookup, and then probe over HTTPS rather than asking DNS again.
+    #
+    # A fresh quick-tunnel hostname takes a few seconds to publish — about 18 on 13 September 2026.
+    # Asking before then does more than fail: under WSL2 the resolver is the Windows host's DNS
+    # proxy (/etc/resolv.conf points at 10.255.255.254), and Windows caches NXDOMAIN for minutes.
+    # So one premature lookup poisons the cache and every later attempt on that name fails from the
+    # cache rather than from DNS — which is exactly how three good tunnels in a row were discarded,
+    # each after 45s of polling that could never have succeeded.
+    #
+    # The probe is an HTTP request because it answers the question that actually matters — can
+    # anything reach this tunnel — and the gateway's default-deny replies 404 to `/`, so any HTTP
+    # status at all proves the path end to end. `000` means no connection.
+    if [ -n "$host" ]; then
+      sleep "${TUNNEL_DNS_DELAY:-25}"
+      local probe_waited=0 code="000"
+      while [ "$probe_waited" -lt 60 ]; do
+        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$host/" || echo 000)"
+        [ "$code" != "000" ] && break
+        sleep 5
+        probe_waited=$((probe_waited + 5))
+      done
+      if [ "$code" != "000" ]; then
+        echo "$host" > "$RUN_DIR/$label.host"
+        echo "    $label → $host  (reachable, $code on /)"
+        return 0
+      fi
+      echo "    $label: ${host#https://} not reachable after $((25 + probe_waited))s; retrying (attempt $attempt)" >&2
+      kill "$(cat "$RUN_DIR/$label.pid")" 2>/dev/null || true
+      attempt=$((attempt + 1))
+      sleep 2
+      continue
+    fi
+
+    if [ -n "$host" ] && resolves "${host#https://}"; then
       echo "$host" > "$RUN_DIR/$label.host"
       echo "    $label → $host"
       return 0

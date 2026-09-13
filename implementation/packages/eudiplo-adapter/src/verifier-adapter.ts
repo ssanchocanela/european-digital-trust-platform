@@ -246,28 +246,64 @@ export const toStatus = (session: EngineSessionResponse): PresentationStatus => 
 };
 
 /**
+ * The SD-JWT envelope, which the engine returns alongside the disclosed claims.
+ *
+ * Dropped here rather than at the result boundary, because they are not disclosed
+ * attributes: they are the container the attributes arrived in. `AS-RP-01-002` (`OIA_16`)
+ * obliges a Relying Party Instance to discard timestamps as soon as they are no longer
+ * needed and never to communicate them, and the earliest point at which that can happen is
+ * the moment content crosses out of the engine — `CLAUDE.md` §3.4, minimisation at the
+ * source rather than only at the output.
+ *
+ * `vct` goes too: the policy already knows which credential type it asked for, so echoing
+ * it back adds nothing a result could need.
+ */
+const SD_JWT_ENVELOPE = new Set([
+  "iss",
+  "iat",
+  "exp",
+  "nbf",
+  "vct",
+  "cnf",
+  "status",
+  "_sd",
+  "_sd_alg",
+]);
+
+/**
  * Extracts the disclosed claims of the single requested credential.
  *
- * `verifiedClaims` is keyed by the DCQL credential id. A V0 policy requests one
- * credential, so more than one disclosed credential means the engine configuration and
- * the plan have diverged. Failing loudly is safer than merging, which would silently
- * accept a credential the policy never asked for.
+ * The engine returns `credentials` as an array of `{ id, values }`, where `id` is the DCQL
+ * credential id and `values` holds one claim object per presented instance. A V0 policy
+ * requests one credential and expects one instance, so anything else means the engine
+ * configuration and the plan have diverged. Failing loudly is safer than merging, which
+ * would silently accept a credential the policy never asked for.
  */
 export const extractDisclosedClaims = (
   session: EngineSessionResponse,
 ): DisclosedClaims | undefined => {
-  const verified = session.verifiedClaims;
-  if (!verified) return undefined;
-  const entries = Object.entries(verified);
-  if (entries.length === 0) return undefined;
-  if (entries.length > 1) {
+  const credentials = session.credentials;
+  if (!credentials || credentials.length === 0) return undefined;
+  if (credentials.length > 1) {
     throw PlatformError.engine(
       "engine_returned_unexpected_credentials",
       "The engine returned more disclosed credentials than the policy requested.",
     );
   }
-  const value = entries[0]?.[1];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as DisclosedClaims)
-    : undefined;
+
+  const values = credentials[0]?.values;
+  if (!values || values.length === 0) return undefined;
+  if (values.length > 1) {
+    throw PlatformError.engine(
+      "engine_returned_unexpected_credentials",
+      "The engine returned more than one instance of the requested credential.",
+    );
+  }
+
+  const claims = values[0];
+  if (!claims || typeof claims !== "object" || Array.isArray(claims)) return undefined;
+  const disclosed = Object.fromEntries(
+    Object.entries(claims).filter(([key]) => !SD_JWT_ENVELOPE.has(key)),
+  );
+  return Object.keys(disclosed).length > 0 ? (disclosed as DisclosedClaims) : undefined;
 };

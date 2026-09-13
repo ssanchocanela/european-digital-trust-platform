@@ -44,9 +44,19 @@ export const engineSessionOutcomeSchema = z
 /**
  * `GET /session/:id`.
  *
- * `verifiedClaims` is **content**: disclosed attribute values keyed by DCQL credential
- * id. It is parsed as an opaque record and handed straight to the result policy, which
- * runs in the same call stack. It is never persisted and never logged.
+ * `credentials` is **content**: the disclosed attribute values. Its shape was read off a
+ * real completed session on 13 September 2026, not from the engine's documentation —
+ *
+ *     credentials: [ { id: "<dcql credential id>", values: [ { …claims… } ] } ]
+ *
+ * — because the field this adapter previously read, `verifiedClaims`, **does not exist** in
+ * the response at all. That mistake survived 21 contract tests for a structural reason:
+ * none of them can produce a verified presentation, since that needs a wallet, so every
+ * test saw an empty claims field and an empty one is indistinguishable from an absent one.
+ * `interop-findings.md` A18.
+ *
+ * Content is parsed opaquely and handed straight to the result policy, which runs in the
+ * same call stack. It is never persisted and never logged.
  *
  * `status` is typed as a plain string rather than an enum on purpose: a status the
  * adapter does not recognise must degrade to "still waiting" rather than throw, and the
@@ -60,7 +70,9 @@ export const engineSessionSchema = z
     updatedAt: z.union([z.string(), z.date()]).optional(),
     expiresAt: z.union([z.string(), z.date()]).nullish(),
     consumedAt: z.union([z.string(), z.date()]).nullish(),
-    verifiedClaims: z.record(z.string(), z.unknown()).nullish(),
+    credentials: z
+      .array(z.object({ id: z.string(), values: z.array(z.record(z.string(), z.unknown())) }))
+      .nullish(),
     outcome: engineSessionOutcomeSchema.nullish(),
     failureCode: z.string().nullish(),
     errorReason: z.string().nullish(),

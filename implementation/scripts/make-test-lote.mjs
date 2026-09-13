@@ -154,7 +154,10 @@ const ourService = (name, typeIdentifier) => ({
     ServiceName: relabel(serviceTemplate.ServiceName, name),
     ServiceDigitalIdentity: { X509Certificates: [{ val: caDer.toString("base64") }] },
     ServiceTypeIdentifier: typeIdentifier,
-    SchemeServiceDefinitionURI: relabel(serviceTemplate.SchemeServiceDefinitionURI, publishedUrl),
+    SchemeServiceDefinitionURI: relabel(
+      serviceTemplate.SchemeServiceDefinitionURI,
+      publishedUrl,
+    ),
   },
 });
 
@@ -169,8 +172,14 @@ const ourEntity = {
   TrustedEntityServices: [
     // Issuance and Revocation, as the notified list carries for every anchor. The same certificate
     // appears in both, which is why anything counting anchors must filter on the type.
-    ourService("EDTP Development Access CA - TEST ONLY", "http://uri.etsi.org/19602/SvcType/WRPAC/Issuance"),
-    ourService("EDTP Development Access CA - TEST ONLY Revocation", "http://uri.etsi.org/19602/SvcType/WRPAC/Revocation"),
+    ourService(
+      "EDTP Development Access CA - TEST ONLY",
+      "http://uri.etsi.org/19602/SvcType/WRPAC/Issuance",
+    ),
+    ourService(
+      "EDTP Development Access CA - TEST ONLY Revocation",
+      "http://uri.etsi.org/19602/SvcType/WRPAC/Revocation",
+    ),
   ],
 };
 

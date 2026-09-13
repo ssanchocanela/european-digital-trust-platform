@@ -1,4 +1,4 @@
-import { extractDisclosedClaims } from "@edtp/eudiplo-adapter";
+import { extractDisclosedClaims, restoreRequestedShape } from "@edtp/eudiplo-adapter";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -94,5 +94,65 @@ describe("disclosed claims, against the real engine shape", () => {
         ],
       }),
     ).toThrow(/more than one instance/);
+  });
+});
+
+describe("mdoc values are put back where the claim paths address them", () => {
+  /**
+   * `interop-findings.md` A24, and the second time the same shape of defect has cost a wallet run.
+   *
+   * An mdoc claim path is `[namespace, element]`. The engine returns the element **flat**, so the
+   * result policy reads `disclosed["org.iso.18013.5.1"]`, finds nothing, and reports the policy
+   * unsatisfied — for a presentation the engine verified successfully.
+   *
+   * The fixture is the shape captured from the first mdoc presentation ever made against this
+   * platform, on 13 September 2026, with the value replaced. The engine's own session said
+   * `outcome.result: "success"` and `verified: true`; the platform answered `POLICY_NOT_SATISFIED`.
+   */
+  const asClaims = (paths: (string | number | null)[][]) => paths.map((path) => ({ path }));
+
+  it("nests a flat element under the namespace that was asked for", () => {
+    expect(
+      restoreRequestedShape(
+        { family_name: "Ted" },
+        asClaims([["org.iso.18013.5.1", "family_name"]]),
+      ),
+    ).toEqual({ "org.iso.18013.5.1": { family_name: "Ted" } });
+  });
+
+  it("leaves a value alone when it already sits where the path addresses it", () => {
+    // SD-JWT VC, where the engine's shape already matches. Moving it would be the bug, not the fix.
+    const already = { address: { locality: "Barcelona" } };
+    expect(restoreRequestedShape(already, asClaims([["address", "locality"]]))).toEqual(
+      already,
+    );
+  });
+
+  it("keeps anything no requested path re-homed", () => {
+    // The envelope is stripped earlier; whatever else survives is passed through rather than lost to
+    // a transformation that only knew about the claims it was given.
+    expect(
+      restoreRequestedShape(
+        { family_name: "Ted", something_else: 1 },
+        asClaims([["org.iso.18013.5.1", "family_name"]]),
+      ),
+    ).toEqual({ "org.iso.18013.5.1": { family_name: "Ted" }, something_else: 1 });
+  });
+
+  it("does nothing when every requested path is a single segment", () => {
+    const flat = { birthdate: "1990-05-20" };
+    expect(restoreRequestedShape(flat, asClaims([["birthdate"]]))).toEqual(flat);
+  });
+
+  it("groups several elements of one namespace", () => {
+    expect(
+      restoreRequestedShape(
+        { family_name: "Ted", age_over_18: true },
+        asClaims([
+          ["org.iso.18013.5.1", "family_name"],
+          ["org.iso.18013.5.1", "age_over_18"],
+        ]),
+      ),
+    ).toEqual({ "org.iso.18013.5.1": { family_name: "Ted", age_over_18: true } });
   });
 });

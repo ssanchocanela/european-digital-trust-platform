@@ -1,4 +1,4 @@
-import type { DisclosedClaims, VerificationPlan } from "@edtp/domain";
+import type { DisclosedClaims, RequestedClaim, VerificationPlan } from "@edtp/domain";
 import type {
   CreatePresentationRequestInput,
   CreatePresentationRequestOutput,
@@ -99,6 +99,7 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
 
   async processPresentationResult(
     session: EngineSessionHandle,
+    requestedClaims: readonly RequestedClaim[],
   ): Promise<PresentationResultPayload> {
     const engineSession = await this.readSession(session);
     const status = toStatus(engineSession);
@@ -108,7 +109,8 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
     }
 
     const disclosed = extractDisclosedClaims(engineSession);
-    return { ...status, ...(disclosed ? { disclosedClaims: disclosed } : {}) };
+    if (!disclosed) return status;
+    return { ...status, disclosedClaims: restoreRequestedShape(disclosed, requestedClaims) };
   }
 
   async cancelPresentation(session: EngineSessionHandle): Promise<void> {
@@ -252,6 +254,78 @@ const SD_JWT_ENVELOPE = new Set([
   "_sd",
   "_sd_alg",
 ]);
+
+/**
+ * Puts disclosed values back where the claim paths address them.
+ *
+ * The engine does not return them that way for every format. An **mdoc** claim path is
+ * `[namespace, element]` — `["org.iso.18013.5.1", "family_name"]` — and the engine returns
+ * `{ family_name: … }`, with the namespace gone. The result policy then reads
+ * `disclosed["org.iso.18013.5.1"]`, finds nothing, and reports the policy unsatisfied for a
+ * presentation the engine verified successfully.
+ *
+ * Found on the first mdoc presentation ever made against this platform, 13 September 2026: engine
+ * `outcome.result: "success"`, `verified: true`, `family_name` disclosed — and the platform answered
+ * `POLICY_NOT_SATISFIED`. `interop-findings.md` A24, and the same shape as A18: a translation the
+ * adapter owed and did not make, invisible to every test that could not produce a real presentation.
+ *
+ * **Driven by what was asked, not by what arrived.** For each requested path whose final segment
+ * matches a flat key the engine returned, the value is nested back under the path's own prefix. A
+ * key that already sits where a path addresses it is left alone, so SD-JWT VC — where the engine's
+ * shape already matches — passes through untouched.
+ *
+ * It deliberately does **not** guess a namespace from the doctype. `org.iso.18013.5.1.mDL` happens
+ * to contain its namespace; nothing guarantees that of any other document type, and a rule that
+ * works for one doctype and silently mis-nests another is worse than no rule.
+ */
+export const restoreRequestedShape = (
+  disclosed: DisclosedClaims,
+  requestedClaims: readonly RequestedClaim[],
+): DisclosedClaims => {
+  const nested = requestedClaims.filter((c) => c.path.length > 1);
+  if (nested.length === 0) return disclosed;
+
+  const out: Record<string, unknown> = {};
+  const consumed = new Set<string>();
+
+  for (const claim of nested) {
+    const leaf = claim.path[claim.path.length - 1];
+    if (typeof leaf !== "string") continue;
+    // Only when the engine flattened it. If the value is already at the full path the engine
+    // returned the shape the policy expects, and moving it would be the bug rather than the fix.
+    if (readAtPath(disclosed, claim.path) !== undefined) continue;
+    if (!(leaf in disclosed)) continue;
+
+    let cursor = out;
+    for (const segment of claim.path.slice(0, -1)) {
+      if (typeof segment !== "string") break;
+      cursor[segment] ??= {};
+      const next = cursor[segment];
+      if (typeof next !== "object" || next === null) break;
+      cursor = next as Record<string, unknown>;
+    }
+    cursor[leaf] = (disclosed as Record<string, unknown>)[leaf];
+    consumed.add(leaf);
+  }
+
+  // Anything the engine returned that no requested path re-homed stays exactly where it was.
+  for (const [key, value] of Object.entries(disclosed)) {
+    if (!consumed.has(key)) out[key] = value;
+  }
+  return out as DisclosedClaims;
+};
+
+/** Reads a value at a path, for the "already in the right place" check above. */
+const readAtPath = (source: unknown, path: readonly (string | number | null)[]): unknown => {
+  let current: unknown = source;
+  for (const segment of path) {
+    if (current === null || current === undefined) return undefined;
+    if (typeof segment !== "string") return undefined;
+    if (typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+};
 
 /**
  * Extracts the disclosed claims of the single requested credential.

@@ -467,6 +467,31 @@ issuance is now correct and reachable, and the remaining gap is on the wallet si
 authorization-code start. That is a better position than §8.1c — where the failure was ours — but it
 is not the test succeeding.
 
+### 8.1e Fifth wallet run — **the first mdoc presentation**, and two defects between here and it
+
+13 September 2026, W3 (`wd-3`), same tunnel, an **mDL** obtained from the reference issuer. Every
+previous run on this platform was SD-JWT VC; this is the first time an mdoc has been asked for,
+presented and verified.
+
+**Result: `VERIFIED`**, with `{"org.iso.18013.5.1.family_name": "…"}`. The whole mdoc path works —
+DCQL with `doctype_value` and namespaced claim paths, credential matching in the wallet, the signed
+request object, the encrypted response, and the result policy.
+
+**It took four attempts, and each failure was worth having.**
+
+| | What the screen or the log said | What it was |
+|---|---|---|
+| 1 | *"The requested document is not available in your EUDI Wallet"* | The relying party was **verified** — the green badge was there — and the wallet then could not satisfy the request. A misread: the run after it showed the wallet did match and did share |
+| 2 | `400 invalid_request · mDOC verification failed` | The engine cannot decode the reference issuer's CWT status list: it requires `aggregation_uri`, which the specification makes optional. `interop-findings.md` **A25** |
+| 3 | Identical, with `statusCheckMode: BEST_EFFORT` | The platform's status-check lever is **not** a lever for this. The decode throws before the mode is consulted; only `DISABLED` gets past it |
+| 4 | `POLICY_NOT_SATISFIED`, on an engine session reporting `success` and `verified: true` | Ours. The engine returns mdoc values flat, without the namespace the claim path addresses, so the result policy looked in the wrong place. **A24** — the same shape as A18 |
+
+**What this run therefore shows, exactly.** The mdoc path is sound and the platform now handles its
+result shape. It shows nothing about revocation: the successful run had status checking **disabled**,
+which `AS-AP-07-023` (`VCR_13`) permits only after a documented risk analysis that V0 has not
+performed. **An mdoc presentation with status checking on does not work today, and the reason is in
+the engine.**
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

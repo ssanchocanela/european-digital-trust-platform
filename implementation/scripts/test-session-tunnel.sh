@@ -128,19 +128,55 @@ start_tunnel() {
   return 1
 }
 
+# A quick tunnel is not serving the instant it prints a hostname: Cloudflare answers 000, 502 or 530
+# for a few seconds while the edge picks it up. Running the negative checks into that window fails
+# them all and reports "something is reachable that must not be", which is the opposite of what
+# happened — and a security check that cries wolf is a security check people learn to skip.
+#
+# So wait for the tunnel to serve *something* first. Any HTTP status will do, including the 404 the
+# allow-list gives an unknown path: the point is that the edge is answering, not what it says.
+await_tunnel() {
+  local host="$1" label="$2"
+  for _ in $(seq 1 30); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$host/" || echo 000)"
+    case "$code" in
+      000|502|503|504|530) sleep 2 ;;
+      *) return 0 ;;
+    esac
+  done
+  echo "    $label did not start answering within a minute." >&2
+  return 1
+}
+
 negative_checks() {
   local engine="$1" platform="$2" failures=0
+  await_tunnel "$engine" "engine tunnel" || return 1
+  await_tunnel "$platform" "platform tunnel" || return 1
+
   # Every one of these MUST be 404. A 401 is not reassurance: it proves the endpoint is reachable.
   local engine_paths=(/api/docs-json /api/tenant /api/key-chain /api/verifier/config /api/oauth2/token /health /storage/x /docs /docs-json /)
   local platform_paths=(/v1/tenants /v1/presentations /health /openapi)
 
+  # Each path is retried once on a transport-level failure, and only on that: a 200 or a 401 is an
+  # answer and is a failure on the first try. Retrying a real answer would be how a reachable
+  # endpoint gets waved through.
+  probe() {
+    local url="$1" code
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
+    if [ "$code" = "000" ]; then
+      sleep 2
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
+    fi
+    printf '%s' "$code"
+  }
+
   for path in "${engine_paths[@]}"; do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$engine$path" || echo 000)"
+    code="$(probe "$engine$path")"
     printf '    %s  %s%s\n' "$code" "engine" "$path"
     [ "$code" = "404" ] || failures=$((failures + 1))
   done
   for path in "${platform_paths[@]}"; do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$platform$path" || echo 000)"
+    code="$(probe "$platform$path")"
     printf '    %s  %s%s\n' "$code" "platform" "$path"
     [ "$code" = "404" ] || failures=$((failures + 1))
   done

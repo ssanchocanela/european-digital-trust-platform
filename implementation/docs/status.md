@@ -184,6 +184,22 @@ survive the move between machines, so nothing signed by the old key can be updat
 
 ---
 
+## The credential catalogue
+
+Five credentials are registered and offered by the console: PID and mDL, read from the reference
+issuer's own metadata, and three **Power of X** attestations — representation, attorney, employee —
+from a consortium Rulebook draft.
+
+**The Power of X definitions are not in this repository** — they derive from a consortium Rulebook
+draft whose content stays outside it, and the registration script loads them from a file the operator
+supplies. What *is* recorded is the part that is ours: the claim paths are an interpretation and the
+`vct` values are project-scoped, because the Rulebook gives neither a schema nor a `vct`.
+[`credential-catalogue.md`](credential-catalogue.md) says so, and says that when the schema arrives
+the paths change and every policy built on them needs republishing.
+
+One difference worth knowing before writing an age policy: the **mDL carries `age_over_18` and the
+PID does not**. The same question takes two different policies.
+
 ## Open decisions
 
 - ~~**File the Registrar defect report?**~~ **Decided 13 September 2026: parked, not filed.** All six

@@ -28,3 +28,9 @@ tools/test-wallet/out/
 *.aab
 *.keystore
 *.jks
+
+# Credential definitions derived from material that stays outside this repository. The registration
+# script reads them from here; the repository references the Rulebook and carries none of its
+# content. See docs/credential-catalogue.md.
+pox*.json
+credential-catalogue/

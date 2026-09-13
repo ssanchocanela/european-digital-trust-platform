@@ -1,7 +1,7 @@
 # PR #6 — web interface, a wallet that works, and what running it live found
 
 **Branch** `implementation/web-interface` → `implementation/platform-v0-issuance`
-**44 commits · 113 files · +12,113 / −252 · three migrations, two of which change data**
+**46 commits · three migrations, two of which change data**
 
 ---
 
@@ -11,7 +11,7 @@ The web interface phases A and B1, the test-session tooling, a self-built wallet
 presentation against the platform — and, because those things finally exercised the stack live, a
 run of defects that no test able to be written beforehand could have caught.
 
-That last part is most of the value here and it is worth saying plainly: **five of the defects fixed
+That last part is most of the value here and it is worth saying plainly: **six of the defects fixed
 in this branch were invisible to a passing test suite.** Each needed a real engine, a real wallet, or
 a real database to show itself. The pattern is consistent enough to be the review's organising
 question — *which layers has this branch newly made reachable, and what did they turn out to be

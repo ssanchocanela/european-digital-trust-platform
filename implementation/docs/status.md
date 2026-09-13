@@ -43,7 +43,9 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    metadata and then does nothing, with no request and no logged error. The §7.3 eligibility
    presentation is still unexercised, and the remaining gap is on the wallet side.
    [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1d.
-4. **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
+4. **Open PR #6.** Description drafted in [`pr-6-description.md`](pr-6-description.md), not filed —
+   opening it is outward-facing. 46 commits, and the branch was reviewed for it: that pass found A23.
+5. **`pnpm db:migrate` and `pnpm api:openapi` point at files that do not exist.** Pre-existing; the
    first is a rename, the second needs a decision about what it should do.
 
 ## The two blockers, and which one moved
@@ -143,7 +145,9 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **282 unit, 115 integration**. The adapter contract suite is separate and
+`pnpm verify` passes: **282 unit, 115 integration**. **A note on the pattern**: three separate
+defects today (A20, A22, A23) were one tenant-scoped engine object with two owners. Anything that
+writes to the engine by a shared identifier is worth checking against that. The adapter contract suite is separate and
 needs a reachable engine: `ENGINE_BASE_URL=… ENGINE_TENANT_CREDENTIALS=… pnpm test:adapter` — 25
 tests, all passing against the live engine on 13 September 2026. Docker stack up, with a tenant and credentials
 in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.

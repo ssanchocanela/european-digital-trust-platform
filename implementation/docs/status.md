@@ -103,9 +103,15 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **274 unit, 92 integration**. Docker stack up, with a tenant, a published
-policy (`f7013836-7656-402b-9745-b762acfea774` v1) and credentials in
-`~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.
+`pnpm verify` passes: **274 unit, 92 integration**. Docker stack up, with a tenant and credentials
+in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.
+
+Two published policies, and the difference matters. `f7013836-…` belongs to the smoke test's
+service, whose instance holds a **self-signed** certificate no wallet will accept.
+**`30627f9a-3e6b-4d56-89ed-3e9b1e0af801`** belongs to the service provisioned with the development
+CA's certificate, and is the one a wallet test must use. There is no route to replace an instance's
+certificate — `POST …/instance` creates, and nothing updates — which is why a second service exists
+rather than the first being corrected.
 
 Android toolchain complete: JDK 17, SDK `android-37.0` with build-tools `37.0.0`, upstream cloned at
 the pinned tag with all three patches applying cleanly. `adb` is Windows' at

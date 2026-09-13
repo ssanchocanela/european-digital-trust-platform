@@ -21,6 +21,14 @@
 #                           build must survive: uninstalling it deletes its documents, and a
 #                           differently-signed APK cannot update it in place.
 #   --app-name <name>       overrides the on-screen app name to match.
+#   --build-type <type>     `release` (default) or `debug`.
+#
+# `debug` exists for diagnosis, not for results. Upstream's NetworkModule sets Ktor's HTTP logging
+# to LogLevel.BODY for DEBUG and NONE for RELEASE, so a release build writes no application logging
+# whatever — which is how a blocked presentation gave no reason on 13 September 2026. A debug build
+# also carries `debuggable`, so `adb shell run-as` can read the app's data directory and show
+# whether a trust list was fetched and cached at all. It is signed with the SDK's debug key, so a
+# result from it is even further from an official one than the release build already is.
 
 set -euo pipefail
 
@@ -37,6 +45,7 @@ SKIP_BUILD="no"
 WRPAC_LOTE=""
 APP_ID_SUFFIX=""
 APP_NAME=""
+BUILD_TYPE="release"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -44,6 +53,7 @@ while [ $# -gt 0 ]; do
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
     --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
+    --build-type) BUILD_TYPE="${2:-}"; shift 2 ;;
     --prepare-only) SKIP_BUILD="yes"; shift ;;
     -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
@@ -80,6 +90,11 @@ case "$DEVIATIONS" in
     ;;
 esac
 
+case "$BUILD_TYPE" in
+  release|debug) ;;
+  *) die "unknown --build-type '$BUILD_TYPE'. Accepted: release, debug." ;;
+esac
+
 # --- 1. Prerequisites --------------------------------------------------------------------------
 step "Checking prerequisites"
 
@@ -102,7 +117,7 @@ SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
   die "Android build-tools $WALLET_BUILD_TOOLS not installed in $SDK/build-tools."
 export ANDROID_HOME="$SDK"
 
-if [ "$SKIP_BUILD" = "no" ]; then
+if [ "$SKIP_BUILD" = "no" ] && [ "$BUILD_TYPE" = "release" ]; then
   : "${ANDROID_KEYSTORE_PATH:?set it to our own signing keystore (see make-signing-key.sh)}"
   : "${ANDROID_KEY_ALIAS:?set it to the key alias inside that keystore}"
   : "${ANDROID_KEY_PASSWORD:?set it to the key password — never pass a password on the command line}"
@@ -236,7 +251,8 @@ fi
 # Gradle capitalises the flavour in task names. Done with tr rather than bash's ${var^} because
 # macOS still ships bash 3.2, where that expansion is a syntax error.
 FLAVOR_TASK_NAME="$(printf '%s' "$EDTP_FLAVOR" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
-TASK="assemble${FLAVOR_TASK_NAME}Release"
+BUILD_TYPE_TASK_NAME="$(printf '%s' "$BUILD_TYPE" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
+TASK="assemble${FLAVOR_TASK_NAME}${BUILD_TYPE_TASK_NAME}"
 step "Building :app:$TASK"
 # Upstream's gradle.properties asks for `-Xmx8192m`. On a machine with less physical memory than
 # that the JVM is killed by the kernel partway through, which looks like a mysterious build failure
@@ -278,12 +294,12 @@ echo "    android lint: skipped for release assembly (upstream quality gate; see
 
 # `awk NR==1` rather than `head -1` throughout this script: `head` closes the pipe early, which
 # under `set -o pipefail` turns a perfectly successful command into a SIGPIPE failure (exit 141).
-APK="$(find app/build/outputs/apk/"$EDTP_FLAVOR"/release -name '*.apk' | awk 'NR == 1')"
+APK="$(find app/build/outputs/apk/"$EDTP_FLAVOR"/"$BUILD_TYPE" -name '*.apk' | awk 'NR == 1')"
 [ -n "$APK" ] || die "build reported success but no APK was produced."
 
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-TARGET="$OUT_DIR/edtp-test-wallet-$EDTP_VERSION_NAME-$STAMP.apk"
+TARGET="$OUT_DIR/edtp-test-wallet-$EDTP_VERSION_NAME-$BUILD_TYPE-$STAMP.apk"
 cp "$APK" "$TARGET"
 
 # --- 7. The run record -------------------------------------------------------------------------
@@ -305,6 +321,7 @@ cat <<EOF
  upstream tag         $WALLET_UPSTREAM_TAG
  upstream commit      $WALLET_UPSTREAM_COMMIT
  wallet core          $WALLET_CORE_VERSION
+ build type           $BUILD_TYPE
  active deviations    $DEVIATIONS
  patches applied      $(cd "$HERE/patches" && ls *.patch | tr '\n' ' ')
  platform commit      $(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo '<unknown>')

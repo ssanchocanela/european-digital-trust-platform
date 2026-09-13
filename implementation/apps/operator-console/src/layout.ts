@@ -57,7 +57,8 @@ export const page = (options: LayoutOptions): string =>
   ${
     options.authenticated
       ? rawHtml(
-          '<nav><a href="/offers">Offers</a> <a href="/">Test driver</a> ' +
+          '<nav><a href="/offers">Verification</a> <a href="/issuance">Issuance</a> ' +
+            '<a href="/">Test driver</a> ' +
             '<a href="/registration">Registration</a> <a href="/health">Health</a>' +
             '<form method="post" action="/logout" class="inline"><button type="submit">Sign out</button></form></nav>',
         )
@@ -182,6 +183,14 @@ a.button {
   text-decoration: none; font-weight: 600;
 }
 a.button:hover { background: var(--panel); }
+table.gate { margin-top: 8px; border-collapse: collapse; }
+table.gate td { padding: 3px 14px 3px 0; vertical-align: top; font-size: 13.5px; }
+button.link {
+  background: none; border: none; padding: 0 6px 0 0; color: var(--accent);
+  font: inherit; cursor: pointer; text-decoration: underline;
+}
+form.inline { display: inline; }
+code.format { color: var(--muted); font-size: 12px; }
 a { color: var(--accent); }
 main { max-width: 1000px; margin: 0 auto; padding: 24px 20px 64px; }
 h1 { font-size: 20px; margin: 0 0 4px; }

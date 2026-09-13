@@ -184,6 +184,21 @@ survive the move between machines, so nothing signed by the old key can be updat
 
 ---
 
+## The console now covers both services
+
+**Verification** — offers list, a builder bounded by what the Relying Party registered, and per-offer
+monitoring with the QR or same-device link.
+
+**Issuance** — what this tenant offers to issue, a credential offer per policy, and the register of
+what was actually collected with revoke, suspend and reinstate. **The trust gate is at the top of
+every issuance screen**, because today it does not open: the engine signs no issuer metadata (B7), so
+no wallet can complete a collection and the register stays empty however many offers are created. A
+console that showed offers without saying so would let an operator hand out a link and learn from a
+user that nothing works.
+
+Two of the eight planned screens remain unbuilt — Certificates and Tenants — plus Policies and
+Services, which the two builders partly cover. None is blocked.
+
 ## mdoc: it works, and revocation checking does not
 
 **The first mdoc presentation against this platform came back `VERIFIED`** on 13 September 2026 — an

@@ -179,8 +179,17 @@ export class TransactionListingController {
 
   @Get("issuances")
   @ApiOperation({ summary: "List issuance transactions" })
+  @ApiQuery({
+    name: "policyId",
+    required: false,
+    description: "Narrows to one issuance policy.",
+  })
   async issuances(@Ctx() ctx: RequestContext, @Query() query: Record<string, unknown>) {
-    return toPageResponse(await this.listing.issuances(ctx.tenantId, parsePageRequest(query)));
+    const policyId = typeof query.policyId === "string" ? query.policyId : undefined;
+    if (policyId !== undefined) assertUuidPathParam("policyId", policyId);
+    return toPageResponse(
+      await this.listing.issuances(ctx.tenantId, parsePageRequest(query), policyId),
+    );
   }
 
   @Get("issued-credentials")

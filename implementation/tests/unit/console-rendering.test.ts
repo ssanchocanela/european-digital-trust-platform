@@ -8,7 +8,11 @@
  */
 import { escapeHtml, html, rawHtml, toHtmlString } from "@edtp/operator-console/html.js";
 import { InteractionCache } from "@edtp/operator-console/interaction-cache.js";
-import type { PolicyOption } from "@edtp/operator-console/platform-client.js";
+import {
+  errorCodeOf,
+  errorMessageOf,
+  type PolicyOption,
+} from "@edtp/operator-console/platform-client.js";
 import { statusPayload, testDriverView } from "@edtp/operator-console/views.js";
 import { describe, expect, it } from "vitest";
 
@@ -204,5 +208,41 @@ describe("the policy picker", () => {
       policiesTruncated: true,
     });
     expect(out).toContain("More policies exist");
+  });
+});
+
+describe("the platform's error envelope", () => {
+  /**
+   * The envelope is flat — `{ error: "<code>", message: "…" }` — and the client used to look for
+   * `{ error: { code, message } }`. It found a string where it expected an object, returned nothing,
+   * and every platform error the console showed fell back to the HTTP status line with the code
+   * `platform_api_error`.
+   *
+   * Nothing failed. The fallback read like a reasonable message, which is why it survived: the same
+   * shape as `interop-findings.md` A18 and A24, and found the same way — by looking at what the API
+   * actually sends.
+   */
+  it("reads the code and the message the platform actually sends", () => {
+    const body = JSON.stringify({
+      error: "attestation_provider_not_provisioned",
+      message: "The Attestation Provider has no engine tenant yet.",
+      correlationId: "c-1",
+    });
+    expect(errorCodeOf(body)).toBe("attestation_provider_not_provisioned");
+    expect(errorMessageOf(body, { status: 409, statusText: "Conflict" } as Response)).toBe(
+      "The Attestation Provider has no engine tenant yet.",
+    );
+  });
+
+  it("falls back to the status line only when there is nothing to read", () => {
+    expect(
+      errorMessageOf("not json", { status: 502, statusText: "Bad Gateway" } as Response),
+    ).toBe("The platform API answered 502 Bad Gateway.");
+    expect(errorCodeOf("not json")).toBe("platform_api_error");
+  });
+
+  it("still reads a nested envelope, in case one is ever sent", () => {
+    const nested = JSON.stringify({ error: { code: "x", message: "y" } });
+    expect(errorCodeOf(nested)).toBe("x");
   });
 });

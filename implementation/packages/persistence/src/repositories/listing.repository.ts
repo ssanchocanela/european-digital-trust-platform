@@ -8,6 +8,7 @@ import {
   credentialTypes,
   intendedUses,
   issuancePolicies,
+  issuancePolicyVersions,
   issuanceTransactions,
   issuedCredentials,
   organisations,
@@ -328,31 +329,84 @@ export class ListingRepository {
     );
   }
 
+  /**
+   * The issuance side's counterpart to `presentationPolicies`, and it joins for the same reasons.
+   *
+   * A caller choosing a policy to issue under needs **what it issues** — the credential type's name
+   * and format, which the policy row holds only as an id — and **whether it has a published
+   * version**, because `resolvePublishedVersion` rejects one that does not. Offering a policy that
+   * cannot start is offering a failure that arrives later and looks like something else.
+   *
+   * Keyset semantics are preserved exactly, for the reason recorded on the verification-side query:
+   * pagination correctness does not become negotiable because a query grew a join.
+   */
   async issuancePolicies(tenantId: TenantId, page: PageRequest): Promise<Page<NamedListItem>> {
-    const rows = await this.keyset(
-      issuancePolicies,
-      issuancePolicies.createdAt,
-      tenantId,
-      page,
-    );
+    const conditions: SQL[] = [eq(issuancePolicies.tenantId, tenantId)];
+    if (page.cursor) {
+      const afterCursor = or(
+        lt(issuancePolicies.createdAt, page.cursor.createdAt),
+        and(
+          eq(issuancePolicies.createdAt, page.cursor.createdAt),
+          lt(issuancePolicies.id, page.cursor.id),
+        ),
+      );
+      if (afterCursor) conditions.push(afterCursor);
+    }
+
+    const latestPublished = sql<number | null>`(
+      select max(${issuancePolicyVersions.version})
+      from ${issuancePolicyVersions}
+      where ${issuancePolicyVersions.policyId} = ${issuancePolicies.id}
+        and ${issuancePolicyVersions.status} = 'PUBLISHED'
+    )`;
+
+    const rows = await this.db
+      .select({
+        id: issuancePolicies.id,
+        name: issuancePolicies.name,
+        createdAt: issuancePolicies.createdAt,
+        status: issuancePolicies.status,
+        credentialTypeId: issuancePolicies.credentialTypeId,
+        credentialTypeName: credentialTypes.name,
+        credentialFormat: credentialTypes.format,
+        publishedVersion: latestPublished,
+      })
+      .from(issuancePolicies)
+      .innerJoin(credentialTypes, eq(issuancePolicies.credentialTypeId, credentialTypes.id))
+      .where(and(...conditions))
+      .orderBy(desc(issuancePolicies.createdAt), desc(issuancePolicies.id))
+      .limit(page.limit + 1);
+
     return toPage(
       rows.map((r) => ({
         id: r.id,
         name: r.name,
         createdAt: r.createdAt,
-        detail: { credentialTypeId: r.credentialTypeId },
+        detail: {
+          status: r.status,
+          credentialTypeId: r.credentialTypeId,
+          credentialTypeName: r.credentialTypeName,
+          credentialFormat: r.credentialFormat,
+          publishedVersion: r.publishedVersion ?? null,
+        },
       })),
       page.limit,
       keyOf,
     );
   }
 
-  async issuances(tenantId: TenantId, page: PageRequest): Promise<Page<IssuanceListItem>> {
+  async issuances(
+    tenantId: TenantId,
+    page: PageRequest,
+    /** Narrows to one issuance policy, in the `WHERE` — see `presentations`. */
+    policyId?: string,
+  ): Promise<Page<IssuanceListItem>> {
     const rows = await this.keyset(
       issuanceTransactions,
       issuanceTransactions.createdAt,
       tenantId,
       page,
+      policyId ? [eq(issuanceTransactions.policyId, policyId)] : [],
     );
     return toPage(
       rows.map((r) => ({

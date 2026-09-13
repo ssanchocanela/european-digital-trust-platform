@@ -24,10 +24,15 @@ import { z } from "zod";
 import { loadConfig } from "./config.js";
 import type { SafeHtml } from "./html.js";
 import { type Interaction, InteractionCache } from "./interaction-cache.js";
+import {
+  issuanceOffersView,
+  issuancePolicyView,
+  issuedCredentialsView,
+} from "./issuance-views.js";
 import { CONSOLE_CSS, CONTENT_SECURITY_POLICY, notice, page } from "./layout.js";
 import { Logger } from "./logger.js";
 import { newOfferView, offersView, offerView } from "./offer-views.js";
-import type { CreatedPresentation } from "./platform-client.js";
+import type { CreatedPresentation, ProviderAuthentication } from "./platform-client.js";
 import { PlatformApiError, PlatformClient } from "./platform-client.js";
 import { renderQrWithValue } from "./qr.js";
 import { checkInteractionReachability } from "./reachability.js";
@@ -240,6 +245,222 @@ const main = async (): Promise<void> => {
       return;
     }
     response.status(401).type("text").send("Not signed in.");
+  });
+
+  // --- issuance ----------------------------------------------------------------------------------
+  //
+  // The gate comes first on every screen here. ARF §6.6.2.2 requires a Wallet to authenticate the
+  // Credential Issuer from signed metadata before requesting anything, the engine produces none, and
+  // a wallet has been watched refusing exactly there. A console that showed offers without saying so
+  // would let an operator publish one, hand out a link, and learn from a user that nothing can be
+  // collected.
+
+  /** Trust gate (a), for whichever provider this tenant has. Never fabricated. */
+  const readGate = async (): Promise<ProviderAuthentication | undefined> => {
+    try {
+      const providers = await platform.listAttestationProviders();
+      const first = providers[0];
+      if (!first) {
+        return {
+          error: "no_attestation_provider",
+          message: "This tenant has no Attestation Provider.",
+        };
+      }
+      return await platform.providerAuthentication(first.id);
+    } catch (error) {
+      // A refusal from the platform is an **answer** and is passed through: it says why, and the
+      // reason is usually actionable — "the provider has no engine tenant yet" is a thing an operator
+      // can fix. Only a failure to reach the platform at all returns `undefined`, which the view
+      // renders as "could not be read" rather than as a reassuring default.
+      if (error instanceof PlatformApiError) {
+        logger.info("provider authentication refused", { code: error.code });
+        return { error: error.code, message: error.message };
+      }
+      logger.warn("provider authentication unavailable", { code: "unknown" });
+      return undefined;
+    }
+  };
+
+  app.get("/issuance", async (_request, response) => {
+    try {
+      const [policies, issuances, gate] = await Promise.all([
+        platform.listIssuancePolicies(),
+        platform.listIssuances(),
+        readGate(),
+      ]);
+      const counts = new Map<string, number>();
+      for (const i of issuances) counts.set(i.policyId, (counts.get(i.policyId) ?? 0) + 1);
+      render(
+        response,
+        "Issuance",
+        issuanceOffersView({
+          policies: policies.map((p) => ({ ...p, issuances: counts.get(p.id) ?? 0 })),
+          ...(gate ? { gate } : {}),
+        }),
+        true,
+      );
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Issuance",
+        issuanceOffersView({ policies: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.get("/issuance/credentials", async (_request, response) => {
+    try {
+      const credentials = await platform.listIssuedCredentials();
+      render(response, "Issued attestations", issuedCredentialsView({ credentials }), true);
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Issued attestations",
+        issuedCredentialsView({ credentials: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.post("/issuance/credentials/:id/status", async (request, response) => {
+    const id = request.params.id ?? "";
+    const wanted = request.body?.status;
+    const status =
+      wanted === "REVOKED" || wanted === "SUSPENDED" || wanted === "VALID" ? wanted : undefined;
+    let notice: string | undefined;
+    let error: string | undefined;
+    if (!status) {
+      error = "That is not a status this console can set.";
+    } else {
+      try {
+        await platform.changeCredentialStatus(id, status);
+        // The identifier, never the status-list index: the index is an `ISSU_35` unique element.
+        logger.info("attestation status changed", { issuedCredentialId: id, status });
+        notice =
+          status === "REVOKED"
+            ? "Revoked. That cannot be undone."
+            : status === "SUSPENDED"
+              ? "Suspended. It can be reinstated."
+              : "Reinstated.";
+      } catch (e) {
+        error = messageOf(e);
+      }
+    }
+    const credentials = await platform.listIssuedCredentials().catch(() => []);
+    if (error) response.status(400);
+    render(
+      response,
+      "Issued attestations",
+      issuedCredentialsView({
+        credentials,
+        ...(notice ? { notice } : {}),
+        ...(error ? { error } : {}),
+      }),
+      true,
+    );
+  });
+
+  /** One issuance policy, with whatever offer is currently open for it. */
+  const renderIssuancePolicy = async (
+    response: Response,
+    policyId: string,
+    extra: {
+      readonly offer?: { uri: string; issuanceId: string; expiresAt: string };
+      readonly error?: string;
+    } = {},
+  ): Promise<void> => {
+    const [policies, issuances, gate] = await Promise.all([
+      platform.listIssuancePolicies(),
+      platform.listIssuances(policyId),
+      readGate(),
+    ]);
+    const policy = policies.find((p) => p.id === policyId);
+    if (!policy) {
+      response.status(404);
+      render(
+        response,
+        "Issuance",
+        issuanceOffersView({ policies: [], error: "No such issuance policy." }),
+        true,
+      );
+      return;
+    }
+    render(
+      response,
+      policy.name,
+      issuancePolicyView({
+        policy,
+        issuances,
+        ...(gate ? { gate } : {}),
+        ...(extra.offer ? { offer: extra.offer } : {}),
+        ...(extra.offer
+          ? {
+              qr: renderQrWithValue(extra.offer.uri, "Credential offer — scan with the wallet"),
+            }
+          : {}),
+        ...(extra.error ? { error: extra.error } : {}),
+      }),
+      true,
+    );
+  };
+
+  app.get("/issuance/:policyId", async (request, response) => {
+    try {
+      await renderIssuancePolicy(response, request.params.policyId ?? "");
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Issuance",
+        issuanceOffersView({ policies: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.post("/issuance/:policyId/offer", async (request, response) => {
+    const policyId = request.params.policyId ?? "";
+    const subjectReference =
+      typeof request.body?.subjectReference === "string"
+        ? request.body.subjectReference.trim()
+        : "";
+    if (!subjectReference) {
+      response.status(400);
+      await renderIssuancePolicy(response, policyId, {
+        error:
+          "A subject reference is needed: it is how the authentic source is asked who this is.",
+      });
+      return;
+    }
+    try {
+      const created = await platform.createIssuance({
+        policyId,
+        subjectReference,
+        businessReference: `console-${new Date().toISOString().slice(0, 19).replace(/[:T-]/g, "")}`,
+      });
+      logger.info("credential offer created", {
+        issuanceId: created.issuanceId,
+        policyId,
+        status: created.status,
+      });
+      await renderIssuancePolicy(response, policyId, {
+        ...(created.offer
+          ? {
+              offer: {
+                uri: created.offer.uri,
+                issuanceId: created.issuanceId,
+                expiresAt: created.expiresAt,
+              },
+            }
+          : {}),
+      });
+    } catch (error) {
+      response.status(502);
+      await renderIssuancePolicy(response, policyId, { error: messageOf(error) });
+    }
   });
 
   // --- verification offers --------------------------------------------------------------------

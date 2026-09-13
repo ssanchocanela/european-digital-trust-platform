@@ -94,6 +94,51 @@ export interface PresentationSummary {
   readonly closedAt?: string;
 }
 
+/** An issuance policy in a list: what it issues, and whether it can. */
+export interface IssuanceOption {
+  readonly id: string;
+  readonly name: string;
+  readonly credentialTypeName: string;
+  readonly credentialFormat: string;
+  readonly publishedVersion: number | null;
+  readonly status: string;
+}
+
+/** An issuance transaction. Metadata only, like every list. */
+export interface IssuanceSummary {
+  readonly issuanceId: string;
+  readonly businessReference?: string;
+  readonly status: string;
+  readonly policyId: string;
+  readonly failureCode?: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+}
+
+/** An attestation that was actually collected, and what its status is now. */
+export interface IssuedCredentialSummary {
+  readonly issuedCredentialId: string;
+  readonly credentialTypeId: string;
+  readonly status: string;
+  readonly issuedAt: string;
+  readonly expiresAt: string;
+  readonly statusChangedAt?: string;
+}
+
+/**
+ * What a Wallet would find when it tries to authenticate the provider — ARF §6.6.2.2, trust gate (a).
+ *
+ * Read and shown rather than assumed, because the answer today is "it cannot", and a console that
+ * quietly omitted it would let an operator believe issuance is ready when no wallet can complete it.
+ */
+export interface ProviderAuthentication {
+  readonly metadataSigned?: boolean;
+  readonly walletCanAuthenticateProvider?: boolean;
+  readonly registrationCertificatePublished?: boolean;
+  readonly error?: string;
+  readonly message?: string;
+}
+
 export interface PlatformHealth {
   readonly status: string;
   readonly engine: string;
@@ -275,6 +320,94 @@ export class PlatformClient {
     return page.items;
   }
 
+  /** The issuance policies this tenant operates. */
+  async listIssuancePolicies(): Promise<readonly IssuanceOption[]> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const page = await this.call<{
+      items: readonly { id: string; name: string; detail?: Record<string, unknown> }[];
+    }>("GET", `/v1/tenants/${encodeURIComponent(tenantId)}/issuance-policies?limit=100`);
+    return page.items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      credentialTypeName: String(i.detail?.credentialTypeName ?? "unknown"),
+      credentialFormat: String(i.detail?.credentialFormat ?? ""),
+      publishedVersion:
+        typeof i.detail?.publishedVersion === "number" ? i.detail.publishedVersion : null,
+      status: String(i.detail?.status ?? "unknown"),
+    }));
+  }
+
+  /** Issuances, optionally narrowed to one policy — narrowed by the API, not here. */
+  async listIssuances(policyId?: string): Promise<readonly IssuanceSummary[]> {
+    const query = policyId
+      ? `?limit=100&policyId=${encodeURIComponent(policyId)}`
+      : "?limit=100";
+    const page = await this.call<{ items: readonly IssuanceSummary[] }>(
+      "GET",
+      `/v1/issuances${query}`,
+    );
+    return page.items;
+  }
+
+  async listIssuedCredentials(): Promise<readonly IssuedCredentialSummary[]> {
+    const page = await this.call<{ items: readonly IssuedCredentialSummary[] }>(
+      "GET",
+      "/v1/issued-credentials?limit=100",
+    );
+    return page.items;
+  }
+
+  /** Starts an issuance and returns the offer for a wallet. */
+  async createIssuance(input: {
+    readonly policyId: string;
+    readonly subjectReference: string;
+    readonly businessReference: string;
+  }): Promise<{
+    readonly issuanceId: string;
+    readonly status: string;
+    readonly offer?: { readonly uri: string };
+    readonly expiresAt: string;
+  }> {
+    return this.call("POST", "/v1/issuances", input);
+  }
+
+  /**
+   * Changes an issued attestation's status.
+   *
+   * Revocation is irreversible in the platform — `AS-AP-07-007` (`VCR_04`) — so the console offers
+   * revoke and suspend, and reinstatement only from suspended. The API enforces it; the screen
+   * simply does not offer the move it would refuse.
+   */
+  async changeCredentialStatus(
+    issuedCredentialId: string,
+    status: "REVOKED" | "SUSPENDED" | "VALID",
+  ): Promise<unknown> {
+    const path = `/v1/issued-credentials/${encodeURIComponent(issuedCredentialId)}`;
+    return status === "REVOKED"
+      ? this.call("POST", `${path}/revoke`, {})
+      : this.call("POST", `${path}/status`, { status });
+  }
+
+  /** Trust gate (a), as a Wallet would find it. Never fabricated when it cannot be read. */
+  async providerAuthentication(providerId: string): Promise<ProviderAuthentication> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    return this.call<ProviderAuthentication>(
+      "GET",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/attestation-providers/` +
+        `${encodeURIComponent(providerId)}/provider-authentication`,
+    );
+  }
+
+  /** The Attestation Providers this tenant operates. */
+  async listAttestationProviders(): Promise<readonly { id: string; name: string }[]> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const page = await this.call<{ items: readonly { id: string; name: string }[] }>(
+      "GET",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/attestation-providers?limit=100`,
+    );
+    return page.items;
+  }
+
   async health(): Promise<PlatformHealth> {
     return this.call<PlatformHealth>("GET", "/health");
   }
@@ -327,34 +460,52 @@ export class PlatformClient {
 }
 
 /**
- * The platform's error envelope is `{error: {code, message}}`. Parsed defensively: a console that
- * throws while rendering an error page is worse than one that shows a generic message.
+ * The platform's error envelope, which is **flat**.
+ *
+ * `{ error: "attestation_provider_not_provisioned", message: "…", correlationId: "…" }` — `error` is
+ * the code as a string, not a nested object. This used to look for `{error: {code, message}}`, found
+ * a string where it expected an object, and returned nothing — so **every** platform error the
+ * console has ever shown fell back to "The platform API answered 409 Conflict" and the code
+ * `platform_api_error`, discarding the actionable half.
+ *
+ * Found on 13 September 2026 when a 409 that says "the Attestation Provider has no engine tenant
+ * yet" — which tells an operator exactly what to do — rendered as the status line. The same shape of
+ * defect as `interop-findings.md` A18 and A24: code written against an assumed shape, silent because
+ * the fallback looked like a reasonable message.
+ *
+ * Parsed defensively, and a nested envelope is still tolerated: a console that throws while
+ * rendering an error page is worse than one that shows a generic message.
  */
-const parseEnvelope = (text: string): Record<string, unknown> | undefined => {
+const parseEnvelope = (text: string): { code?: string; message?: string } | undefined => {
   try {
     const parsed: unknown = JSON.parse(text);
-    if (typeof parsed === "object" && parsed !== null) {
-      const error = (parsed as Record<string, unknown>)["error"];
-      if (typeof error === "object" && error !== null) {
-        return error as Record<string, unknown>;
-      }
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const body = parsed as Record<string, unknown>;
+
+    // Nested, if a future version ever sends one.
+    if (typeof body.error === "object" && body.error !== null) {
+      const nested = body.error as Record<string, unknown>;
+      return {
+        ...(typeof nested.code === "string" ? { code: nested.code } : {}),
+        ...(typeof nested.message === "string" ? { message: nested.message } : {}),
+      };
     }
+
+    return {
+      ...(typeof body.error === "string" ? { code: body.error } : {}),
+      ...(typeof body.message === "string" ? { message: body.message } : {}),
+    };
   } catch {
     /* fall through to the generic message */
   }
   return undefined;
 };
 
-const errorCodeOf = (text: string): string => {
-  const code = parseEnvelope(text)?.["code"];
-  return typeof code === "string" ? code : "platform_api_error";
-};
+export const errorCodeOf = (text: string): string =>
+  parseEnvelope(text)?.code ?? "platform_api_error";
 
-const errorMessageOf = (text: string, response: Response): string => {
-  const message = parseEnvelope(text)?.["message"];
+export const errorMessageOf = (text: string, response: Response): string =>
   // The API's own message, when it gave one. Never the raw body: it could carry anything, and this
   // string is rendered.
-  return typeof message === "string"
-    ? message
-    : `The platform API answered ${response.status} ${response.statusText}.`;
-};
+  parseEnvelope(text)?.message ??
+  `The platform API answered ${response.status} ${response.statusText}.`;

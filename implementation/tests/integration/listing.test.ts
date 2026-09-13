@@ -205,6 +205,41 @@ describe("what a list item may contain", () => {
   });
 });
 
+describe("narrowing presentations to one policy", () => {
+  /**
+   * The console's per-offer view asks "what has been presented against *this* offer", and the answer
+   * has to come from the query rather than from filtering a page after it is read: a page filtered
+   * client-side comes back short, which is indistinguishable from the end of the list.
+   */
+  it("returns only that policy's presentations", async () => {
+    const second = await harness.deps.services.policies.createPolicy({
+      tenantId: alice.tenantId,
+      relyingPartyServiceId: alice.serviceId,
+      intendedUseId: alice.intendedUseId,
+      name: "A second offer",
+      description: "So the filter has something to exclude.",
+    });
+    await startPresentations(alice, 2);
+
+    const all = await listing().presentations(alice.tenantId, page());
+    const mine = await listing().presentations(alice.tenantId, page(), alice.policyId);
+    const other = await listing().presentations(alice.tenantId, page(), second.id);
+
+    expect(all.items.length).toBe(2);
+    expect(mine.items.length).toBe(2);
+    expect(mine.items.every((i) => i.policyId === alice.policyId)).toBe(true);
+    // A policy with no presentations returns none, not everything — the mistake a filter applied in
+    // the wrong place makes.
+    expect(other.items).toHaveLength(0);
+  });
+
+  it("still refuses to cross tenants when narrowed", async () => {
+    await startPresentations(bob, 1);
+    const result = await listing().presentations(alice.tenantId, page(), bob.policyId);
+    expect(result.items).toHaveLength(0);
+  });
+});
+
 describe("the policy list, which is the one a caller chooses from", () => {
   /**
    * This list is the only one that joins, and the joins are the reason it is usable at all.

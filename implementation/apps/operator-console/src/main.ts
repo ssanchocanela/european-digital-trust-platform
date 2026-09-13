@@ -26,7 +26,10 @@ import type { SafeHtml } from "./html.js";
 import { type Interaction, InteractionCache } from "./interaction-cache.js";
 import { CONSOLE_CSS, CONTENT_SECURITY_POLICY, notice, page } from "./layout.js";
 import { Logger } from "./logger.js";
+import { newOfferView, offersView, offerView } from "./offer-views.js";
+import type { CreatedPresentation } from "./platform-client.js";
 import { PlatformApiError, PlatformClient } from "./platform-client.js";
+import { renderQrWithValue } from "./qr.js";
 import { checkInteractionReachability } from "./reachability.js";
 import {
   REGISTRATION_JS,
@@ -56,6 +59,38 @@ import {
  * (`docs/test-session-gateway.md` §1c). The only publicly reachable part of this workstream is
  * `apps/test-start`, which holds no credential and can only redirect.
  */
+
+/**
+ * Defining an offer.
+ *
+ * `credential` and every `claim` carry the intended use and the index of the registered credential
+ * they came from, so the server can re-derive both from the registration instead of trusting a form
+ * that a browser can edit. A claim whose prefix does not match the chosen credential is dropped
+ * rather than attached to it.
+ */
+const defineOfferForm = z
+  .object({
+    serviceId: z.string().uuid(),
+    credential: z.string().min(3).max(200),
+    // A single checkbox arrives as a string, several as an array, none as undefined. All three are
+    // the same thing to this form.
+    claim: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v])),
+    name: z.string().min(1).max(200),
+    purpose: z.string().min(1).max(300),
+    resultKind: z.enum(["VERIFIED_CLAIMS", "AGE_OVER_18"]),
+  })
+  .strict();
+
+/** The message a caller should see, never a stack and never an engine's diagnostic detail. */
+const messageOf = (error: unknown): string =>
+  error instanceof PlatformApiError
+    ? error.message
+    : error instanceof Error
+      ? error.message
+      : "The platform could not be reached.";
 
 const createPresentationForm = z
   .object({
@@ -205,6 +240,273 @@ const main = async (): Promise<void> => {
       return;
     }
     response.status(401).type("text").send("Not signed in.");
+  });
+
+  // --- verification offers --------------------------------------------------------------------
+  //
+  // The three things an operator does with an offer: see what is published, define a new one, and
+  // work one — get an invitation out and watch what comes back. Named "offer" on screen and
+  // `PresentationPolicy` in the API, because the operator is publishing something a holder can be
+  // asked to satisfy, and that is the word for it.
+
+  /** Offers with a presentation count each, which is the only number the list view needs. */
+  const offersWithCounts = async () => {
+    const [{ options: policies }, presentations] = await Promise.all([
+      platform.listPresentationPolicies(),
+      platform.listPresentations(),
+    ]);
+    const counts = new Map<string, number>();
+    for (const p of presentations) {
+      counts.set(p.policyId, (counts.get(p.policyId) ?? 0) + 1);
+    }
+    return policies.map((p) => ({ ...p, presentations: counts.get(p.id) ?? 0 }));
+  };
+
+  app.get("/offers", async (_request, response) => {
+    try {
+      const [offers, services] = await Promise.all([
+        offersWithCounts(),
+        platform.listServices(),
+      ]);
+      render(response, "Verification offers", offersView({ offers, services }), true);
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Verification offers",
+        offersView({ offers: [], services: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.get("/offers/new", async (request, response) => {
+    const serviceId =
+      typeof request.query.serviceId === "string" ? request.query.serviceId : "";
+    try {
+      const services = await platform.listServices();
+      // Only after a Service is chosen: an intended use belongs to one, and asking for all of them
+      // would offer claims registered by a party this offer is not operated under.
+      const intendedUses = serviceId ? await platform.listIntendedUses(serviceId) : [];
+      render(
+        response,
+        "Define an offer",
+        newOfferView({
+          services,
+          intendedUses,
+          ...(serviceId ? { selectedServiceId: serviceId } : {}),
+        }),
+        true,
+      );
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Define an offer",
+        newOfferView({ services: [], intendedUses: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.post("/offers", async (request, response) => {
+    const parsed = defineOfferForm.safeParse(request.body);
+    if (!parsed.success) {
+      response.status(400);
+      const services = await platform.listServices().catch(() => []);
+      render(
+        response,
+        "Define an offer",
+        newOfferView({
+          services,
+          intendedUses: [],
+          error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        }),
+        true,
+      );
+      return;
+    }
+    const form = parsed.data;
+
+    try {
+      // `credential` and each `claim` carry the intended use and the index of the registered
+      // credential they came from, so a claim cannot be attached to a credential it was not
+      // registered under by editing the form.
+      const [intendedUseId, credentialIndexRaw] = form.credential.split("|");
+      if (!intendedUseId || credentialIndexRaw === undefined) {
+        throw new Error("Choose a credential to ask for.");
+      }
+      const credentialIndex = Number(credentialIndexRaw);
+      const uses = await platform.listIntendedUses(form.serviceId);
+      const use = uses.find((u) => u.id === intendedUseId);
+      const credential = use?.registeredCredentials[credentialIndex];
+      if (!use || !credential) {
+        throw new Error("That credential is not registered under the chosen Service.");
+      }
+
+      const prefix = `${intendedUseId}|${credentialIndexRaw}|`;
+      const claims = form.claim
+        .filter((c) => c.startsWith(prefix))
+        .map((c) => JSON.parse(c.slice(prefix.length)) as (string | number | null)[]);
+      if (claims.length === 0) {
+        throw new Error("Choose at least one attribute to ask for.");
+      }
+
+      const credentialType =
+        credential.vctValues?.[0] ?? credential.doctype ?? credential.format;
+      const resultPolicy =
+        form.resultKind === "AGE_OVER_18"
+          ? {
+              kind: "DERIVED_CLAIMS",
+              derivations: [
+                {
+                  name: "AgeAtLeast",
+                  // The claim the holder discloses, which the derivation consumes and discards.
+                  sourcePath: claims[0],
+                  minimumAgeYears: 18,
+                  outputClaim: "over_18",
+                },
+              ],
+            }
+          : { kind: "VERIFIED_CLAIMS", allowedClaims: claims };
+
+      const { policyId } = await platform.createOffer({
+        relyingPartyServiceId: form.serviceId,
+        intendedUseId,
+        name: form.name,
+        description: form.purpose,
+        purpose: form.purpose,
+        credentialType,
+        acceptedFormats: [credential.format],
+        requestedClaims: claims,
+        resultPolicy,
+      });
+      logger.info("offer defined", { policyId });
+      response.redirect(303, `/offers/${encodeURIComponent(policyId)}`);
+    } catch (error) {
+      response.status(400);
+      const services = await platform.listServices().catch(() => []);
+      const intendedUses = await platform.listIntendedUses(form.serviceId).catch(() => []);
+      render(
+        response,
+        "Define an offer",
+        newOfferView({
+          services,
+          intendedUses,
+          selectedServiceId: form.serviceId,
+          error: messageOf(error),
+        }),
+        true,
+      );
+    }
+  });
+
+  /** One offer, with whatever invitation is currently open for it. */
+  const renderOffer = async (
+    response: Response,
+    policyId: string,
+    extra: { readonly created?: CreatedPresentation; readonly error?: string } = {},
+  ): Promise<void> => {
+    const [{ options: policies }, presentations] = await Promise.all([
+      platform.listPresentationPolicies(),
+      platform.listPresentations(policyId),
+    ]);
+    const offer = policies.find((p) => p.id === policyId);
+    if (!offer) {
+      response.status(404);
+      render(
+        response,
+        "Offer",
+        offersView({ offers: [], services: [], error: "No such offer." }),
+        true,
+      );
+      return;
+    }
+
+    let invite: { uri: string; type: string } | undefined;
+    let qr: SafeHtml | undefined;
+    let startUrl: string | undefined;
+    if (extra.created?.interaction) {
+      const interaction = extra.created.interaction;
+      if (interaction.type === "SAME_DEVICE" && config.TEST_START_PUBLIC_URL) {
+        const token = mintStartToken(config.START_TOKEN_SECRET, {
+          uri: interaction.uri,
+          presentationId: extra.created.presentationId,
+          nowSeconds: nowSeconds(),
+        });
+        startUrl = new URL(`/s/${token}`, config.TEST_START_PUBLIC_URL).toString();
+        qr = renderQrWithValue(
+          startUrl,
+          "Same-device — scan to open the start page on the phone",
+        );
+      } else {
+        qr = renderQrWithValue(interaction.uri, "Cross-device (QR) — the OpenID4VP request");
+      }
+      invite = { uri: interaction.uri, type: interaction.type };
+    }
+
+    render(
+      response,
+      offer.name,
+      offerView({
+        offer,
+        presentations,
+        sameDeviceAvailable: config.TEST_START_PUBLIC_URL !== undefined,
+        ...(invite ? { interaction: invite } : {}),
+        ...(qr ? { qr } : {}),
+        ...(startUrl ? { startUrl } : {}),
+        ...(extra.created ? { expiresAt: extra.created.expiresAt } : {}),
+        ...(extra.error ? { error: extra.error } : {}),
+      }),
+      true,
+    );
+  };
+
+  app.get("/offers/:policyId", async (request, response) => {
+    try {
+      await renderOffer(response, request.params.policyId ?? "");
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Offer",
+        offersView({ offers: [], services: [], error: messageOf(error) }),
+        true,
+      );
+    }
+  });
+
+  app.post("/offers/:policyId/present", async (request, response) => {
+    const policyId = request.params.policyId ?? "";
+    const interactionType =
+      request.body?.interactionType === "SAME_DEVICE" ? "SAME_DEVICE" : "QR";
+    try {
+      const created = await platform.createPresentation({
+        policyId,
+        businessReference: `console-${new Date().toISOString().slice(0, 19).replace(/[:T-]/g, "")}`,
+        interactionType,
+      });
+      if (created.interaction) {
+        interactions.set(created.presentationId, created.interaction);
+      }
+      // The URI itself is never logged: it is a live capability to start a wallet interaction.
+      logger.info("invitation created", {
+        presentationId: created.presentationId,
+        policyId,
+        interactionType,
+      });
+      await renderOffer(response, policyId, { created });
+    } catch (error) {
+      response.status(502);
+      await renderOffer(response, policyId, { error: messageOf(error) }).catch(() => {
+        render(
+          response,
+          "Offer",
+          offersView({ offers: [], services: [], error: messageOf(error) }),
+          true,
+        );
+      });
+    }
   });
 
   // --- test driver ----------------------------------------------------------------------------

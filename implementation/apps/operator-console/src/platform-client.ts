@@ -53,6 +53,47 @@ export interface PolicyOption {
   readonly status: string;
 }
 
+/** A Relying Party Service, as the offer builder needs it. */
+export interface ServiceOption {
+  readonly id: string;
+  readonly name: string;
+  readonly serviceIdentifier: string;
+}
+
+/**
+ * One credential a Relying Party has **registered** for an intended use, with the claims it
+ * registered for it.
+ *
+ * This is what the offer builder offers, and the reason it does not offer anything else: a policy is
+ * validated against the intended use at publication, and asking for a claim outside the registered
+ * set is refused. Building the screen from the registration makes that impossible rather than
+ * explaining it after a 422.
+ */
+export interface RegisteredCredential {
+  readonly format: string;
+  readonly vctValues?: readonly string[];
+  readonly doctype?: string;
+  readonly claims: readonly (readonly (string | number | null)[])[];
+}
+
+export interface IntendedUseOption {
+  readonly id: string;
+  readonly identifier: string;
+  readonly registeredCredentials: readonly RegisteredCredential[];
+}
+
+/** A presentation in a list. Metadata only — the API never returns a result in a list. */
+export interface PresentationSummary {
+  readonly presentationId: string;
+  readonly businessReference: string;
+  readonly status: string;
+  readonly policyId: string;
+  readonly interactionType: string;
+  readonly failureCode?: string;
+  readonly createdAt: string;
+  readonly closedAt?: string;
+}
+
 export interface PlatformHealth {
   readonly status: string;
   readonly engine: string;
@@ -141,6 +182,97 @@ export class PlatformClient {
       })),
       truncated: page.nextCursor !== undefined,
     };
+  }
+
+  /** The Relying Party Services an offer can be defined under. */
+  async listServices(): Promise<readonly ServiceOption[]> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const page = await this.call<{
+      items: readonly { id: string; name: string; detail?: Record<string, unknown> }[];
+    }>("GET", `/v1/tenants/${encodeURIComponent(tenantId)}/rp-services?limit=100`);
+    return page.items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      serviceIdentifier: String(i.detail?.serviceIdentifier ?? ""),
+    }));
+  }
+
+  /** What one Service has registered, which bounds what an offer may ask for. */
+  async listIntendedUses(serviceId: string): Promise<readonly IntendedUseOption[]> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const page = await this.call<{
+      items: readonly { id: string; name: string; detail?: Record<string, unknown> }[];
+    }>(
+      "GET",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/rp-services/${encodeURIComponent(serviceId)}` +
+        "/intended-uses?limit=100",
+    );
+    return page.items.map((i) => ({
+      id: i.id,
+      identifier: i.name,
+      registeredCredentials: Array.isArray(i.detail?.registeredCredentials)
+        ? (i.detail.registeredCredentials as RegisteredCredential[])
+        : [],
+    }));
+  }
+
+  /**
+   * Defines an offer: the policy, then its first version, published.
+   *
+   * Two calls because that is the API's shape, and the shape is deliberate — a policy is a container
+   * and a version is immutable once published. The console does both in one action because a policy
+   * with no published version cannot be used for anything, and leaving one behind is how the picker
+   * fills with entries that do not work.
+   */
+  async createOffer(input: {
+    readonly relyingPartyServiceId: string;
+    readonly intendedUseId: string;
+    readonly name: string;
+    readonly description: string;
+    readonly purpose: string;
+    readonly credentialType: string;
+    readonly acceptedFormats: readonly string[];
+    readonly requestedClaims: readonly (readonly (string | number | null)[])[];
+    readonly resultPolicy: Record<string, unknown>;
+  }): Promise<{ readonly policyId: string }> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const base = `/v1/tenants/${encodeURIComponent(tenantId)}/presentation-policies`;
+
+    const created = await this.call<{ policyId: string }>("POST", base, {
+      relyingPartyServiceId: input.relyingPartyServiceId,
+      intendedUseId: input.intendedUseId,
+      name: input.name,
+      description: input.description,
+    });
+
+    await this.call("POST", `${base}/${encodeURIComponent(created.policyId)}/versions`, {
+      purpose: [{ lang: "en", value: input.purpose }],
+      credentialRequirements: [
+        { credentialType: input.credentialType, acceptedFormats: input.acceptedFormats },
+      ],
+      requestedClaims: input.requestedClaims.map((path) => ({ path })),
+      resultPolicy: input.resultPolicy,
+      publish: true,
+    });
+
+    return { policyId: created.policyId };
+  }
+
+  /**
+   * Presentations, optionally narrowed to one offer.
+   *
+   * Narrowed by the API, not here. A page filtered after it is read comes back short, and a short
+   * page is indistinguishable from the end of the list.
+   */
+  async listPresentations(policyId?: string): Promise<readonly PresentationSummary[]> {
+    const query = policyId
+      ? `?limit=100&policyId=${encodeURIComponent(policyId)}`
+      : "?limit=100";
+    const page = await this.call<{ items: readonly PresentationSummary[] }>(
+      "GET",
+      `/v1/presentations${query}`,
+    );
+    return page.items;
   }
 
   async health(): Promise<PlatformHealth> {

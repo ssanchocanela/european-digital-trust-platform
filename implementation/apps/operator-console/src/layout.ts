@@ -57,7 +57,8 @@ export const page = (options: LayoutOptions): string =>
   ${
     options.authenticated
       ? rawHtml(
-          '<nav><a href="/">Test driver</a> <a href="/registration">Registration</a> <a href="/health">Health</a>' +
+          '<nav><a href="/offers">Offers</a> <a href="/">Test driver</a> ' +
+            '<a href="/registration">Registration</a> <a href="/health">Health</a>' +
             '<form method="post" action="/logout" class="inline"><button type="submit">Sign out</button></form></nav>',
         )
       : ""
@@ -137,6 +138,50 @@ header.top {
 .brand { font-weight: 700; }
 .tenant { color: var(--muted); font-size: 13px; font-family: ui-monospace, monospace; }
 header.top nav { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+
+/* --- verification offers ------------------------------------------------------------------- */
+.crumb { margin: 0 0 6px; font-size: 13px; }
+table.offers, table.presentations { width: 100%; border-collapse: collapse; margin: 14px 0 6px; }
+table.offers th, table.presentations th {
+  text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); font-weight: 600; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line);
+}
+table.offers td, table.presentations td {
+  padding: 9px 10px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top;
+}
+th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+td.right { text-align: right; }
+td.dim { color: var(--muted); }
+.empty { color: var(--muted); font-style: italic; }
+.chip {
+  display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  padding: 2px 7px; border-radius: 3px; border: 1px solid currentColor;
+}
+.chip-ok { color: var(--ok); }
+.chip-bad { color: var(--error); }
+.chip-wait { color: var(--warn); }
+.chip-muted { color: var(--muted); }
+code.failure { font-size: 11px; color: var(--error); }
+.credential { border: 1px solid var(--line); border-radius: 5px; padding: 12px 14px; margin-bottom: 10px; }
+.credential-pick { display: flex; gap: 9px; align-items: baseline; margin-bottom: 8px; }
+.credential-pick code.format { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.claims { display: flex; flex-wrap: wrap; gap: 6px 16px; padding-left: 24px; }
+.claim { display: flex; gap: 6px; align-items: baseline; font-weight: 400; }
+.panel { border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; margin: 18px 0 26px; }
+.panel h2 { margin-top: 0; }
+.invite { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-bottom: 14px; }
+.invite-detail { flex: 1 1 260px; }
+.invite-kind { font-weight: 600; margin: 0 0 6px; }
+.start-link { word-break: break-all; font-family: ui-monospace, monospace; font-size: 12.5px; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+/* Outlined rather than filled: the accent is a light blue in the dark theme, and white text on it
+   is unreadable. An outline reads as a button in both without a second colour to maintain. */
+a.button {
+  display: inline-block; padding: 8px 14px; border-radius: 5px;
+  border: 1px solid var(--accent); color: var(--accent);
+  text-decoration: none; font-weight: 600;
+}
+a.button:hover { background: var(--panel); }
 a { color: var(--accent); }
 main { max-width: 1000px; margin: 0 auto; padding: 24px 20px 64px; }
 h1 { font-size: 20px; margin: 0 0 4px; }

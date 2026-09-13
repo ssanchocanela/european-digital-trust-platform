@@ -2,7 +2,7 @@ import type { ListingRepository, Page } from "@edtp/persistence";
 import { parsePageRequest } from "@edtp/persistence";
 import { asId } from "@edtp/shared";
 import { Controller, Get, Inject, Param, Query } from "@nestjs/common";
-import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiQuery, ApiTags } from "@nestjs/swagger";
 import type { AuditService } from "../modules/audit/audit.service.js";
 import { AUDIT_SERVICE, LISTING_REPOSITORY } from "../tokens.js";
 import { assertTenantMatches, assertUuidPathParam, Ctx, type RequestContext } from "./auth.js";
@@ -157,10 +157,23 @@ export class TransactionListingController {
   ) {}
 
   @Get("presentations")
-  @ApiOperation({ summary: "List presentation transactions. Metadata only — never a result" })
+  @ApiOperation({
+    summary: "List presentation transactions. Metadata only — never a result",
+  })
+  @ApiQuery({
+    name: "policyId",
+    required: false,
+    description: "Narrows to one presentation policy.",
+  })
   async presentations(@Ctx() ctx: RequestContext, @Query() query: Record<string, unknown>) {
+    const policyId = typeof query.policyId === "string" ? query.policyId : undefined;
+    if (policyId !== undefined) {
+      // Validated rather than passed through: an id that is not a UUID reaches the database as a
+      // cast error, which surfaces as a 500 for what is a malformed request.
+      assertUuidPathParam("policyId", policyId);
+    }
     return toPageResponse(
-      await this.listing.presentations(ctx.tenantId, parsePageRequest(query)),
+      await this.listing.presentations(ctx.tenantId, parsePageRequest(query), policyId),
     );
   }
 

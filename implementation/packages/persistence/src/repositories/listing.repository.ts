@@ -248,12 +248,21 @@ export class ListingRepository {
   async presentations(
     tenantId: TenantId,
     page: PageRequest,
+    /**
+     * Narrows to one presentation policy.
+     *
+     * Applied in the `WHERE`, not after the page is read: filtering a page client-side returns a
+     * short page that looks like the end of the list, and the caller cannot tell "no more" from
+     * "none on this page". The console's per-offer view depends on the difference.
+     */
+    policyId?: string,
   ): Promise<Page<PresentationListItem>> {
     const rows = await this.keyset(
       presentationTransactions,
       presentationTransactions.createdAt,
       tenantId,
       page,
+      policyId ? [eq(presentationTransactions.policyId, policyId)] : [],
     );
     return toPage(
       // Selected field by field rather than spread, so a column added to the table later cannot appear

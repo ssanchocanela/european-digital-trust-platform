@@ -118,33 +118,59 @@ if (anchorCount === 0) throw new Error("the notified list carried no issuance an
 // and folding it into their entity would misattribute it.
 
 const caDer = derOf(caPath);
+
+/**
+ * Our entry is built by **cloning the notified list's entity and replacing its values**, rather than
+ * by writing the object out by hand.
+ *
+ * Writing it by hand is what failed on 13 September 2026: the object looked complete, the JWS
+ * signature verified, and the wallet still refused the list with
+ * `FailedToParseJwt: Failed to parse JWT to the expected payload`. The only structural difference
+ * was a missing `TEAddress` — a field nothing in the specification reading had flagged as load
+ * bearing, and which a hand-written object will keep omitting.
+ *
+ * Cloning inverts that: every field the real list carries comes along, including the ones we have
+ * not thought about, and only the values that identify the entity are changed. Anything the parser
+ * requires and we have never heard of arrives for free.
+ */
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const template = notified.TrustedEntitiesList[0];
+if (!template?.TrustedEntityInformation || !template.TrustedEntityServices?.length) {
+  throw new Error("the notified list has no entity to use as a template");
+}
+
+/** Replaces the `value`/`uriValue` of every localised entry, keeping the shape and languages. */
+const relabel = (entries, replacement) =>
+  (entries ?? []).map((entry) => ({
+    ...entry,
+    ...(entry.value === undefined ? {} : { value: replacement }),
+    ...(entry.uriValue === undefined ? {} : { uriValue: replacement }),
+  }));
+
+const serviceTemplate = template.TrustedEntityServices[0].ServiceInformation;
+const ourService = (name, typeIdentifier) => ({
+  ServiceInformation: {
+    ...clone(serviceTemplate),
+    ServiceName: relabel(serviceTemplate.ServiceName, name),
+    ServiceDigitalIdentity: { X509Certificates: [{ val: caDer.toString("base64") }] },
+    ServiceTypeIdentifier: typeIdentifier,
+    SchemeServiceDefinitionURI: relabel(serviceTemplate.SchemeServiceDefinitionURI, publishedUrl),
+  },
+});
+
+const information = clone(template.TrustedEntityInformation);
 const ourEntity = {
   TrustedEntityInformation: {
-    TEName: [{ lang: "en", value: "EDTP development — NOT a notified provider" }],
-    TETradeName: [{ lang: "en", value: "European Digital Trust Platform (TEST)" }],
-    TEInformationURI: [{ lang: "en", uriValue: publishedUrl }],
+    ...information,
+    TEName: relabel(information.TEName, "EDTP development — NOT a notified provider"),
+    TETradeName: relabel(information.TETradeName, "European Digital Trust Platform (TEST)"),
+    TEInformationURI: relabel(information.TEInformationURI, publishedUrl),
   },
   TrustedEntityServices: [
-    // Issuance and Revocation, as the notified list does for every anchor. The same certificate
+    // Issuance and Revocation, as the notified list carries for every anchor. The same certificate
     // appears in both, which is why anything counting anchors must filter on the type.
-    {
-      ServiceInformation: {
-        ServiceName: [{ lang: "en", value: "EDTP Development Access CA - TEST ONLY" }],
-        ServiceDigitalIdentity: { X509Certificates: [{ val: caDer.toString("base64") }] },
-        ServiceTypeIdentifier: "http://uri.etsi.org/19602/SvcType/WRPAC/Issuance",
-        SchemeServiceDefinitionURI: [{ lang: "en", uriValue: publishedUrl }],
-      },
-    },
-    {
-      ServiceInformation: {
-        ServiceName: [
-          { lang: "en", value: "EDTP Development Access CA - TEST ONLY Revocation" },
-        ],
-        ServiceDigitalIdentity: { X509Certificates: [{ val: caDer.toString("base64") }] },
-        ServiceTypeIdentifier: "http://uri.etsi.org/19602/SvcType/WRPAC/Revocation",
-        SchemeServiceDefinitionURI: [{ lang: "en", uriValue: publishedUrl }],
-      },
-    },
+    ourService("EDTP Development Access CA - TEST ONLY", "http://uri.etsi.org/19602/SvcType/WRPAC/Issuance"),
+    ourService("EDTP Development Access CA - TEST ONLY Revocation", "http://uri.etsi.org/19602/SvcType/WRPAC/Revocation"),
   ],
 };
 

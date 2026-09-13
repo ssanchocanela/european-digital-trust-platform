@@ -36,14 +36,18 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    valid.
 2. **The §7.3 PID-during-issuance flow, against the wallet.** Exercised at the platform and engine
    layer (`smoke-issuance.sh`, and the adapter contract test that decodes the nested request object
-   as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone.**
+   as far as a wallet would read it). What is untested is the wallet's half. **Needs the phone —
+   and A22 first**, or it tests a coincidence of this stack's configuration.
 3. **Re-run the `hash_pid` stability test** with identical form values — the earlier run was
    inconclusive because the issuer had different values typed in. **Needs the phone**, and is free
    while nothing is registered.
-4. **A21** — the platform now writes an `oid4vp` authorization server for every gating policy on a
-   provider, and the engine does not check that the presentation configuration exists. It needs the
-   verification and issuance provisioning paths to agree on when one is written: a design question,
-   not a patch.
+4. **A22 — the §7.3 seam, and the largest open item that needs no phone.** The eligibility
+   presentation is provisioned on the Relying Party Instance's engine tenant, lazily, with the
+   Relying Party's access certificate; the issuer resolves it on the Attestation Provider's tenant,
+   at provisioning, and has no access certificate of its own. All three work here only because
+   `rpi-1` is both the Relying Party Instance and the Attestation Provider. Full trace, with the
+   evidence for each of the three: `interop-findings.md` A22. **Do this before testing §7.3 against
+   a wallet** — otherwise the wallet run would prove the shared-tenant coincidence, not the flow.
 
 ## The two blockers, and which one moved
 

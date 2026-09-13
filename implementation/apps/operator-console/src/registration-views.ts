@@ -26,21 +26,34 @@ import { renderQr } from "./qr.js";
  * put a private key in the operator's `Downloads` folder.
  */
 
+/**
+ * What a digest comparison actually tells you.
+ *
+ * Both messages used to describe an open question — whether `hash_pid` survives a re-issued PID.
+ * It was answered by measurement on 13 September 2026 and the answer is **the wallet installation**:
+ * two different credentials with different attributes, issued into the same wallet, return the same
+ * value; the same attributes in a different wallet return a different one
+ * (`docs/interop-findings.md` C11).
+ *
+ * So a match does not mean "the PID was re-issued safely", and a difference does not mean "a
+ * re-issued PID produces a different registrant". The comparison detects a change of **wallet**, and
+ * the notices say that rather than the thing it was built expecting to find.
+ */
 const verdictNotice = (verdict: StabilityVerdict): SafeHtml => {
   if (verdict === "stable") {
     return notice(
       "info",
-      "The digests match: hash_pid survived re-issuance, so the login is recoverable from a " +
-        "re-obtained PID. Record this in docs/certificate-intake-runbook.md — it is the open " +
-        "question that section marks as unverified.",
+      "The digests match, which is what the same wallet installation always produces — hash_pid " +
+        "tracks the installation, not the PID (interop-findings C11). Re-issuing the PID is safe; " +
+        "losing the wallet is not.",
     );
   }
   if (verdict === "changed") {
     return notice(
       "warn",
-      "The digests differ: a re-issued PID produces a different registrant. The wallet " +
-        "installation and the PID inside it are irreplaceable — losing them leaves the " +
-        "registrations alive but unmanageable. Record this, and treat that device accordingly.",
+      "The digests differ, so this is a different wallet installation — that is what changes " +
+        "hash_pid, not a re-issued PID. Any registration made under the previous digest is now " +
+        "unreachable: there is no account and no recovery at that service.",
     );
   }
   return html``;

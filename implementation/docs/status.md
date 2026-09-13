@@ -75,8 +75,18 @@ tenant serves one provider (migration 0006, which found **four** sharing `rpi-1`
 door. Details and the two corrections to the original finding: `interop-findings.md` A20, and the new
 A21.
 
-**B7 — issuance to a wallet.** Untouched today. Unchanged and still blocked by the engine, which
-produces no `signed_metadata` (`interop-findings.md` A15).
+**B7 — issuance to a wallet. Now observed, not inferred.** A modified wallet (W3, `wd-3` only) was
+sent a §7.3 PID-gated credential offer over the tunnel on 13 September 2026 and refused on screen:
+*"This issuance request has been blocked because the provider could not be verified by your Wallet.
+Your personal information or other data has not been shared with this provider."* The Wallet asked
+for the metadata as `Accept: application/jwt; application/json` and the engine served unsigned JSON —
+which is `interop-findings.md` A15 in one header. Everything upstream worked first time over public
+HTTPS. Recorded with the exchange in [`reference-wallet-testing.md`](reference-wallet-testing.md)
+§8.1c.
+
+**So the §7.3 presentation half is unreachable from here.** The Wallet blocks before it, and says so.
+Going further needs a wallet built with `wd-1` and `wd-2` — and `wd-2` silently disables the issuer
+registration-certificate check (`CLAUDE.md` §6.21), so a pass obtained that way proves less again.
 
 ---
 

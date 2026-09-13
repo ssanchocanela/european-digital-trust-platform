@@ -392,6 +392,47 @@ our anchor and never will, so it would refuse this certificate exactly as §8.1a
 signer, so `jwtSignatureVerifier` is **not** needed. WD-3 is a single configuration point, unlike
 WD-1.
 
+### 8.1c Third wallet run — **issuance blocked at gate (a)**, and that is the correct outcome
+
+13 September 2026, W3 (`eu.europa.ec.euidi.edtptest3`, deviation `wd-3` only), over a Cloudflare
+quick tunnel, against a §7.3 PID-gated issuance policy.
+
+**The Wallet refused, on screen:**
+
+> ⚠ **Issuance blocked**
+> This issuance request has been blocked because the provider could not be verified by your Wallet.
+> Your personal information or other data has not been shared with this provider.
+
+**This is blocker B7, observed rather than reasoned about.** Until now it rested on reading
+`requireSignedMetadata()` and `evaluateIssuerTrust` in the pinned release. The exchange that produced
+it, from the Wallet's own HTTP log:
+
+| | |
+|---|---|
+| Credential offer | `GET …/issuers/rpi-1/vci/credential-offers/{id}` → **200** |
+| Issuer metadata, requested as | `Accept: application/jwt; application/json` — **the Wallet asks for the signed form first** |
+| Issuer metadata, served as | `content-type: application/json` — unsigned, **200**. `issuer_info` present, `signed_metadata` absent |
+| Outcome | Refused at ARF §6.6.2.2 pre-issuance provider authentication |
+
+Three things this run establishes that the code reading did not.
+
+1. **The Wallet does ask for signed metadata**, and takes the unsigned document only to discover it
+   cannot authenticate the provider. The `Accept` header is the direct evidence for `interop-findings.md`
+   A15.
+2. **It blocks before the eligibility presentation.** "no data has been shared" is the Wallet's own
+   statement, and it means the §7.3 presentation half is **unreachable while B7 stands** — the gate
+   fixed in A22 is correct at the platform and engine layer and cannot be exercised against a Wallet
+   from here.
+3. **Everything upstream of the gate worked**, over public HTTPS, first time: the offer resolved, the
+   metadata resolved, and it carried both authorization servers and the `issuer_info` registration
+   certificate. The failure is exactly where it should be and nowhere else.
+
+**What it does not establish.** Nothing about an official build — W3 is a modified wallet. And
+nothing about whether issuance would succeed with the gate passed: that needs deviations `wd-1` and
+`wd-2`, and **`wd-2` silently disables the issuer registration-certificate check** whatever the
+*Check Registration Certificates* preference says (`CLAUDE.md` §6.21), so a pass obtained that way
+proves less again and must be reported with that caveat attached.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

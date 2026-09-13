@@ -184,6 +184,21 @@ survive the move between machines, so nothing signed by the old key can be updat
 
 ---
 
+## mdoc: it works, and revocation checking does not
+
+**The first mdoc presentation against this platform came back `VERIFIED`** on 13 September 2026 — an
+mDL, `{"org.iso.18013.5.1.family_name": …}`. Everything before it had been SD-JWT VC.
+
+**It had status checking disabled, and that is not a detail.** The engine cannot decode the reference
+issuer's status list: it requires `aggregation_uri`, which `draft-ietf-oauth-status-list-13` marks
+OPTIONAL and the issuer does not send. `statusCheckMode: BEST_EFFORT` fails identically — the decode
+throws before the mode is consulted — so an mdoc presentation today either turns revocation checking
+off, which `VCR_13` allows only after a risk analysis V0 has not done, or it fails.
+
+`interop-findings.md` **A25**, with a defect report drafted and unfiled. The platform's own defect
+found on the way, **A24**, is fixed: mdoc values come back without the namespace the claim path
+addresses, so a verified presentation was being reported as `POLICY_NOT_SATISFIED`.
+
 ## The credential catalogue
 
 Five credentials are registered and offered by the console: PID and mDL, read from the reference

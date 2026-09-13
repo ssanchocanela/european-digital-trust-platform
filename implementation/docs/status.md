@@ -39,7 +39,8 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    live stack for the first time, and makes `provider-authentication` report B7 with evidence
    instead of by code reading. Needs no wallet.
 3. **File the Registrar defect report.** Drafted, unfiled, outward-facing.
-4. **A20** — one engine tenant per Attestation Provider.
+4. **Re-run the `hash_pid` stability test** with identical form values (needs the phone; free while
+   nothing is registered).
 
 ## The two blockers, and which one moved
 
@@ -52,6 +53,17 @@ the wallet build and the trust list described below exist.
 **B5 — public HTTPS.** Was closed on the previous machine; the tunnel died with it and the hostnames
 are gone. It is open again *operationally* and reopening it is a matter of running the tunnel, not of
 solving anything.
+
+**A20 is fixed, and it was bigger than recorded.** The engine's `POST /issuer/config` is
+tenant-scoped, and the platform was writing three tenant-level fields from whichever credential type
+happened to be provisioning. So every issuance overwrote the last one's authorization servers, and
+the Credential Issuer's **Wallet-visible name** was the last credential type's — the live stack
+announced an issuer called "Employee badge". The third field is the registration certificate, which
+is trust gate (a). The issuer configuration is now composed from the Attestation Provider, one engine
+tenant serves one provider (migration 0006, which found **four** sharing `rpi-1` here), and
+`DELETE …/attestation-providers/{id}/provision` releases a reference so the rule is not a one-way
+door. Details and the two corrections to the original finding: `interop-findings.md` A20, and the new
+A21.
 
 **B7 — issuance to a wallet.** Untouched today. Unchanged and still blocked by the engine, which
 produces no `signed_metadata` (`interop-findings.md` A15).
@@ -108,7 +120,9 @@ by hand, so fields nobody has identified as load bearing come along anyway.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **280 unit, 97 integration**. Docker stack up, with a tenant and credentials
+`pnpm verify` passes: **280 unit, 105 integration**. The adapter contract suite is separate and
+needs a reachable engine: `ENGINE_BASE_URL=… ENGINE_TENANT_CREDENTIALS=… pnpm test:adapter` — 25
+tests, all passing against the live engine on 13 September 2026. Docker stack up, with a tenant and credentials
 in `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.
 
 Two published policies, and the difference matters. `f7013836-…` belongs to the smoke test's

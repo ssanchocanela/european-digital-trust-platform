@@ -116,6 +116,15 @@ export class IssuanceService {
       );
     }
 
+    // The engine's issuer configuration is tenant-scoped, so it is composed from the **provider** —
+    // every published policy on it — rather than from the policy being issued. Writing it from one
+    // policy is `interop-findings.md` A20: each issuance overwrote the last one's authorization
+    // servers, and the Credential Issuer's display name became the last credential type's name.
+    const issuerConfiguration = await this.issuance.issuerConfigurationInputs(
+      command.tenantId,
+      context.attestationProvider.id,
+    );
+
     // Re-validated at compile time, not trusted from publication: the records were written at
     // different moments and the combination can be wrong even when each part was right.
     const plan = compileIssuancePolicy({
@@ -139,6 +148,10 @@ export class IssuanceService {
           : {}),
         signingKeyBindingRef,
         engineTenantRef,
+        issuerDisplayName: issuerConfiguration.issuerDisplayName,
+        eligibilityPresentationPolicyIds: issuerConfiguration.eligibilityPresentationPolicyIds,
+        requiresBuiltInAuthorizationServer:
+          issuerConfiguration.requiresBuiltInAuthorizationServer,
       },
       at: now,
     });

@@ -43,6 +43,13 @@
       "when": 1789194688230,
       "tag": "0005_listing_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789281088230,
+      "tag": "0006_engine_tenant_per_provider",
+      "breakpoints": true
     }
   ]
 }

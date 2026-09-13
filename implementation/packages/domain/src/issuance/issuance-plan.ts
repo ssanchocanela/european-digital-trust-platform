@@ -33,6 +33,24 @@ export interface PlanAttestationProviderContext {
   readonly signingKeyBindingRef: string;
   /** Opaque reference to the engine tenant serving this Attestation Provider. */
   readonly engineTenantRef: string;
+  /**
+   * The Credential Issuer's own display name, shown by a Wallet when it asks for consent.
+   *
+   * The **organisation's** legal name, not a credential's name. Both end up in the same engine
+   * call, and writing the credential's there made the metadata announce a Wallet-visible issuer
+   * called "Employee badge" — `interop-findings.md` A20.
+   */
+  readonly issuerDisplayName: string;
+  /**
+   * Every presentation policy used as an eligibility gate anywhere on this provider, not only by
+   * the policy being compiled.
+   *
+   * Tenant-scoped, because the engine's `authorizationServers` is. A per-policy view of a
+   * tenant-scoped field is what A20 is.
+   */
+  readonly eligibilityPresentationPolicyIds: readonly string[];
+  /** True when at least one published policy on this provider issues without a presentation gate. */
+  readonly requiresBuiltInAuthorizationServer: boolean;
 }
 
 export interface PlanCredentialDefinition {

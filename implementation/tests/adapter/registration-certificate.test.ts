@@ -9,6 +9,7 @@ import {
 import { EngineClient, EudiploVerifierAdapter } from "@edtp/eudiplo-adapter";
 import { systemClock } from "@edtp/shared";
 import { beforeAll, describe, expect, it } from "vitest";
+import { selfSignedCertificate } from "../support/self-signed.js";
 
 /**
  * `RPRC_19`: does the registration certificate actually reach the wallet?
@@ -139,21 +140,7 @@ beforeAll(async () => {
   // A development access certificate, so a presentation configuration can exist at all.
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  const cert = execFileSync(
-    "openssl",
-    [
-      "req",
-      "-new",
-      "-x509",
-      "-key",
-      "/dev/stdin",
-      "-days",
-      "2",
-      "-subj",
-      "/CN=rprc19-contract-test/O=Development only/C=EU",
-    ],
-    { input: pem },
-  ).toString();
+  const cert = selfSignedCertificate(pem, "rprc19-contract-test");
   const imported = await adapter.importAccessCertificate({
     engineTenantRef,
     name: "RPRC_19 contract test (development, self-signed)",

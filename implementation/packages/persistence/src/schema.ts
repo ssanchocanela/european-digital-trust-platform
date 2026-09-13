@@ -618,6 +618,15 @@ export const attestationProviders = pgTable(
       t.trustEnvironment,
     ),
     index("attestation_providers_tenant_idx").on(t.tenantId),
+    /**
+     * One engine tenant per Attestation Provider, globally.
+     *
+     * The engine's issuer configuration is tenant-scoped — authorization servers, the Credential
+     * Issuer's display name, and the registration certificate published as `issuer_info` (trust
+     * gate (a), ARF §6.6.2.2). Two providers sharing an engine tenant overwrite each other's.
+     * `interop-findings.md` A20, migration 0006.
+     */
+    uniqueIndex("attestation_providers_engine_tenant_key").on(t.engineTenantRef),
   ],
 );
 

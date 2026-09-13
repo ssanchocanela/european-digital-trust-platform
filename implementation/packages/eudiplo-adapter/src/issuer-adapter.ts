@@ -129,9 +129,12 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
   async provisionCredentialConfiguration(input: IssuanceProvisioningInput): Promise<void> {
     const { plan, engineTenantRef } = input;
 
-    // 1. The issuance configuration. `authorizationServers` is required with at least one entry,
-    //    and `registrationCertificate` is what the engine turns into `issuer_info` in the
-    //    Wallet-facing metadata — trust gate (a).
+    // 1. The issuance configuration. This call is **tenant-scoped**, and that is the whole
+    //    difficulty: `authorizationServers`, `display` and `registrationCertificate` describe the
+    //    Credential Issuer, not the credential configuration written in step 2. Composing them from
+    //    the credential type being provisioned meant every issuance silently overwrote the previous
+    //    one's — `interop-findings.md` A20 — so they are composed from the **provider** instead.
+    //
     // The authorization server list is a **discriminated union** on `type`; an entry without it is
     // accepted by the DTO but then ignored, and the offer fails later with "No enabled
     // authorization server configured" — a failure a long way from its cause, which is why this is
@@ -144,21 +147,44 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     //               presentation configuration by id — so eligibility can require a PID before
     //               issuing, **reusing a verification policy** exactly as §7.3 asks. The engine
     //               supports this natively; the platform only has to name the configuration.
-    const authorizationServer = plan.eligibilityPresentationPolicyId
-      ? {
-          type: "oid4vp",
-          id: "eligibility-oid4vp",
-          presentationConfigId: presentationConfigIdFor(plan.eligibilityPresentationPolicyId),
-          enabled: true,
-        }
-      : // `id` must not be "built-in": the engine reserves that value and answers
-        // `Authorization server id 'built-in' is reserved`. A platform-owned name avoids the clash
-        // and makes the engine-side object traceable to us.
-        { type: "built-in", id: "edtp-issuer-as", enabled: true };
+    //
+    // Both are sent when the provider needs both. Verified against the engine on 13 September 2026:
+    // the metadata then advertises both `…/issuers/{ref}` and
+    // `…/issuers/{ref}/authorization-servers/eligibility-oid4vp`, which is what makes an offer
+    // naming either of them consistent with what the Wallet reads. A20 proposed a second engine
+    // tenant per authorization model; it is not needed, because the engine takes a list.
+    const context = plan.providerContext;
+    const authorizationServers: Record<string, unknown>[] = [];
+    if (context.requiresBuiltInAuthorizationServer) {
+      // `id` must not be "built-in": the engine reserves that value and answers
+      // `Authorization server id 'built-in' is reserved`. A platform-owned name avoids the clash
+      // and makes the engine-side object traceable to us.
+      authorizationServers.push({ type: "built-in", id: "edtp-issuer-as", enabled: true });
+    }
+    for (const policyId of context.eligibilityPresentationPolicyIds) {
+      authorizationServers.push({
+        type: "oid4vp",
+        // One per gating policy, so two PID-gated credential types on one provider do not collide
+        // on a shared id — which would be A20 again, one level down.
+        id: eligibilityAuthorizationServerId(policyId),
+        presentationConfigId: presentationConfigIdFor(policyId),
+        enabled: true,
+      });
+    }
+    if (authorizationServers.length === 0) {
+      // The engine requires at least one. Reaching here would mean the provider view was composed
+      // without the policy currently being provisioned, which is a platform bug rather than a
+      // configuration error — so it fails loudly instead of emitting a tenant nothing can use.
+      throw PlatformError.engine(
+        "issuer_authorization_servers_empty",
+        "No authorization server could be composed for the Attestation Provider.",
+      );
+    }
 
     const issuanceConfig: Record<string, unknown> = {
-      authorizationServers: [authorizationServer],
-      display: plan.credential.display.map((d) => ({ name: d.value, locale: d.lang })),
+      authorizationServers,
+      // The **issuer's** name, not the credential's. See `PlanAttestationProviderContext`.
+      display: [{ name: context.issuerDisplayName, locale: "en" }],
       batchSize: 1,
       notificationEndpointEnabled: true,
     };
@@ -313,6 +339,16 @@ const credentialConfigId = (plan: IssuancePlan): string =>
  */
 const presentationConfigIdFor = (presentationPolicyId: string): string =>
   `p-${presentationPolicyId}-v1`;
+
+/**
+ * The engine-side id of the authorization server that gates issuance on one presentation policy.
+ *
+ * Derived from the policy rather than fixed, because a provider may gate two credential types on
+ * two different policies and a shared id would let one overwrite the other inside the same call —
+ * the same defect as A20, one level down.
+ */
+const eligibilityAuthorizationServerId = (presentationPolicyId: string): string =>
+  `eligibility-${presentationPolicyId}`;
 
 const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string, unknown> => {
   if (plan.credential.format === "dc+sd-jwt") {

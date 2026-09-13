@@ -80,15 +80,53 @@ check() {
 note "Health"
 api GET /health "$ADMIN_KEY" | jq .
 
+# --- reuse, because an engine tenant is not a per-run resource --------------------------
+#
+# An engine tenant serves exactly one Attestation Provider — `interop-findings.md` A20, enforced by
+# migration 0006 — because the engine's issuer configuration (authorization servers, the Credential
+# Issuer's display name, the registration certificate published as `issuer_info`) is tenant-scoped.
+# `ENGINE_TENANT_CREDENTIALS` fixes which engine tenants the platform can reach, so they are a small
+# fixed set rather than something a script mints.
+#
+# This script therefore reuses the tenant and provider it created last time, when the credentials
+# file still names a working pair, and builds a fresh chain only when it does not. Before A20 was
+# fixed it created a new provider on every run and pointed all of them at one engine tenant, which is
+# how the development stack ended up with four providers silently overwriting each other.
+#
+# Everything downstream of the provider — credential type, policy, transaction — is still created
+# fresh on every run, so the chain this script exists to walk is still walked.
+REUSE_FILE="${SMOKE_CREDENTIALS_OUT:-$HOME/.edtp/issuance-credentials.json}"
+TENANT_ID=""; TENANT_KEY=""; REUSED_PROVIDER_ID=""
+if [ -f "$REUSE_FILE" ]; then
+  CAND_TENANT=$(jq -r '.tenantId // empty' "$REUSE_FILE" 2>/dev/null || true)
+  CAND_KEY=$(jq -r '.tenantApiKey // empty' "$REUSE_FILE" 2>/dev/null || true)
+  CAND_PROVIDER=$(jq -r '.attestationProviderId // empty' "$REUSE_FILE" 2>/dev/null || true)
+  if [ -n "$CAND_TENANT" ] && [ -n "$CAND_KEY" ] && [ -n "$CAND_PROVIDER" ]; then
+    # Verified against the API rather than trusted: the file outlives `docker compose down -v`.
+    if api GET "/v1/tenants/$CAND_TENANT/attestation-providers/$CAND_PROVIDER/provider-authentication" \
+         "$CAND_KEY" | jq -e 'has("error") | not' >/dev/null 2>&1; then
+      TENANT_ID="$CAND_TENANT"; TENANT_KEY="$CAND_KEY"; REUSED_PROVIDER_ID="$CAND_PROVIDER"
+    fi
+  fi
+fi
+
 note "1. Create the tenant"
-TENANT=$(api POST /v1/tenants "$ADMIN_KEY" '{"name":"Smoke Test Issuer"}')
-echo "$TENANT" | jq '{tenantId, name}'
-check "1. create tenant" "$TENANT" tenantId || true
-TENANT_ID=$(echo "$TENANT" | jq -r .tenantId)
-# Shown once and stored only as a hash.
-TENANT_KEY=$(echo "$TENANT" | jq -r .apiKey)
+if [ -n "$TENANT_ID" ]; then
+  echo "Reusing tenant $TENANT_ID from $REUSE_FILE — its provider still holds the engine tenant."
+else
+  TENANT=$(api POST /v1/tenants "$ADMIN_KEY" '{"name":"Smoke Test Issuer"}')
+  echo "$TENANT" | jq '{tenantId, name}'
+  check "1. create tenant" "$TENANT" tenantId || true
+  TENANT_ID=$(echo "$TENANT" | jq -r .tenantId)
+  # Shown once and stored only as a hash.
+  TENANT_KEY=$(echo "$TENANT" | jq -r .apiKey)
+fi
 
 note "2. Register the Organisation"
+ORG_ID=""
+if [ -n "$REUSED_PROVIDER_ID" ]; then
+  echo "Skipped: the reused Attestation Provider already has one."
+else
 ORG=$(api POST "/v1/tenants/$TENANT_ID/organisations" "$TENANT_KEY" '{
   "legalName": "Smoke Test Issuer B.V.",
   "memberState": "NL",
@@ -98,16 +136,23 @@ ORG=$(api POST "/v1/tenants/$TENANT_ID/organisations" "$TENANT_KEY" '{
 echo "$ORG" | jq '{organisationId, legalName}'
 check "2. register organisation" "$ORG" organisationId || true
 ORG_ID=$(echo "$ORG" | jq -r .organisationId)
+fi
 
 note "3. Register the Attestation Provider (TEST)"
-echo "A non-qualified EAA Provider. The identifier is Registrar-assigned in reality; it is"
-echo "generated here so repeat runs do not collide."
-PROVIDER=$(api POST "/v1/tenants/$TENANT_ID/attestation-providers" "$TENANT_KEY" "$(jq -n \
-  --arg org "$ORG_ID" --arg id "NLEAA.$SUFFIX" \
-  '{organisationId:$org, registrarAssignedIdentifier:$id, registrar:"NL-Registrar-Sandbox", trustEnvironment:"TEST"}')")
-echo "$PROVIDER" | jq '{attestationProviderId, registrarAssignedIdentifier, trustEnvironment}'
-check "3. register provider" "$PROVIDER" attestationProviderId || true
-PROVIDER_ID=$(echo "$PROVIDER" | jq -r .attestationProviderId)
+if [ -n "$REUSED_PROVIDER_ID" ]; then
+  PROVIDER_ID="$REUSED_PROVIDER_ID"
+  echo "Reusing Attestation Provider $PROVIDER_ID, which already holds engine tenant"
+  echo "$ENGINE_TENANT_REF. An engine tenant serves exactly one provider (A20)."
+else
+  echo "A non-qualified EAA Provider. The identifier is Registrar-assigned in reality; it is"
+  echo "generated here so repeat runs do not collide."
+  PROVIDER=$(api POST "/v1/tenants/$TENANT_ID/attestation-providers" "$TENANT_KEY" "$(jq -n \
+    --arg org "$ORG_ID" --arg id "NLEAA.$SUFFIX" \
+    '{organisationId:$org, registrarAssignedIdentifier:$id, registrar:"NL-Registrar-Sandbox", trustEnvironment:"TEST"}')")
+  echo "$PROVIDER" | jq '{attestationProviderId, registrarAssignedIdentifier, trustEnvironment}'
+  check "3. register provider" "$PROVIDER" attestationProviderId || true
+  PROVIDER_ID=$(echo "$PROVIDER" | jq -r .attestationProviderId)
+fi
 
 note "4. Provision the provider: engine tenant and attestation-signing key"
 echo "A self-signed DEVELOPMENT key pair, generated now. Gate (b) of ARF §6.3.2.4 takes its anchors"
@@ -137,6 +182,28 @@ PROVISION=$(api POST "/v1/tenants/$TENANT_ID/attestation-providers/$PROVIDER_ID/
     '{engineTenantRef:$ref, signingCertificate:{privateKeyJwk:$jwk, certificateChain:$chain}}')")
 echo "$PROVISION" | jq .
 check "4. provision provider" "$PROVISION" "" || true
+
+# An engine tenant serves one Attestation Provider (A20). When another one holds it, say what to do:
+# the failure is correct, and a correct failure that leaves the operator stuck is still a bad day.
+if [ "$(echo "$PROVISION" | jq -r '.error // empty')" = "engine_tenant_already_assigned" ]; then
+  cat <<GUIDE
+
+  $ENGINE_TENANT_REF already serves another Attestation Provider. That is the A20 rule holding,
+  not a defect: the engine's issuer configuration is tenant-scoped, so two providers on one
+  engine tenant overwrite each other's authorization servers, display name and — the one that
+  matters — registration certificate.
+
+  Either point this run at a different engine tenant:
+
+      ENGINE_TENANT_REF=<a ref in ENGINE_TENANT_CREDENTIALS> $0
+
+  or release it from the provider that holds it, if that provider is finished with:
+
+      curl -X DELETE "\$BASE_URL/v1/tenants/<tenantId>/attestation-providers/<providerId>/provision" \\
+        -H "authorization: Bearer <that tenant's key>"
+
+GUIDE
+fi
 
 note "5. Create the Credential Type"
 echo "The Rulebook is trust configuration, not a label: ARF §6.3.2.4 makes it the source of anchors"

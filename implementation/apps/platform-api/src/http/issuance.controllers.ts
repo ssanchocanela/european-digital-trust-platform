@@ -6,7 +6,7 @@ import {
 import type { EudiIssuerProvisioningPort } from "@edtp/eudi-issuer-port";
 import type { IssuanceRepository, WebhookEndpointRepository } from "@edtp/persistence";
 import { asId, newOpaqueToken, newWebhookEndpointId, PlatformError } from "@edtp/shared";
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Post } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { IssuanceService } from "../modules/issuances/issuance.service.js";
 import {
@@ -78,6 +78,33 @@ export class IssuanceConfigurationController {
       attestationProviderId: created.id,
       registrarAssignedIdentifier: input.registrarAssignedIdentifier,
       trustEnvironment: input.trustEnvironment,
+    };
+  }
+
+  @Delete(":tenantId/attestation-providers/:providerId/provision")
+  @ApiOperation({
+    summary: "Release the provider's engine tenant so another provider can be given it",
+  })
+  async decommission(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("providerId") providerId: string,
+  ) {
+    // An engine tenant serves one Attestation Provider, because the engine's issuer configuration is
+    // tenant-scoped (`interop-findings.md` A20). This is the way back: without it the first provider
+    // to claim an engine tenant holds it for ever, and one registered by mistake makes that tenant
+    // permanently unusable.
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("providerId", providerId);
+    const { released } = await this.issuance.releaseEngineTenant({
+      tenantId: id,
+      attestationProviderId: providerId,
+    });
+    // Says what actually happened rather than always "released": releasing a provider that held
+    // nothing is not an error, but it is not the same event either.
+    return {
+      released: released !== undefined,
+      ...(released ? { engineTenantRef: released } : {}),
     };
   }
 

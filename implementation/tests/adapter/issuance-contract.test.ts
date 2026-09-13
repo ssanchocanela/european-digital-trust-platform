@@ -7,8 +7,13 @@ import {
   type EligibilityPresentation,
   type IssuancePlan,
   type IssuancePolicyVersion,
+  type VerificationPlan,
 } from "@edtp/domain";
-import { EngineClient, EudiploIssuerAdapter } from "@edtp/eudiplo-adapter";
+import {
+  EngineClient,
+  EudiploIssuerAdapter,
+  presentationConfigId,
+} from "@edtp/eudiplo-adapter";
 import { asId, systemClock } from "@edtp/shared";
 import { beforeAll, describe, expect, it } from "vitest";
 import { selfSignedCertificate } from "../support/self-signed.js";
@@ -585,8 +590,18 @@ describe("issuance contract against a real engine (skipped when none is reachabl
       "GET",
       "/verifier/config",
     );
-    const written = configs.find((c) => c.id === `p-${policyId}-v1`);
+    const written = configs.find((c) => c.id === `elig-p-${policyId}-v1`);
     expect(written).toBeDefined();
+    // Namespaced away from the verifier adapter's id. The two write the same engine endpoint, and on
+    // a tenant serving both roles they would fight over one object with different access keys —
+    // observed on the running stack, `interop-findings.md` A23.
+    //
+    // Asserted as a property of the two id functions rather than as the absence of a `p-…` config on
+    // the tenant: the engine keeps whatever earlier runs wrote, so an absence assertion would pass
+    // or fail on leftovers instead of on the code.
+    expect(written?.id).not.toBe(
+      presentationConfigId({ policyId, policyVersion: 1 } as unknown as VerificationPlan),
+    );
     // Signed with the **provider's** access certificate, not a Relying Party's. Reusing a
     // verification policy means reusing its content, not another party's credentials.
     expect(written?.accessKeyChainId).toBe(accessKeyBindingRefForPresentation);

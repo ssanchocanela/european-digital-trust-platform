@@ -200,7 +200,7 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       //
       // Signed with the provider's access certificate, not the Relying Party's: reusing a
       // verification policy means reusing its *content*, not the other party's credentials.
-      const configId = presentationConfigIdFor(eligibility.policyId);
+      const configId = presentationConfigIdFor(eligibility.policyId, eligibility.policyVersion);
       await this.client.request(
         engineTenantRef,
         "POST",
@@ -412,13 +412,23 @@ const credentialConfigId = (plan: IssuancePlan): string =>
 /**
  * The engine-side presentation configuration id for a verification policy.
  *
- * Must match what the verifier adapter produces, or the issuance flow would reference a
- * configuration that does not exist. Verification compiles `p-<policyId>-v<version>`; an eligibility
- * presentation always uses version 1 of the named policy, because the stretch goal reuses a policy
- * rather than pinning a version — a decision recorded in `docs/eudiplo-integration.md`.
+ * **Deliberately distinct from the verifier adapter's id**, which is `p-<policyId>-v<version>`.
+ *
+ * The two write the same engine endpoint, and on an engine tenant that serves both a Relying Party
+ * Instance and an Attestation Provider they would write the same object — with different
+ * `accessKeyChainId`s, because the two are different parties. Observed on the running stack: creating
+ * an ordinary presentation with a gating policy rewrote the configuration from the Attestation
+ * Provider's access key to the Relying Party's, after which the issuer's eligibility request would
+ * have been signed by the wrong party and a Wallet told a different organisation was asking.
+ *
+ * `interop-findings.md` A23. The same A20 family: one tenant-scoped engine object with two owners.
+ *
+ * The version is the eligibility presentation's own, not a hard-coded 1: a published version is
+ * immutable, so the id resolves to the same configuration for the life of that version and
+ * publishing a new one never mutates what an in-flight issuance is using.
  */
-const presentationConfigIdFor = (presentationPolicyId: string): string =>
-  `p-${presentationPolicyId}-v1`;
+const presentationConfigIdFor = (presentationPolicyId: string, version: number): string =>
+  `elig-p-${presentationPolicyId}-v${version}`;
 
 /**
  * The engine-side id of the authorization server that gates issuance on one presentation policy.

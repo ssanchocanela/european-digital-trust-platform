@@ -65,7 +65,7 @@ the API emits, and `AS-RP-01-002` (`OIA_16`) binds the platform as the Relying P
 
 ---
 
-## The five defects that only a live run could find
+## The defects that only a live run could find
 
 | | What it was | How it surfaced |
 |---|---|---|
@@ -73,7 +73,12 @@ the API emits, and `AS-RP-01-002` (`OIA_16`) binds the platform as the Relying P
 | **A20** | The engine's issuer configuration is *tenant*-scoped; the platform wrote three of its fields per credential type, on every issuance. Each overwrote the last. Recorded as authorization servers alone; it was also the Credential Issuer's **wallet-visible name** (the stack announced an issuer called "Employee badge") and the registration certificate, which is trust gate (a). | Exercising §7.3 for the first time |
 | **A22** | The §7.3 eligibility presentation was provisioned on the Relying Party Instance's engine tenant, lazily, with *that party's* access certificate, while the issuer resolved it on its own. All three worked only because one engine tenant served both roles on the development stack. | Tracing how to close A21 |
 | **gate ⨯ flow** | A policy gated on a presentation was accepted with `PRE_AUTHORIZED_CODE`, which skips the authorization server by construction — the gate could never run, and the credential would have been issued without it. Separately, the offer did not name its authorization server, so the engine chose the built-in one and a gated policy produced an offer pointing away from its own gate. | A wallet run |
+| **A23** | The verifier and the issuer named the same engine presentation configuration, so on a tenant serving both roles they wrote one object with different access keys. After an ordinary presentation, the issuer's eligibility request would have been signed by the **Relying Party** — a Wallet told a different organisation was asking. | Reviewing what A21 had left |
 | **409 → 500** | The database driver stopped rethrowing the integrity error and started wrapping it, so the code was never found and every constraint violation became a generic `500`. `CLAUDE.md` §6.15 described behaviour that no longer happened. | Colliding with a uniqueness rule while testing something else |
+
+That is six, not five — A23 was found reviewing the branch for this description, and it is the third
+time in one day that the same pattern produced a defect: **one tenant-scoped engine object with two
+owners.** A reviewer looking for a seventh should look there.
 
 The tests added with each are written to fail the way the defect failed. The one for the `409`
 provokes a **real** duplicate insert, because a test that hand-built the error shape would have

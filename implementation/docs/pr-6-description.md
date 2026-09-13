@@ -1,6 +1,7 @@
 # PR #6 — web interface, a wallet that works, and what running it live found
 
-*This is the description for PR #6, which is already open. Paste it there.*
+*Applied to PR #6 on 13 September 2026. Kept here so the description is versioned with
+the branch it describes, and so a later edit has a source rather than being typed into a web form.*
 
 **Branch** `implementation/web-interface` → `implementation/platform-v0-issuance`
 **46 commits · three migrations, two of which change data**

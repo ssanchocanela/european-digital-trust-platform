@@ -43,15 +43,13 @@ Nothing is half-done and nothing is blocking. The candidates, in the order I wou
    metadata and then does nothing, with no request and no logged error. The §7.3 eligibility
    presentation is still unexercised, and the remaining gap is on the wallet side.
    [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1d.
-4. **Put the description on PR #6.** The PR is **already open** against
-   `implementation/platform-v0-issuance`; what is missing is its description, drafted in
-   [`pr-6-description.md`](pr-6-description.md). 47 commits without one is not reviewable, and the
-   branch was reviewed to write it — that pass is what found A23.
+4. **Decide whether to merge PR #6.** It is open against `implementation/platform-v0-issuance` and
+   carries [its description](pr-6-description.md) as of 13 September 2026. The branch was reviewed to
+   write that description, and the pass is what found A23.
 
-   **Merging is a separate decision, and not one this file recommends.** The honest question under it
-   is whether anyone else reviews this: if not, that pass is all the review the branch will get, and
-   that is worth knowing before the merge rather than after. Migration 0006 clears data on any
-   database it reaches.
+   **This file does not recommend the merge either way.** The honest question under it is whether
+   anyone else reviews the branch: if not, that pass is all the review it will get, and that is worth
+   knowing before rather than after. Migration 0006 clears data on any database it reaches.
 5. ~~`pnpm db:migrate` and `pnpm api:openapi`~~ **Written, 13 September 2026.** Both scripts named
    files that did not exist. `db:migrate` applies the checked-in migrations on purpose and reports
    what it did — which matters now that 0006 changes data. `api:openapi` writes the business API's

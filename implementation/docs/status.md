@@ -1,6 +1,6 @@
 # Where the work stands
 
-Written 12 September 2026. **The one page to read after `CLAUDE.md` when picking the work up.**
+Written 12 September 2026, updated 13 September. **The one page to read after `CLAUDE.md` when picking the work up.**
 
 Everything here is state that the code and the git history do not make obvious: what is in flight,
 what is blocked and why, and what the next action is. Findings live in their own documents and are
@@ -8,24 +8,33 @@ linked rather than repeated.
 
 ---
 
-## The next action
+## What just happened, and what it did not
 
-**Open a test session with a tunnel and put a presentation in front of the W2 wallet.** That single
-run answers three open questions at once, and nothing else can answer them:
+**A modified wallet completed a presentation against the platform**, 13 September 2026:
+`VERIFIED`, result `{"over_18": false}`, with no `birthdate` in it. The whole chain works —
+policy to DCQL, signed request object over public HTTPS, encrypted response, verification,
+result policy, derived claim. Recorded with its evidence in
+[`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1b.
 
-1. whether the modified wallet fetches our published trust list,
-2. whether it accepts that list's signature — the open half of WD-3, below,
-3. whether it then accepts our development access certificate.
+**It says nothing about an official build.** That wallet carries WD-3 and consults a list we
+publish; an unmodified one consults only the notified list, which does not carry our anchor.
+**Blocker B1 is untouched.**
 
-Everything it needs is built and installed. The sequence is
-[`test-session-gateway.md`](test-session-gateway.md) §4, and the ordering constraint there is not
-optional: `ENGINE_PUBLIC_URL` and `PLATFORM_PUBLIC_URL` must be set **before** `docker compose up`,
-because the engine bakes them into every URL it emits. Run the nine negative checks before the phone
-touches anything; a `401` on any of them is a failure, not reassurance.
+## The next action — to be chosen
 
-`cloudflared` is not installed yet. It is the only missing piece.
+Nothing is half-done and nothing is blocking. The candidates, in the order I would take them:
 
----
+1. **Close the test session** (`./scripts/test-session-tunnel.sh down`) if it is still open. A
+   tunnel is not left running, and the access certificate's SAN carries today's hostname, so the
+   next session needs one command to reissue the leaf — the CA is reused, so the wallet build stays
+   valid.
+2. **Issuance, at the platform and engine layer** — a `smoke-issuance.sh` sibling of the VaaS one.
+   It exercises the four accepted-then-wrong engine payload shapes (`interop-findings.md` A14) on a
+   live stack for the first time, and makes `provider-authentication` report B7 with evidence
+   instead of by code reading. Needs no wallet.
+3. **The console's policy picker.** The Test driver still says the platform API has no list route;
+   it has had one since web phase B1, which is why a policy UUID is typed by hand.
+4. **File the Registrar defect report.** Drafted, unfiled, outward-facing.
 
 ## The two blockers, and which one moved
 
@@ -77,13 +86,14 @@ key rotation and no recovery at that service.
 |---|---|---|
 | Development Access CA | `~/.edtp/dev-access-ca/` | Two-level chain. `TEST` only. CA fingerprint `3A:D0:30:F5:71:64:BD:9A:…` |
 | TEST trust list | published at `https://ssanchocanela.github.io/european-digital-trust-platform/lote/WRPACProviders.jwt` | 8 anchors: the 7 notified ones **byte-identical** plus ours, which is what makes WD-3 additive rather than a replacement. Branch `gh-pages`. Regenerate with `scripts/make-test-lote.mjs` — **`NextUpdate` 11 December 2026** |
-| W2 wallet | `tools/test-wallet/out/*.apk`, installed as `eu.europa.ec.euidi.edtptest2` | Deviation `wd-3`. Installed **alongside** W1, which must not be disturbed |
+| W2 wallet (release) | installed as `eu.europa.ec.euidi.edtptest2` | Deviation `wd-3`. Writes **no application logging** — release builds set Ktor to `LogLevel.NONE` |
+| W3 wallet (debug) | installed as `eu.europa.ec.euidi.edtptest3` | Deviation `wd-3`, logs the HTTP exchange, `run-as`-readable. **This is the one that completed a presentation.** Holds a test PID whose date of birth is the day it was issued |
 
-**The open half of WD-3:** whether the library's built-in JWS verifier accepts our self-signed list
-signer. `EtsiTrustConfig.customJwtSignatureVerifier` defaults to `null` and what the built-in one
-requires was not established. If it refuses the list, WD-3 needs a second configuration point,
-`jwtSignatureVerifier` — the same "two points, one alone does nothing" shape as WD-1. Anticipated in
-the deviation register rather than left to be discovered as a surprise.
+**WD-3 is settled and needs only one configuration point.** The wallet's built-in JWS verifier
+accepts our self-signed list signer — `LoTE JWT signature verified successfully` — so
+`jwtSignatureVerifier` is not required, unlike WD-1. What did block it was structural: our entity
+lacked `TEAddress`, and the generator now clones the notified list's entity rather than writing one
+by hand, so fields nobody has identified as load bearing come along anyway.
 
 **Any result from that wallet is a result from a modified wallet.** Its own banner says
 `deviations: wd-3`. It says nothing about whether an unmodified wallet would accept our certificates
@@ -93,7 +103,7 @@ the deviation register rather than left to be discovered as a surprise.
 
 ## Running state on this machine
 
-`pnpm verify` passes: **268 unit, 92 integration**. Docker stack up, with a tenant, a published
+`pnpm verify` passes: **274 unit, 92 integration**. Docker stack up, with a tenant, a published
 policy (`f7013836-7656-402b-9745-b762acfea774` v1) and credentials in
 `~/.edtp/smoke-credentials.json`. Console at `http://localhost:3200` via `pnpm console`.
 

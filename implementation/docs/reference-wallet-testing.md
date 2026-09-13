@@ -344,6 +344,54 @@ Verified: across a 3,829-line capture the wallet's process wrote only framework 
 **debug build**, which both logs and is `run-as`-readable, letting the trust decision and any cached
 list be inspected directly.
 
+### 8.1b Second wallet run — **a complete presentation**, modified build
+
+The run that succeeded, 13 September 2026. Same day, same tunnel session, same certificate as
+§8.1a; three things changed between them, and each was a real defect.
+
+| Field | Value |
+|---|---|
+| Wallet | **MODIFIED build**, not the Reference Wallet: `eu.europa.ec.euidi.edtptest3`, **debug**, APK SHA-256 `1fe79eed9fba745ae0cb20518563003d5870336f5c7deaf9a8d50f94fa0c210f` |
+| Active deviation | **WD-3** — `wrpacProviders` pointed at our published TEST LoTE |
+| Access certificate | our development Access CA, `x509_hash:jIv6homAf8bSFFKU5tmBAUsXiq4Y_90K9sZ2vDKwNXc` |
+| Credential presented | PID, `dc+sd-jwt`, `vct=urn:eudi:pid:1`, obtained from `issuer.eudiw.dev` |
+| **Result** | **`VERIFIED`**, result `{"over_18": false}` |
+
+The wallet's own log, which is why the debug build exists:
+
+```
+LoTE JWT signature verified successfully
+validateCertificationTrustPath: result=Trusted(trustAnchor=[
+  Trusted CA cert: … Issuer: CN=EDTP Development Access CA - TEST ONLY …
+```
+
+**What it establishes.** The platform compiles a policy to DCQL, signs a request object a wallet
+accepts, serves it over public HTTPS, receives an encrypted response, verifies the credential,
+applies the result policy and returns the derived claim. The minimisation holds where it matters:
+`birthdate` entered the adapter, `over_18` came out, and no `birthdate`, `iss`, `iat`, `exp` or
+`vct` appears anywhere in the result. `over_18: false` is correct — the test PID's date of birth
+was the day of the run.
+
+**What it does not establish, and no report may imply otherwise.** Nothing about an *official*
+build. An unmodified wallet consults only the notified `WRPACProviders` list, which does not carry
+our anchor and never will, so it would refuse this certificate exactly as §8.1a describes. Blocker
+**B1 is untouched** by this result.
+
+**Three defects found on the way**, each invisible until a wallet was involved:
+
+1. Our published list was fetched and its **signature verified**, then refused with
+   `FailedToParseJwt`. The only structural difference from the notified list was a missing
+   `TEAddress`. The generator now clones the notified entity rather than writing one by hand.
+2. The adapter read **`verifiedClaims`**, which the engine's session does not have — disclosed
+   content is on `credentials`. `interop-findings.md` **A18**, including why 21 contract tests
+   could not have caught it.
+3. The identifier in the wallet-facing `request_uri` is **not** the session id the management API
+   takes, which sent the first diagnosis down a blind alley.
+
+**Settled, and it simplifies WD-3:** the wallet's built-in JWS verifier accepts our self-signed list
+signer, so `jwtSignatureVerifier` is **not** needed. WD-3 is a single configuration point, unlike
+WD-1.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

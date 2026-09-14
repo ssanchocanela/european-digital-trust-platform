@@ -1,8 +1,25 @@
 # Test-session gateway — design
 
-**Nothing is exposed yet.** This is the design, written before anything is opened, because the single
-largest operational risk in the wallet workstream is putting a tunnel in front of port 3000 and
-publishing the engine's management API by accident.
+**This was the design, written before anything was opened.** It is kept as written; what changed is
+recorded in the box below.
+
+> **Status, 12 September 2026: built, and run.** The allow-list in §1 is now enforced code in
+> [`apps/test-gateway`](../apps/test-gateway/), the session is opened by
+> [`scripts/test-session-tunnel.sh`](../scripts/test-session-tunnel.sh), and a session **has been
+> opened** — the fourteen negative checks in §4 all returned `404` over the public hostnames, and a
+> wallet-facing signed request object was fetched over public HTTPS. Blocker **B5** is closed.
+>
+> One thing the design did not anticipate, in §2: a Cloudflare **quick tunnel** — the kind needing no
+> account and no domain — has no path-level ingress rules. It forwards every path on its hostname to one
+> port, which pointed at the engine would publish `/api/*` outright. So the filtering happens in a
+> reverse proxy **in front of** the tunnel rather than in the tunnel's own configuration. Named tunnels
+> with `ingress` rules still work as sketched, and need an account and a domain.
+>
+> One operational surprise: a quick tunnel can register successfully and be handed a hostname that
+> answers `NXDOMAIN` indefinitely. The script now verifies DNS and retries rather than waiting it out.
+
+The design exists because the single largest operational risk in the wallet workstream is putting a
+tunnel in front of port 3000 and publishing the engine's management API by accident.
 
 A phone cannot reach `localhost`, and the wallet refuses cleartext
 (`network_security_config.xml`: `<base-config cleartextTrafficPermitted="false" />`). So a wallet test
@@ -82,8 +99,16 @@ host.
 
 An allow-list that lives in a document is a wish. It must be enforced at the edge:
 
+0. **`apps/test-gateway` is the enforcement.** The rules in §1a and §1b are its
+   [`allow-list.ts`](../apps/test-gateway/src/allow-list.ts), default-deny with a `404`, the method part
+   of the decision, patterns anchored at both ends, and the path normalised *before* it is matched —
+   deciding on an un-normalised path is the classic hole. Eleven unit tests probe it the way an attacker
+   would: `/api/*` under five methods, traversal in both directions, percent-encoded traversal, an
+   identifier containing a separator, and a query string smuggling an allowed path. The negative probes
+   of §4 live in that same file, and a test asserts they are genuinely refused — so a carelessly added
+   rule and the check that would catch it are reviewed together.
 1. **Keep the compose bindings as they are** — `127.0.0.1:3000` and `127.0.0.1:3100`. The tunnel
-   connects to localhost on the host; nothing else can.
+   connects to the gateway, the gateway connects to localhost; nothing else can.
 2. **Two tunnel hostnames**, one per service, so an engine path can never resolve on the platform host
    or the reverse.
 3. **Path allow-list in the gateway** (the reverse proxy in front of the tunnel, or the tunnel's own

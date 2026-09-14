@@ -6,7 +6,7 @@ import {
 import type { EudiIssuerProvisioningPort } from "@edtp/eudi-issuer-port";
 import type { IssuanceRepository, WebhookEndpointRepository } from "@edtp/persistence";
 import { asId, newOpaqueToken, newWebhookEndpointId, PlatformError } from "@edtp/shared";
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Post } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { IssuanceService } from "../modules/issuances/issuance.service.js";
 import {
@@ -18,7 +18,7 @@ import {
   REGISTERED_EVALUATORS,
   WEBHOOK_ENDPOINT_REPOSITORY,
 } from "../tokens.js";
-import { assertTenantMatches, Ctx, type RequestContext } from "./auth.js";
+import { assertTenantMatches, assertUuidPathParam, Ctx, type RequestContext } from "./auth.js";
 import {
   changeCredentialStatusSchema,
   createAttestationProviderSchema,
@@ -81,6 +81,33 @@ export class IssuanceConfigurationController {
     };
   }
 
+  @Delete(":tenantId/attestation-providers/:providerId/provision")
+  @ApiOperation({
+    summary: "Release the provider's engine tenant so another provider can be given it",
+  })
+  async decommission(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("providerId") providerId: string,
+  ) {
+    // An engine tenant serves one Attestation Provider, because the engine's issuer configuration is
+    // tenant-scoped (`interop-findings.md` A20). This is the way back: without it the first provider
+    // to claim an engine tenant holds it for ever, and one registered by mistake makes that tenant
+    // permanently unusable.
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("providerId", providerId);
+    const { released } = await this.issuance.releaseEngineTenant({
+      tenantId: id,
+      attestationProviderId: providerId,
+    });
+    // Says what actually happened rather than always "released": releasing a provider that held
+    // nothing is not an error, but it is not the same event either.
+    return {
+      released: released !== undefined,
+      ...(released ? { engineTenantRef: released } : {}),
+    };
+  }
+
   @Post(":tenantId/attestation-providers/:providerId/provision")
   @ApiOperation({
     summary: "Provision the engine tenant, signing key and registration certificate",
@@ -102,6 +129,20 @@ export class IssuanceConfigurationController {
       privateKeyJwk: input.signingCertificate.privateKeyJwk,
       certificateChain: input.signingCertificate.certificateChain,
     });
+
+    // The provider's own access certificate, when supplied. Imported with `usageType: "access"`,
+    // not `"attestation"`: it signs presentation requests, and the engine keys trust decisions off
+    // the usage type. A22.
+    let accessKeyBindingRef: string | undefined;
+    if (input.accessCertificate) {
+      const importedAccess = await this.provisioning.importAccessCertificate({
+        engineTenantRef: input.engineTenantRef,
+        name: `Attestation Provider ${providerId} (eligibility presentation)`,
+        privateKeyJwk: input.accessCertificate.privateKeyJwk,
+        certificateChain: input.accessCertificate.certificateChain,
+      });
+      accessKeyBindingRef = importedAccess.keyBindingRef;
+    }
 
     // The callback destination, when one is asked for. The same shared kernel object a Relying
     // Party Service references, so issuance reuses the Milestone 1 queue, signing, retry schedule
@@ -131,6 +172,7 @@ export class IssuanceConfigurationController {
       attestationProviderId: providerId,
       engineTenantRef: input.engineTenantRef,
       signingKeyBindingRef: imported.keyBindingRef,
+      ...(accessKeyBindingRef ? { accessKeyBindingRef } : {}),
       ...(input.registrationCertificateJwt
         ? { registrationCertificateJwt: input.registrationCertificateJwt }
         : {}),
@@ -140,6 +182,8 @@ export class IssuanceConfigurationController {
     return {
       provisioned: true,
       keyBindingRef: imported.keyBindingRef,
+      // Stated, because its absence is what makes a §7.3 gating policy unprovisionable.
+      accessCertificateImported: accessKeyBindingRef !== undefined,
       // Stated in the response, not only in a log: without it a Wallet cannot authenticate the
       // provider before issuance (ARF §6.6.2.2).
       registrationCertificatePublished: input.registrationCertificateJwt !== undefined,
@@ -391,6 +435,7 @@ export class IssuanceController {
   @Get("issuances/:issuanceId")
   @ApiOperation({ summary: "Read an issuance transaction" })
   async get(@Ctx() ctx: RequestContext, @Param("issuanceId") issuanceId: string) {
+    assertUuidPathParam("issuanceId", issuanceId);
     return this.issuances.get(ctx.tenantId, issuanceId);
   }
 
@@ -402,6 +447,7 @@ export class IssuanceController {
     @Ctx() ctx: RequestContext,
     @Param("issuedCredentialId") issuedCredentialId: string,
   ) {
+    assertUuidPathParam("issuedCredentialId", issuedCredentialId);
     return this.issuances.changeCredentialStatus({
       tenantId: ctx.tenantId,
       issuedCredentialId,
@@ -418,6 +464,7 @@ export class IssuanceController {
     @Param("issuedCredentialId") issuedCredentialId: string,
     @Body() body: unknown,
   ) {
+    assertUuidPathParam("issuedCredentialId", issuedCredentialId);
     const input = changeCredentialStatusSchema.parse(body);
     return this.issuances.changeCredentialStatus({
       tenantId: ctx.tenantId,

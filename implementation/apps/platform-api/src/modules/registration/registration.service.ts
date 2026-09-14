@@ -259,6 +259,17 @@ export class RegistrationService {
     return { service, webhookSecret };
   }
 
+  /**
+   * Whether a Service has a provisioned Relying Party Instance.
+   *
+   * Returns the instance itself, and the caller decides what of it to expose. Nothing outside the
+   * platform ever sees `engineTenantRef` — it is internal correlation metadata — and the access
+   * certificate is never returned at all.
+   */
+  async findInstanceForService(tenantId: TenantId, serviceId: RelyingPartyServiceId) {
+    return this.registration.findInstanceForService(tenantId, serviceId);
+  }
+
   async getService(
     tenantId: TenantId,
     serviceId: RelyingPartyServiceId,

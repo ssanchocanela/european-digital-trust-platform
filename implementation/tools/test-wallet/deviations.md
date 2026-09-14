@@ -16,7 +16,7 @@ accepting a flag that does nothing. An accepted-but-inert flag is how a test rec
 | **Identity** | Distinct `applicationId`, app name and an on-screen banner | — | Identity only | **Built** (W1) |
 | **WD-1** | `eaaProviders` trust list pointing at our TEST LoTE | (b), ARF §6.3.2.4 | Configuration of an ARF-intended mechanism | Not built |
 | **WD-2** | Signed-issuer-metadata requirement relaxed | (a), ARF §6.6.2.2 | **Security relaxation** | Not built |
-| **WD-3** | Additional TEST Access CA anchor in the reader trust store | — | Trust configuration | Not built, and **may never be needed** |
+| **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | Not built, and now **needed** — Path A failed |
 
 ---
 
@@ -118,20 +118,71 @@ Rules attached to this one, and they are not negotiable:
 
 Its only legitimate use is reaching the rest of the flow while G1 is open.
 
-## WD-3 — additional TEST Access CA anchor
+## WD-3 — `wrpacProviders` trust list pointing at our TEST LoTE
 
-**Conditional, and quite possibly unnecessary.** Only if the Q1a chain check
-(`scripts/verify-access-certificate-chain.sh`) shows that our access certificate does not chain to an
-anchor on the dev `WRPACProviders` LoTE.
+**No longer conditional: it is needed.** Path A failed for a reason unrelated to the trust question
+it was meant to answer — the reference Registration Service cannot issue an access certificate at
+all (`docs/interop-findings.md` C10) — so there is nothing to run the Q1a chain check against. The
+chain check was run against our development certificate anyway, and reports what it should: no
+notified anchor, fall back to Path B.
 
-Point: `EudiWalletConfig.configureReaderTrustStore(readerTrustedCertificates = listOf(ourDevAccessCa))`,
-which takes precedence over the ETSI store.
+### The earlier description of this deviation was wrong
 
-**Run the chain check before building this.** If Path A holds, WD-3 must not be built: it would
-replace a real trust path with a configured one and make a passing test say less than the unmodified
-wallet already would. Note also that `EudiWalletConfig` documents `configureEtsiTrust` with
-`relaxPkixRevocation()` as the route for ETSI/LoTE-based trust, so if the failure is revocation rather
-than anchoring, this is the wrong lever.
+It said "additional TEST Access CA anchor in the reader trust store", via
+`configureReaderTrustStore(readerTrustedCertificates = ...)`. Reading the library
+(`eudi-lib-android-wallet-core` v0.30.2) shows that cannot be done as described:
+
+- `EtsiTrustConfigBuilder` has **no method that adds a trust anchor**. Its whole surface is
+  `loteLocations`, `classifications`, `fileCacheExpiration`, `cacheTtl`,
+  `relaxCertificateProfiles`, `relaxPkixRevocation`, `jwtSignatureVerifier` and `loteConstraints`.
+  Anchors come only from the LoTE URIs — which is `AS-WP-06-005` (`RPA_04`) enforced by
+  configuration, not merely by policy.
+- The block form the app actually uses, `configureReaderTrustStore { readerAuthPolicy(...) }`, sets
+  `useEtsiReaderTrust = true` and its builder carries **only** the reader-auth policy. It cannot
+  carry certificates.
+- The certificate-taking overloads exist, but they *replace* the ETSI reader trust rather than add
+  to it: a build using one would trust our CA and **distrust every notified Access CA**. That is a
+  far larger behavioural change than this register described, and it would also need
+  `revocationPolicy = SoftFail`, since the built-in store defaults to `HardFail` and our
+  development CA publishes neither CRL nor OCSP.
+
+So the deviation is done through the list mechanism instead, which is what the ARF intends and what
+WD-1 already does for the issuer side.
+
+### The point
+
+`core-logic/src/edtptest/.../config/WalletCoreConfigImpl.kt`:
+
+```kotlin
+configureEtsiTrust {
+    loteLocations(
+        SupportedLists(
+            // three unchanged, pointing upstream …
+            wrpacProviders = Uri("<our published TEST LoTE>"),
+        )
+    )
+}
+```
+
+`wrpacProviders` is a single `Uri`, so pointing it at our list *replaces* the notified one. **That
+is why our list carries the seven notified anchors as well as ours** — `scripts/make-test-lote.mjs`
+fetches the live notified list and appends our anchor as an eighth, so the build trusts every real
+Relying Party *and* us. Without that, WD-3 would be a replacement masquerading as an addition.
+
+### The second point, if the first is not enough
+
+Possibly `jwtSignatureVerifier`. `EtsiTrustConfig.customJwtSignatureVerifier` defaults to `null`, so
+the library's built-in verifier decides whether our self-signed list signer is acceptable, and what
+it requires has not been established. If it refuses the list, this becomes the same "two
+configuration points, one alone does nothing" shape as WD-1. **Determined on the first build, not
+before.**
+
+### What a run with this build may and may not say
+
+It may say that our presentation flow works end to end against a real wallet. It may **not** say
+anything about whether an unmodified wallet would accept our certificates — it would not, and that
+is the whole reason this exists. Every report, document, test name, log line and PR statement says
+"modified wallet".
 
 ---
 

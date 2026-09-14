@@ -306,6 +306,192 @@ The script itself is verified: run against a freshly generated self-signed leaf 
 anchors from the live list and correctly reports `FAIL`, so a `PASS` is meaningful rather than a
 default.
 
+### 8.1a First wallet run — Path B, modified build, **blocked at relying-party verification**
+
+The first end-to-end attempt against a wallet. It is recorded whatever it says, per `CLAUDE.md` §8.
+
+| Field | Value |
+|---|---|
+| Date run | **13 September 2026** |
+| Wallet | **MODIFIED build**, not the Reference Wallet: `eu.europa.ec.euidi.edtptest2`, `versionName 2026.09.42-edtptest`, APK SHA-256 `5a87a95dcca05f458b626dac1d960c721a0ff91c1beb7f7267dddb48094160bf` |
+| Upstream | tag `Wallet/Demo_Version=2026.09.42-Demo_Build=42`, commit `43f362d2`, wallet core `0.30.2` |
+| Active deviation | **WD-3** — `wrpacProviders` pointed at our published TEST LoTE |
+| Device | Pixel 9a |
+| Access certificate | issued by our development Access CA, `x509_hash:jIv6homAf8bSFFKU5tmBAUsXiq4Y_90K9sZ2vDKwNXc`, `x5c` of 2 |
+| Exposure | Cloudflare quick tunnels, allow-list enforced; all **14 negative checks returned 404** |
+| **Result** | **BLOCKED.** *"This presentation request has been blocked because the relying party could not be verified by your Wallet."* No data shared |
+
+**What this run does establish**, and it is not nothing:
+
+- **Blocker B5 is closed on this machine.** The wallet resolved the `request_uri` over public HTTPS,
+  fetched the signed request object and processed it far enough to evaluate relying-party trust. A
+  transport failure would have stopped earlier and said something else.
+- **The gateway allow-list holds under a real session.** Fourteen paths refused, including the
+  engine's Management API, its health endpoint and its OpenAPI documents.
+- **The wallet behaves as `RPA_04` requires**: a relying party it cannot verify is refused, and
+  nothing is disclosed.
+
+**What it does not establish — and why we cannot yet say:** which of three causes blocked it.
+
+1. the wallet never fetched our list;
+2. it fetched it and rejected the signature — the open half of WD-3, and the likeliest;
+3. it verified the list but did not match our anchor to the certificate chain.
+
+The screen deliberately does not distinguish them: a wallet should not tell a relying party why it
+distrusts it. **And `logcat` cannot either — the release build emits no application logging at all.**
+Verified: across a 3,829-line capture the wallet's process wrote only framework lines (a navigation
+`Bundle` warning, window callbacks) and nothing of its own. So the next diagnostic step needs a
+**debug build**, which both logs and is `run-as`-readable, letting the trust decision and any cached
+list be inspected directly.
+
+### 8.1b Second wallet run — **a complete presentation**, modified build
+
+The run that succeeded, 13 September 2026. Same day, same tunnel session, same certificate as
+§8.1a; three things changed between them, and each was a real defect.
+
+| Field | Value |
+|---|---|
+| Wallet | **MODIFIED build**, not the Reference Wallet: `eu.europa.ec.euidi.edtptest3`, **debug**, APK SHA-256 `1fe79eed9fba745ae0cb20518563003d5870336f5c7deaf9a8d50f94fa0c210f` |
+| Active deviation | **WD-3** — `wrpacProviders` pointed at our published TEST LoTE |
+| Access certificate | our development Access CA, `x509_hash:jIv6homAf8bSFFKU5tmBAUsXiq4Y_90K9sZ2vDKwNXc` |
+| Credential presented | PID, `dc+sd-jwt`, `vct=urn:eudi:pid:1`, obtained from `issuer.eudiw.dev` |
+| **Result** | **`VERIFIED`**, result `{"over_18": false}` |
+
+The wallet's own log, which is why the debug build exists:
+
+```
+LoTE JWT signature verified successfully
+validateCertificationTrustPath: result=Trusted(trustAnchor=[
+  Trusted CA cert: … Issuer: CN=EDTP Development Access CA - TEST ONLY …
+```
+
+**What it establishes.** The platform compiles a policy to DCQL, signs a request object a wallet
+accepts, serves it over public HTTPS, receives an encrypted response, verifies the credential,
+applies the result policy and returns the derived claim. The minimisation holds where it matters:
+`birthdate` entered the adapter, `over_18` came out, and no `birthdate`, `iss`, `iat`, `exp` or
+`vct` appears anywhere in the result. `over_18: false` is correct — the test PID's date of birth
+was the day of the run.
+
+**What it does not establish, and no report may imply otherwise.** Nothing about an *official*
+build. An unmodified wallet consults only the notified `WRPACProviders` list, which does not carry
+our anchor and never will, so it would refuse this certificate exactly as §8.1a describes. Blocker
+**B1 is untouched** by this result.
+
+**Three defects found on the way**, each invisible until a wallet was involved:
+
+1. Our published list was fetched and its **signature verified**, then refused with
+   `FailedToParseJwt`. The only structural difference from the notified list was a missing
+   `TEAddress`. The generator now clones the notified entity rather than writing one by hand.
+2. The adapter read **`verifiedClaims`**, which the engine's session does not have — disclosed
+   content is on `credentials`. `interop-findings.md` **A18**, including why 21 contract tests
+   could not have caught it.
+3. The identifier in the wallet-facing `request_uri` is **not** the session id the management API
+   takes, which sent the first diagnosis down a blind alley.
+
+**Settled, and it simplifies WD-3:** the wallet's built-in JWS verifier accepts our self-signed list
+signer, so `jwtSignatureVerifier` is **not** needed. WD-3 is a single configuration point, unlike
+WD-1.
+
+### 8.1c Third wallet run — **issuance blocked at gate (a)**, and that is the correct outcome
+
+13 September 2026, W3 (`eu.europa.ec.euidi.edtptest3`, deviation `wd-3` only), over a Cloudflare
+quick tunnel, against a §7.3 PID-gated issuance policy.
+
+**The Wallet refused, on screen:**
+
+> ⚠ **Issuance blocked**
+> This issuance request has been blocked because the provider could not be verified by your Wallet.
+> Your personal information or other data has not been shared with this provider.
+
+**This is blocker B7, observed rather than reasoned about.** Until now it rested on reading
+`requireSignedMetadata()` and `evaluateIssuerTrust` in the pinned release. The exchange that produced
+it, from the Wallet's own HTTP log:
+
+| | |
+|---|---|
+| Credential offer | `GET …/issuers/rpi-1/vci/credential-offers/{id}` → **200** |
+| Issuer metadata, requested as | `Accept: application/jwt; application/json` — **the Wallet asks for the signed form first** |
+| Issuer metadata, served as | `content-type: application/json` — unsigned, **200**. `issuer_info` present, `signed_metadata` absent |
+| Outcome | Refused at ARF §6.6.2.2 pre-issuance provider authentication |
+
+Three things this run establishes that the code reading did not.
+
+1. **The Wallet does ask for signed metadata**, and takes the unsigned document only to discover it
+   cannot authenticate the provider. The `Accept` header is the direct evidence for `interop-findings.md`
+   A15.
+2. **It blocks before the eligibility presentation.** "no data has been shared" is the Wallet's own
+   statement, and it means the §7.3 presentation half is **unreachable while B7 stands** — the gate
+   fixed in A22 is correct at the platform and engine layer and cannot be exercised against a Wallet
+   from here.
+3. **Everything upstream of the gate worked**, over public HTTPS, first time: the offer resolved, the
+   metadata resolved, and it carried both authorization servers and the `issuer_info` registration
+   certificate. The failure is exactly where it should be and nowhere else.
+
+**What it does not establish.** Nothing about an official build — W3 is a modified wallet. And
+nothing about whether issuance would succeed with the gate passed: that needs deviations `wd-1` and
+`wd-2`, and **`wd-2` silently disables the issuer registration-certificate check** whatever the
+*Check Registration Certificates* preference says (`CLAUDE.md` §6.21), so a pass obtained that way
+proves less again and must be reported with that caveat attached.
+
+### 8.1d Fourth wallet run — **past gate (a)**, and stopped at the authorization-code start
+
+13 September 2026, **W4** (`eu.europa.ec.euidi.edtptest4`, deviations **`wd-2,wd-3`**), over the
+same tunnel, against the §7.3 PID-gated issuance policy.
+
+**Gate (a) no longer blocks.** The "Issuance blocked — the provider could not be verified" of §8.1c
+is gone, which is what `wd-2` was built to do. **It does not mean the gate is satisfied: it is
+bypassed.** `wd-2` accepts unsigned metadata *and* silently switches off the issuer
+registration-certificate check, so nothing here evidences ARF §6.6.2.2, `AS-AP-44-005` (`RPRC_22a`)
+or `AS-AP-44-007` (`RPRC_23`).
+
+**What the run reached, and where it stopped.** The Wallet fetched the credential offer (200) and
+the issuer metadata (200), and then made no further request and logged no error — the screen shows
+only a generic failure. The authorization-code flow never started.
+
+**Two platform defects were found getting that far, and both are fixed.**
+
+| | |
+|---|---|
+| **A gated policy with `PRE_AUTHORIZED_CODE` was accepted** | A pre-authorized code skips the authorization server by construction, and the gate *is* an authorization step. The offer was minted, and the eligibility presentation simply would not have happened. Now refused at publication (`gate_requires_authorization_code`) |
+| **The offer did not name its authorization server** | The tenant advertises every server its provider needs (A20), so the offer has to say which one this credential goes through. Without it the engine chose the built-in one — so a gated policy produced an offer pointing away from its own gate. Verified against the running engine: the offer's `authorization_server` was `…/issuers/{ref}` whatever the policy said |
+
+After both fixes the offer carries
+`grants.authorization_code.authorization_server = …/authorization-servers/eligibility-<policyId>`
+over public HTTPS, the authorization server's own metadata resolves (`issuer`,
+`authorization_endpoint`, `token_endpoint`, `response_types_supported: ["code"]`), and the gateway
+allow-list passes it. The Wallet still does not proceed, and the reason is not visible from here.
+
+**So the §7.3 eligibility presentation remains unexercised against a wallet.** What this run
+establishes is narrower and worth stating exactly: everything the platform emits for a gated
+issuance is now correct and reachable, and the remaining gap is on the wallet side of the
+authorization-code start. That is a better position than §8.1c — where the failure was ours — but it
+is not the test succeeding.
+
+### 8.1e Fifth wallet run — **the first mdoc presentation**, and two defects between here and it
+
+13 September 2026, W3 (`wd-3`), same tunnel, an **mDL** obtained from the reference issuer. Every
+previous run on this platform was SD-JWT VC; this is the first time an mdoc has been asked for,
+presented and verified.
+
+**Result: `VERIFIED`**, with `{"org.iso.18013.5.1.family_name": "…"}`. The whole mdoc path works —
+DCQL with `doctype_value` and namespaced claim paths, credential matching in the wallet, the signed
+request object, the encrypted response, and the result policy.
+
+**It took four attempts, and each failure was worth having.**
+
+| | What the screen or the log said | What it was |
+|---|---|---|
+| 1 | *"The requested document is not available in your EUDI Wallet"* | The relying party was **verified** — the green badge was there — and the wallet then could not satisfy the request. A misread: the run after it showed the wallet did match and did share |
+| 2 | `400 invalid_request · mDOC verification failed` | The engine cannot decode the reference issuer's CWT status list: it requires `aggregation_uri`, which the specification makes optional. `interop-findings.md` **A25** |
+| 3 | Identical, with `statusCheckMode: BEST_EFFORT` | The platform's status-check lever is **not** a lever for this. The decode throws before the mode is consulted; only `DISABLED` gets past it |
+| 4 | `POLICY_NOT_SATISFIED`, on an engine session reporting `success` and `verified: true` | Ours. The engine returns mdoc values flat, without the namespace the claim path addresses, so the result policy looked in the wrong place. **A24** — the same shape as A18 |
+
+**What this run therefore shows, exactly.** The mdoc path is sound and the platform now handles its
+result shape. It shows nothing about revocation: the successful run had status checking **disabled**,
+which `AS-AP-07-023` (`VCR_13`) permits only after a documented risk analysis that V0 has not
+performed. **An mdoc presentation with status checking on does not work today, and the reason is in
+the engine.**
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

@@ -1,0 +1,248 @@
+/**
+ * The console's escaping and its privacy boundary.
+ *
+ * Two things are worth a test rather than a comment. The console renders text a *customer* supplied —
+ * a policy's purpose, a trade name, a business reference — so escaping is not theoretical. And the
+ * result panel is where `AS-RP-01-002` (`OIA_16`) meets a web page: a panel that rendered anything the
+ * API did not return would be the leak `CLAUDE.md` §5 forbids, and the easiest place to introduce one.
+ */
+import { escapeHtml, html, rawHtml, toHtmlString } from "@edtp/operator-console/html.js";
+import { InteractionCache } from "@edtp/operator-console/interaction-cache.js";
+import {
+  errorCodeOf,
+  errorMessageOf,
+  type PolicyOption,
+} from "@edtp/operator-console/platform-client.js";
+import { statusPayload, testDriverView } from "@edtp/operator-console/views.js";
+import { describe, expect, it } from "vitest";
+
+describe("escaping", () => {
+  it("escapes the five characters that matter in content and in quoted attributes", () => {
+    expect(escapeHtml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&#39;");
+  });
+
+  it("escapes interpolations by default", () => {
+    const injected = '"><script>alert(1)</script>';
+    const out = toHtmlString(html`<p title="${injected}">${injected}</p>`);
+    expect(out).not.toContain("<script>");
+    expect(out).toContain("&lt;script&gt;");
+  });
+
+  it("leaves already-safe markup alone, and only via rawHtml", () => {
+    // `rawHtml(` is the single searchable escape hatch. If this test ever needs changing, the change
+    // under review is "something new is being trusted".
+    const out = toHtmlString(html`<div>${rawHtml("<b>bold</b>")}</div>`);
+    expect(out).toBe("<div><b>bold</b></div>");
+  });
+
+  it("renders arrays and drops nullish values rather than printing them", () => {
+    expect(toHtmlString(html`${[1, 2, 3]}`)).toBe("123");
+    expect(toHtmlString(html`${null}${undefined}${false}`)).toBe("");
+  });
+});
+
+describe("the status payload the poller consumes", () => {
+  const base = {
+    presentationId: "p-1",
+    businessReference: "run-1",
+    policyId: "pol-1",
+    policyVersion: 2,
+    expiresAt: "2026-09-11T12:00:00.000Z",
+  };
+
+  it("adds nothing the API did not return", () => {
+    const payload = statusPayload({ ...base, status: "PENDING" });
+    expect(Object.keys(payload).sort()).toEqual(
+      ["failureCode", "resultHtml", "status", "terminal"].sort(),
+    );
+  });
+
+  it("marks terminal states so the poller stops", () => {
+    expect(statusPayload({ ...base, status: "VERIFIED" })["terminal"]).toBe(true);
+    expect(statusPayload({ ...base, status: "FAILED" })["terminal"]).toBe(true);
+    expect(statusPayload({ ...base, status: "PENDING" })["terminal"]).toBe(false);
+  });
+
+  it("escapes claim keys and values, which are attacker-influenced in the general case", () => {
+    const payload = statusPayload({
+      ...base,
+      status: "VERIFIED",
+      result: { claims: { "<img src=x onerror=alert(1)>": '"><script>alert(1)</script>' } },
+    });
+    const markup = String(payload["resultHtml"]);
+    expect(markup).not.toContain("<script>");
+    expect(markup).not.toContain("<img");
+    expect(markup).toContain("&lt;img");
+  });
+
+  it("summarises a structured claim rather than dumping it", () => {
+    // A claim whose value is an object or array is reported by shape. Stringifying an object graph is
+    // how a nested value nobody expected ends up on a screen and then in a screenshot.
+    const payload = statusPayload({
+      ...base,
+      status: "VERIFIED",
+      result: { claims: { address: { street: "x" }, names: ["a", "b"] } },
+    });
+    const markup = String(payload["resultHtml"]);
+    expect(markup).toContain("{object}");
+    expect(markup).toContain("[2 values]");
+    expect(markup).not.toContain("street");
+  });
+
+  it("shows no result panel content when there is no result", () => {
+    const markup = String(statusPayload({ ...base, status: "PENDING" })["resultHtml"]);
+    expect(markup).toContain("No result yet");
+  });
+});
+
+describe("the interaction cache", () => {
+  // It exists because `GET /v1/presentations/{id}` does not return the interaction URI. It is the one
+  // piece of state the console holds, so its bounds are worth asserting rather than trusting.
+  it("returns what was stored, until it expires", () => {
+    let now = 0;
+    const cache = new InteractionCache(() => now);
+    cache.set("p-1", { uri: "openid4vp://?a=1", type: "SAME_DEVICE" });
+
+    expect(cache.get("p-1")?.uri).toBe("openid4vp://?a=1");
+    now = 10 * 60 * 1_000 - 1;
+    expect(cache.get("p-1")).toBeDefined();
+    now = 10 * 60 * 1_000;
+    expect(cache.get("p-1")).toBeUndefined();
+  });
+
+  it("is bounded, so a loop creating presentations cannot grow it without limit", () => {
+    const cache = new InteractionCache(() => 0);
+    for (let i = 0; i < 500; i += 1) {
+      cache.set(`p-${i}`, { uri: `openid4vp://?i=${i}`, type: "QR" });
+    }
+    expect(cache.size).toBeLessThanOrEqual(200);
+    // Oldest-first eviction: the most recent entry must survive, because that is the one a redirect is
+    // about to render.
+    expect(cache.get("p-499")).toBeDefined();
+  });
+
+  it("does not resurrect an expired entry", () => {
+    let now = 0;
+    const cache = new InteractionCache(() => now);
+    cache.set("p-1", { uri: "openid4vp://?a=1", type: "QR" });
+    now = 11 * 60 * 1_000;
+    expect(cache.get("p-1")).toBeUndefined();
+    expect(cache.size).toBe(0);
+  });
+});
+
+describe("the policy picker", () => {
+  /**
+   * The picker exists because of a specific hour lost on 13 September 2026: two policies whose names
+   * differ by a suffix belong to Relying Party Services whose instances hold different access
+   * certificates, and the wallet's refusal says only that the relying party could not be verified.
+   *
+   * So these tests are not about a `<select>` rendering. They pin the three properties that make the
+   * list safer than the text box it replaced, each of which is easy to lose in a later tidy-up.
+   */
+  const option = (over: Partial<PolicyOption> = {}): PolicyOption => ({
+    id: "30627f9a-3e6b-4d56-89ed-3e9b1e0af801",
+    name: "Adult verification",
+    relyingPartyServiceName: "Smoke Test Age Gate",
+    publishedVersion: 1,
+    status: "ACTIVE",
+    ...over,
+  });
+
+  const render = (options: Parameters<typeof testDriverView>[0]) =>
+    toHtmlString(testDriverView(options));
+
+  it("names the Relying Party Service beside every policy", () => {
+    // The whole point. Two near-identical names are told apart only by their Service.
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [
+        option(),
+        option({
+          id: "f7013836-7656-402b-9745-b762acfea774",
+          name: "Adult verification (WD-3)",
+          relyingPartyServiceName: "EDTP EUDI Gate (WD-3)",
+        }),
+      ],
+    });
+    expect(out).toContain("Adult verification — Smoke Test Age Gate");
+    expect(out).toContain("Adult verification (WD-3) — EDTP EUDI Gate (WD-3)");
+  });
+
+  it("disables a policy that cannot start a transaction, and says why", () => {
+    // Offering it would produce `no_published_policy_version` at submit — the same lesson, learned
+    // later and less clearly. Hiding it would leave someone hunting for a policy they know exists.
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [option({ publishedVersion: null }), option({ id: "b", status: "RETIRED" })],
+    });
+    expect(out).toContain("(no published version)");
+    expect(out).toContain("(retired)");
+    expect(out.match(/ disabled/g)?.length).toBe(3); // two policies plus the placeholder
+  });
+
+  it("falls back to the text box when the list could not be read, and says so", () => {
+    // A screen that cannot start a presentation because a *list* call failed would be worse than the
+    // screen that never had a list.
+    const out = render({ sameDeviceAvailable: true, policiesError: "engine_unreachable" });
+    expect(out).toContain('<input type="text" name="policyId"');
+    expect(out).toContain("engine_unreachable");
+    // Not "no <select> on the page" — the interaction type is one. The policy field specifically.
+    expect(out).not.toContain('<select name="policyId"');
+  });
+
+  it("escapes a Service name, which is customer-supplied text", () => {
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [option({ relyingPartyServiceName: '"><script>alert(1)</script>' })],
+    });
+    expect(out).not.toContain("<script>");
+    expect(out).toContain("&lt;script&gt;");
+  });
+
+  it("says when more policies exist than are listed", () => {
+    // Silently showing the first page of many is how someone concludes a policy was deleted.
+    const out = render({
+      sameDeviceAvailable: true,
+      policies: [option()],
+      policiesTruncated: true,
+    });
+    expect(out).toContain("More policies exist");
+  });
+});
+
+describe("the platform's error envelope", () => {
+  /**
+   * The envelope is flat — `{ error: "<code>", message: "…" }` — and the client used to look for
+   * `{ error: { code, message } }`. It found a string where it expected an object, returned nothing,
+   * and every platform error the console showed fell back to the HTTP status line with the code
+   * `platform_api_error`.
+   *
+   * Nothing failed. The fallback read like a reasonable message, which is why it survived: the same
+   * shape as `interop-findings.md` A18 and A24, and found the same way — by looking at what the API
+   * actually sends.
+   */
+  it("reads the code and the message the platform actually sends", () => {
+    const body = JSON.stringify({
+      error: "attestation_provider_not_provisioned",
+      message: "The Attestation Provider has no engine tenant yet.",
+      correlationId: "c-1",
+    });
+    expect(errorCodeOf(body)).toBe("attestation_provider_not_provisioned");
+    expect(errorMessageOf(body, { status: 409, statusText: "Conflict" } as Response)).toBe(
+      "The Attestation Provider has no engine tenant yet.",
+    );
+  });
+
+  it("falls back to the status line only when there is nothing to read", () => {
+    expect(
+      errorMessageOf("not json", { status: 502, statusText: "Bad Gateway" } as Response),
+    ).toBe("The platform API answered 502 Bad Gateway.");
+    expect(errorCodeOf("not json")).toBe("platform_api_error");
+  });
+
+  it("still reads a nested envelope, in case one is ever sent", () => {
+    const nested = JSON.stringify({ error: { code: "x", message: "y" } });
+    expect(errorCodeOf(nested)).toBe("x");
+  });
+});

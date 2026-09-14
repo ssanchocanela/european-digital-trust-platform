@@ -12,6 +12,7 @@ import type {
 import { asId, PlatformError } from "@edtp/shared";
 import type { EngineClient } from "./client.js";
 import { normaliseIssuanceOutcome } from "./issuance-outcome-mapping.js";
+import { buildPresentationConfigBody } from "./presentation-config.js";
 import {
   engineCredentialIssuerMetadataSchema,
   engineIssuerOfferResponseSchema,
@@ -76,6 +77,21 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         credentialClaims: {
           [configId]: { type: "inline", claims: claims as Record<string, unknown> },
         },
+        // **Named, not left to the engine.** The tenant advertises every authorization server its
+        // provider needs (A20), and the offer has to say which one *this* credential goes through.
+        // Without it the engine picks for itself and chose the built-in one, so a policy gated on a
+        // presentation minted an offer that skipped the gate entirely — the metadata advertised the
+        // `oid4vp` server and the offer never pointed at it.
+        //
+        // Verified on the running engine, 13 September 2026: an offer without this field carries
+        // `"authorization_server": ".../issuers/{ref}"` whatever the policy says.
+        ...(plan.eligibilityPresentationPolicyId
+          ? {
+              authorization_server: eligibilityAuthorizationServerId(
+                plan.eligibilityPresentationPolicyId,
+              ),
+            }
+          : {}),
       }),
     );
 
@@ -129,9 +145,12 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
   async provisionCredentialConfiguration(input: IssuanceProvisioningInput): Promise<void> {
     const { plan, engineTenantRef } = input;
 
-    // 1. The issuance configuration. `authorizationServers` is required with at least one entry,
-    //    and `registrationCertificate` is what the engine turns into `issuer_info` in the
-    //    Wallet-facing metadata — trust gate (a).
+    // 1. The issuance configuration. This call is **tenant-scoped**, and that is the whole
+    //    difficulty: `authorizationServers`, `display` and `registrationCertificate` describe the
+    //    Credential Issuer, not the credential configuration written in step 2. Composing them from
+    //    the credential type being provisioned meant every issuance silently overwrote the previous
+    //    one's — `interop-findings.md` A20 — so they are composed from the **provider** instead.
+    //
     // The authorization server list is a **discriminated union** on `type`; an entry without it is
     // accepted by the DTO but then ignored, and the offer fails later with "No enabled
     // authorization server configured" — a failure a long way from its cause, which is why this is
@@ -144,21 +163,83 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     //               presentation configuration by id — so eligibility can require a PID before
     //               issuing, **reusing a verification policy** exactly as §7.3 asks. The engine
     //               supports this natively; the platform only has to name the configuration.
-    const authorizationServer = plan.eligibilityPresentationPolicyId
-      ? {
-          type: "oid4vp",
-          id: "eligibility-oid4vp",
-          presentationConfigId: presentationConfigIdFor(plan.eligibilityPresentationPolicyId),
-          enabled: true,
-        }
-      : // `id` must not be "built-in": the engine reserves that value and answers
-        // `Authorization server id 'built-in' is reserved`. A platform-owned name avoids the clash
-        // and makes the engine-side object traceable to us.
-        { type: "built-in", id: "edtp-issuer-as", enabled: true };
+    //
+    // Both are sent when the provider needs both. Verified against the engine on 13 September 2026:
+    // the metadata then advertises both `…/issuers/{ref}` and
+    // `…/issuers/{ref}/authorization-servers/eligibility-oid4vp`, which is what makes an offer
+    // naming either of them consistent with what the Wallet reads. A20 proposed a second engine
+    // tenant per authorization model; it is not needed, because the engine takes a list.
+    const context = plan.providerContext;
+    const authorizationServers: Record<string, unknown>[] = [];
+    if (context.requiresBuiltInAuthorizationServer) {
+      // `id` must not be "built-in": the engine reserves that value and answers
+      // `Authorization server id 'built-in' is reserved`. A platform-owned name avoids the clash
+      // and makes the engine-side object traceable to us.
+      authorizationServers.push({ type: "built-in", id: "edtp-issuer-as", enabled: true });
+    }
+    if (context.eligibilityPresentations.length > 0 && !context.accessKeyBindingRef) {
+      // The eligibility presentation is a **signed request object from the issuer**, and a Wallet
+      // Unit accepts only an access certificate chaining to an anchor from a notified list
+      // (`AS-WP-06-005` / `RPA_04`). Without one, provisioning would produce an authorization step
+      // that fails on the phone with a message about the relying party — a failure a long way from
+      // its cause, which is the whole lesson of `interop-findings.md` A22.
+      throw PlatformError.engine(
+        "attestation_provider_has_no_access_certificate",
+        "This Attestation Provider gates issuance on a presentation but was provisioned without " +
+          "an access certificate. The request object would be signed by the wrong party, or not " +
+          "at all, and no Wallet would accept it.",
+      );
+    }
+
+    for (const eligibility of context.eligibilityPresentations) {
+      // **Written here, on the issuer's own engine tenant.** It used to be referenced and never
+      // written: the verifier adapter creates presentation configurations lazily, on the *Relying
+      // Party Instance's* tenant, at the first presentation. A gating policy nobody had presented
+      // against therefore resolved to nothing, and the engine accepts that silently (A21). It
+      // worked only where one engine tenant served both roles. `interop-findings.md` A22.
+      //
+      // Signed with the provider's access certificate, not the Relying Party's: reusing a
+      // verification policy means reusing its *content*, not the other party's credentials.
+      const configId = presentationConfigIdFor(eligibility.policyId, eligibility.policyVersion);
+      await this.client.request(
+        engineTenantRef,
+        "POST",
+        "/verifier/config",
+        buildPresentationConfigBody({
+          configId,
+          policyId: eligibility.policyId,
+          policyVersion: eligibility.policyVersion,
+          credentialRequirement: eligibility.credentialRequirement,
+          requestedClaims: eligibility.requestedClaims,
+          statusCheckMode: eligibility.statusCheckMode,
+          // The provider's own, guaranteed present by the check above.
+          accessKeyChainId: context.accessKeyBindingRef as string,
+        }),
+      );
+
+      authorizationServers.push({
+        type: "oid4vp",
+        // One per gating policy, so two PID-gated credential types on one provider do not collide
+        // on a shared id — which would be A20 again, one level down.
+        id: eligibilityAuthorizationServerId(eligibility.policyId),
+        presentationConfigId: configId,
+        enabled: true,
+      });
+    }
+    if (authorizationServers.length === 0) {
+      // The engine requires at least one. Reaching here would mean the provider view was composed
+      // without the policy currently being provisioned, which is a platform bug rather than a
+      // configuration error — so it fails loudly instead of emitting a tenant nothing can use.
+      throw PlatformError.engine(
+        "issuer_authorization_servers_empty",
+        "No authorization server could be composed for the Attestation Provider.",
+      );
+    }
 
     const issuanceConfig: Record<string, unknown> = {
-      authorizationServers: [authorizationServer],
-      display: plan.credential.display.map((d) => ({ name: d.value, locale: d.lang })),
+      authorizationServers,
+      // The **issuer's** name, not the credential's. See `PlanAttestationProviderContext`.
+      display: [{ name: context.issuerDisplayName, locale: "en" }],
       batchSize: 1,
       notificationEndpointEnabled: true,
     };
@@ -228,6 +309,31 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         // reading the field name. (`trustList` is the usage for signing a published ETSI TS 119 602
         // list, which is what `TrustAnchorPublication` will need.)
         usageType: "attestation",
+        description: input.name,
+        crt: [...input.certificateChain],
+      }),
+    );
+    return { keyBindingRef: response.id };
+  }
+
+  /**
+   * The provider's own access certificate, for the §7.3 eligibility presentation.
+   *
+   * `usageType: "access"` — the same value the verifier adapter uses, and for the same reason: this
+   * key signs a presentation *request*. What makes it a separate method rather than a flag is that
+   * the two keys belong to different roles the same organisation plays, and one method taking a
+   * usage type would make it possible to pass the wrong one. `interop-findings.md` A22.
+   */
+  async importAccessCertificate(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+    readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+    readonly certificateChain: readonly string[];
+  }): Promise<{ readonly keyBindingRef: string }> {
+    const response = keyChainIdSchema.parse(
+      await this.client.request(input.engineTenantRef, "POST", "/key-chain/import", {
+        key: input.privateKeyJwk,
+        usageType: "access",
         description: input.name,
         crt: [...input.certificateChain],
       }),
@@ -306,13 +412,33 @@ const credentialConfigId = (plan: IssuancePlan): string =>
 /**
  * The engine-side presentation configuration id for a verification policy.
  *
- * Must match what the verifier adapter produces, or the issuance flow would reference a
- * configuration that does not exist. Verification compiles `p-<policyId>-v<version>`; an eligibility
- * presentation always uses version 1 of the named policy, because the stretch goal reuses a policy
- * rather than pinning a version — a decision recorded in `docs/eudiplo-integration.md`.
+ * **Deliberately distinct from the verifier adapter's id**, which is `p-<policyId>-v<version>`.
+ *
+ * The two write the same engine endpoint, and on an engine tenant that serves both a Relying Party
+ * Instance and an Attestation Provider they would write the same object — with different
+ * `accessKeyChainId`s, because the two are different parties. Observed on the running stack: creating
+ * an ordinary presentation with a gating policy rewrote the configuration from the Attestation
+ * Provider's access key to the Relying Party's, after which the issuer's eligibility request would
+ * have been signed by the wrong party and a Wallet told a different organisation was asking.
+ *
+ * `interop-findings.md` A23. The same A20 family: one tenant-scoped engine object with two owners.
+ *
+ * The version is the eligibility presentation's own, not a hard-coded 1: a published version is
+ * immutable, so the id resolves to the same configuration for the life of that version and
+ * publishing a new one never mutates what an in-flight issuance is using.
  */
-const presentationConfigIdFor = (presentationPolicyId: string): string =>
-  `p-${presentationPolicyId}-v1`;
+const presentationConfigIdFor = (presentationPolicyId: string, version: number): string =>
+  `elig-p-${presentationPolicyId}-v${version}`;
+
+/**
+ * The engine-side id of the authorization server that gates issuance on one presentation policy.
+ *
+ * Derived from the policy rather than fixed, because a provider may gate two credential types on
+ * two different policies and a shared id would let one overwrite the other inside the same call —
+ * the same defect as A20, one level down.
+ */
+const eligibilityAuthorizationServerId = (presentationPolicyId: string): string =>
+  `eligibility-${presentationPolicyId}`;
 
 const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string, unknown> => {
   if (plan.credential.format === "dc+sd-jwt") {

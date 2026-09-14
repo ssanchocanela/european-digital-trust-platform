@@ -1,6 +1,7 @@
 import type {
   DisclosedClaims,
   InteractionType,
+  RequestedClaim,
   TerminalState,
   VerificationPlan,
 } from "@edtp/domain";
@@ -119,7 +120,21 @@ export interface EudiVerifierPort {
    * content into the process, and content is fetched exactly once, at the moment the
    * result policy runs.
    */
-  processPresentationResult(session: EngineSessionHandle): Promise<PresentationResultPayload>;
+  processPresentationResult(
+    session: EngineSessionHandle,
+    /**
+     * The claim paths the policy asked for.
+     *
+     * Needed because the engine does not return disclosed values in the shape the paths address for
+     * every format. An mdoc claim path is `[namespace, element]`, and the engine returns the element
+     * flat — so without the requested paths the adapter cannot put the value back where the result
+     * policy will look for it. `interop-findings.md` A24.
+     *
+     * Passed rather than inferred: the namespace is a property of what was *asked*, and guessing it
+     * from a doctype would be a guess that happens to work for the mDL.
+     */
+    requestedClaims: readonly RequestedClaim[],
+  ): Promise<PresentationResultPayload>;
 
   cancelPresentation(session: EngineSessionHandle): Promise<void>;
 }

@@ -1,0 +1,23 @@
+--- a/core-logic/src/edtptest/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt
++++ b/core-logic/src/edtptest/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt
+@@ -93,7 +93,19 @@
+                         loteLocations(
+                             SupportedLists(
+                                 pidProviders = Uri("https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt"),
+-                                wrpacProviders = Uri("https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt"),
++                                // EDTP deviation WD-3. Points Wallet-Relying Party Access Certificate
++                                // trust at a list we publish, which carries the seven notified
++                                // anchors *plus* our development Access CA — see
++                                // tools/test-wallet/deviations.md and scripts/make-test-lote.mjs.
++                                //
++                                // `wrpacProviders` is a single Uri, so this REPLACES the notified
++                                // list rather than adding to it. The list at the other end is what
++                                // makes the deviation additive; a list holding only our anchor would
++                                // make this build distrust every real Relying Party.
++                                //
++                                // The URL is substituted by build.sh from --wrpac-lote, so it is
++                                // recorded in the build stamp rather than hidden in source.
++                                wrpacProviders = Uri("__EDTP_WRPAC_LOTE__"),
+                                 wrprcProviders = Uri("https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPRCProviders.jwt"),
+                                 pubEaaProviders = Uri("https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PubEAAProviders.jwt"),
+                             )

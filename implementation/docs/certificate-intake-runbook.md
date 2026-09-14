@@ -3,9 +3,20 @@
 **Nothing here has been run, and nothing can be until real certificates exist.** This is the sequence
 for the moment they arrive: the gating chain check first, then import for each of the two roles.
 
+> **As of 12 September 2026 the Registrar cannot issue one.** A session was authenticated and the
+> registration built as far as the provider; `POST /intended_use/create` then reports success,
+> returns a `null` id and persists nothing, which leaves `/wallet_rp/certificate` and
+> `/intended_use/certificate` both unreachable. So **Path A is blocked at the source**, for a reason
+> unrelated to the trust question it was chosen to answer. Diagnosis and evidence:
+> [`interop-findings.md`](interop-findings.md) C10. The choice this forces is in
+> [`registration-session-plan.md`](registration-session-plan.md) — report it and wait, or fall back
+> to Path B, which produces a *modified* wallet and leaves the official result unverified.
+
 It assumes the dual-role registration session in
-[`registration-session-plan.md`](registration-session-plan.md) has happened and produced, for **each**
-role, a PKCS#12 containing a certificate and its private key, plus a registration certificate.
+[`registration-session-plan.md`](registration-session-plan.md) has happened. That session produces
+**one** PKCS#12 containing a certificate and its private key, plus **one registration certificate per
+intended use** — not one of each per role, which is what this runbook originally assumed and what
+Step 2 below still reads as though it had. See `interop-findings.md` C9.
 
 > **Secrets.** The PKCS#12 passphrases, `hash_pid` and the platform tenant API key are secrets. Every
 > script here takes them from an environment variable or a prompt, never from `argv` — `argv` is
@@ -45,12 +56,40 @@ So, concretely:
   but the failure mode here is a careless "reset this phone", and separate devices remove it.
 - Re-obtain the PID *before* it expires, not after.
 
-> **Unverified, so do not rely on it:** whether `hash_pid` is stable across a **re-issued** PID for the
-> same synthetic identity. It is plausibly a hash over PID attributes, in which case re-issuance would
-> reproduce it — but that is an inference, not something we have tested, and if the reference issuer
-> assigns a fresh synthetic identity per issuance it is false. Treat the wallet-plus-PID as
-> irreplaceable until someone has actually tested re-login after re-issuance, and record the result when
-> they do.
+> **ANSWERED on 13 September 2026, and the answer is the opposite of what was inferred here.**
+> Four measurements settle it:
+>
+> | # | PID presented | Family name | Wallet | Digest |
+> |---|---|---|---|---|
+> | 1 | the original, issued 12 Sept | `Ted` | W1 | `eb4bf3632d06987d` |
+> | 2 | the same credential again | `Ted` | W1 | `eb4bf3632d06987d` |
+> | 3 | re-issued | `Tes` | W3 | `c7b2d4ab799f5d4e` |
+> | 4 | re-issued again | `Ted` | W3 | `c7b2d4ab799f5d4e` |
+>
+> (3) and (4) are **two different credentials with different attributes in the same wallet**, and they
+> produce the **same** value. (1) and (2) are the same credential in two sessions, and also match. W1
+> and W3 differ.
+>
+> **So `hash_pid` is not derived from the PID's attributes. It identifies the wallet installation.**
+> It is deterministic — (2) rules out a per-presentation nonce — and it survives re-issuance, which
+> (4) proves directly.
+>
+> Two consequences, and both invert what this section used to say.
+>
+> **Re-issuing the PID is safe, and the form values do not matter.** The PID behind the current login
+> expires 11 December 2026; renewing it will not change the login. The advice to write down the
+> values typed into the issuer's form was **cheap insurance against the wrong risk** — they are
+> recorded in `~/.edtp/registration/pid-attributes.json` anyway, and they buy nothing.
+>
+> **The wallet installation is irreplaceable, and now by measurement rather than by suspicion.** A new
+> installation produces a new `hash_pid`, and no re-issuance recovers the old one. Keep W1 installed;
+> a factory reset, an uninstall or a lost device ends that registration permanently. Nothing about
+> the identity can restore it.
+>
+> The earlier inconclusive run is worth keeping in mind for method, not for its conclusion: two
+> logins either side of a re-issuance produced different digests (`527b981a96c8a35e` then
+> `eb4bf3632d06987d`) and that looked like attribute sensitivity. It was not — both were on the same
+> wallet, so on this evidence something else changed, most likely a wallet reinstall between them.
 
 ---
 
@@ -80,8 +119,10 @@ the provider's access certificate. So one chain check decides whether either gat
 satisfied, and a single access certificate may serve both roles.
 | Does not chain | Path A has failed | Record it, then Path B / **WD-3**. Do not import and hope |
 
-`PubEAAProviders` had `NextUpdate` **2026-09-12**, so expect a rollover warning and re-check against
-the current list rather than a remembered result.
+`PubEAAProviders` had `NextUpdate` **2026-09-12**. That rollover has now happened: all four dev
+lists were reissued on 10–11 September 2026 with `NextUpdate` in March 2027, and the seven anchors
+came through byte-identical (`interop-findings.md` C1, re-verified live 12 September 2026). Read the
+freshness line the script prints anyway rather than trusting that sentence — the lists roll again.
 
 ## Step 1 — the Relying Party role
 
@@ -127,6 +168,18 @@ must not survive next to a real certificate.
 > half of the problem; the engine's half remains. Say so in any report.
 
 ## Step 2 — the non-qualified EAA Provider role
+
+> **This step assumes an artefact the Registrar does not issue, and has not been rewritten yet.**
+> It was written expecting a second PKCS#12 for the attestation-signing key (`apac.p12`) and a
+> second registration certificate for the provider role. Reading the service's OpenAPI document on
+> 12 September 2026 established that it mints **one** certificate, keyed by the Wallet Relying
+> Party, and issues registration certificates **per intended use** — `interop-findings.md` C9 and
+> `registration-session-plan.md` §3. So the inputs below have no source. The platform endpoints and
+> their contract tests are unaffected and still correct; what is missing is where an EAA Provider
+> signing certificate comes from at all. Resolve that before running this step, and do not
+> substitute the relying-party certificate for it: an access certificate carries one role's
+> identifiers, and signing attestations with it would misrepresent the provider.
+
 
 ```
 POST /v1/tenants/{tenantId}/attestation-providers/{providerId}/provision

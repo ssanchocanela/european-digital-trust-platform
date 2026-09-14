@@ -1,0 +1,31 @@
+--- a/core-logic/src/edtptest/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt
++++ b/core-logic/src/edtptest/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt
+@@ -120,7 +120,27 @@
+ 
+                     configureIssuerTrust {
+                         policy { default(TrustPolicy.Action.ENFORCE) }
+-                        requireSignedMetadata()
++                        // EDTP deviation WD-2. A SECURITY RELAXATION, not a configuration of an
++                        // intended mechanism — unlike WD-1 and WD-3. It exists only because the
++                        // wrapped engine produces no `signed_metadata` (engine gap G1,
++                        // docs/interop-findings.md A15), and it WEAKENS issuer authentication
++                        // rather than satisfying it.
++                        //
++                        // `preferSignedMetadata()` is the narrower of the two available
++                        // relaxations: it accepts unsigned metadata while still validating a
++                        // signature when one is present. `ignoreSignedMetadata()` would not.
++                        //
++                        // WHAT THIS ALSO SWITCHES OFF, silently. `IssuerCreator` in wallet-core
++                        // 0.30.2 applies the issuer registration-certificate check only under
++                        // `IssuerMetadataPolicy.RequireSigned`. Under PreferSigned it is skipped,
++                        // and the Wallet's own *Check Registration Certificates* preference does
++                        // not bring it back. So no run of this build can evidence
++                        // AS-AP-44-005 (RPRC_22a) or AS-AP-44-007 (RPRC_23), in either position of
++                        // that preference — see tools/test-wallet/deviations.md.
++                        //
++                        // A result from this build NEVER supports a statement that gate (a) is
++                        // satisfied. The gate is bypassed, not met.
++                        preferSignedMetadata()
+                         configureIssuerRegistrationPolicy(
+                             if (isRegistrationCheckEnabled) {
+                                 IssuerRegistrationPolicy.Enabled

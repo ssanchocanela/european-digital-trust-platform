@@ -297,6 +297,21 @@ export const provisionAttestationProviderSchema = z
       privateKeyJwk: z.record(z.string(), z.unknown()),
       certificateChain: z.array(z.string().min(1)).min(1),
     }),
+    /**
+     * The provider's **own** access certificate, required only when one of its issuance policies
+     * gates on a presentation (§7.3).
+     *
+     * In that exchange the issuer is the Relying Party: it signs the presentation request itself,
+     * and a Wallet accepts only an access certificate chaining to a notified anchor
+     * (`AS-WP-06-005` / `RPA_04`). It is therefore not the Relying Party Service's certificate, and
+     * there had been no way to supply it — `interop-findings.md` A22.
+     */
+    accessCertificate: z
+      .object({
+        privateKeyJwk: z.record(z.string(), z.unknown()),
+        certificateChain: z.array(z.string().min(1)).min(1),
+      })
+      .optional(),
     /** ARF §6.6.2.2. Absent in V0 (blocker B3); the omission is reported, never faked. */
     registrationCertificateJwt: z.string().min(1).optional(),
     /**

@@ -54,7 +54,14 @@ export const dcqlCredentialId = (credentialType: string): string => {
  * requirement. When a plan accepts both formats, one DCQL credential entry is emitted
  * per format so the wallet may satisfy the request with either.
  */
-export const buildDcqlQuery = (plan: VerificationPlan): DcqlQuery => {
+export const buildDcqlQuery = (plan: {
+  // Narrowed from `VerificationPlan` to the two fields this actually reads, so an **eligibility**
+  // presentation — which carries policy content but no Relying Party context — can use the same
+  // builder. A second DCQL builder for the issuance side is how the two would drift, and a drift
+  // here is a request that no longer matches the published policy. `interop-findings.md` A22.
+  readonly credentialRequirement: VerificationPlan["credentialRequirement"];
+  readonly requestedClaims: VerificationPlan["requestedClaims"];
+}): DcqlQuery => {
   const requirement = plan.credentialRequirement;
   const claims: readonly DcqlClaim[] = plan.requestedClaims.map((c) => ({ path: c.path }));
   const credentials: DcqlCredential[] = [];

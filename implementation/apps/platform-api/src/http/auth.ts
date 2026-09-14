@@ -151,6 +151,34 @@ export const Ctx = createParamDecorator((_data: unknown, context: ExecutionConte
  * The path value is never the source of truth; it is only ever checked against the value
  * the credential resolved to. A mismatch is a 403, and the cross-tenant tests assert it.
  */
+/**
+ * Validates an identifier taken from a path segment.
+ *
+ * Every identifier the platform issues is a UUID, and a body field carrying one is parsed by a zod
+ * schema with `.uuid()`. A **path** segment had no such check, so a request to
+ * `GET /v1/presentations/null` reached the repository and produced a failed SQL statement — a `500`
+ * for what is plainly a client error, with the whole query in the log. Found when the operator console
+ * passed through a malformed id, which is exactly what a browser-facing client does.
+ *
+ * `CLAUDE.md` §9 says validate all input; a path segment is input.
+ */
+export const assertUuidPathParam = (name: string, value: string): string => {
+  if (!UUID_PATTERN.test(value)) {
+    throw PlatformError.validation("invalid_path_parameter", `${name} must be a UUID.`, [
+      // The name of the parameter, never the value: an invalid value is attacker-supplied and is
+      // echoed nowhere.
+      { path: name, code: "invalid_uuid", message: "expected a UUID" },
+    ]);
+  }
+  return value;
+};
+
+/**
+ * RFC 4122 shape, any version. Deliberately not a version-specific pattern: the platform issues v4
+ * today, and a check that pinned the version would reject a future v7 identifier for no reason.
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const assertTenantMatches = (ctx: RequestContext, pathTenantId: string): TenantId => {
   if (ctx.tenantId !== pathTenantId) {
     throw PlatformError.forbidden(

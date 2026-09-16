@@ -484,6 +484,10 @@ export class IssuanceService {
         engineTenantRef: version ? await this.engineTenantFor(input.tenantId, record) : "",
       },
       status: input.to,
+      // Which configuration the transition applies to. The engine's contract calls this optional
+      // and its omitted path returns 500 — A26 — so the platform always names it.
+      policyId: record.issuancePolicyId,
+      policyVersion: record.issuancePolicyVersion,
     });
 
     await this.audit.record({

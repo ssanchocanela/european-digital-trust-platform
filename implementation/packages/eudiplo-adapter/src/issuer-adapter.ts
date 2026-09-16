@@ -120,12 +120,26 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
   async updateCredentialStatus(input: {
     readonly session: CredentialOfferHandle;
     readonly status: CredentialStatus;
+    readonly policyId: string;
+    readonly policyVersion: number;
   }): Promise<void> {
     // The engine exposes status mutation only as a session-keyed call. The platform has already
     // approved the transition in the domain — in particular that `REVOKED` is terminal
     // (`AS-AP-07-007` / `VCR_04`), which the engine itself does **not** enforce.
+    //
+    // `credentialConfigurationId` is sent even though the engine's own contract marks it optional,
+    // because **the optional path is the one that crashes**: omitting it makes the engine build a
+    // `where` condition on an undefined column value and answer `500`
+    // (`StatusListService.updateStatus`). Measured on one session with one status and two calls —
+    // without the field `500`, with it `204`. So this is not belt-and-braces; it is the difference
+    // between revocation working and not working at all. `interop-findings.md` A26.
+    //
+    // Sending it also narrows the call to this transaction's own configuration, which is what the
+    // platform means anyway: a status change applies to the attestation issued here, not to every
+    // credential the engine happens to have linked to the session.
     await this.client.request(input.session.engineTenantRef, "POST", "/session/revoke", {
       sessionId: input.session.ref,
+      credentialConfigurationId: credentialConfigIdFor(input.policyId, input.policyVersion),
       status: toEngineStatus(input.status),
     });
   }
@@ -405,9 +419,16 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
  *
  * Derived from the policy and version so re-provisioning is idempotent and a published version's
  * configuration can never be silently replaced by a different version's.
+ *
+ * Two callers, one rule: provisioning writes the configuration under this id, and a status change
+ * names the same id so the engine narrows the update to it. They must not drift, which is why the
+ * format lives in one function rather than in a template string at each site.
  */
+const credentialConfigIdFor = (policyId: string, policyVersion: number): string =>
+  `c-${policyId}-v${policyVersion}`;
+
 const credentialConfigId = (plan: IssuancePlan): string =>
-  `c-${plan.policyId}-v${plan.policyVersion}`;
+  credentialConfigIdFor(plan.policyId, plan.policyVersion);
 
 /**
  * The engine-side presentation configuration id for a verification policy.

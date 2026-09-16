@@ -32,8 +32,16 @@ DPoP-bound token — and the refusal arrived only at the last call of the flow:
 **`GET …/provider-authentication` reported nothing about it**, because that report covers trust
 gate (a) and this is the attestation key, so the console showed an issuer blocked only by B7 while
 it had been unable to sign for a day. The script now mints 90 days (`CERT_DAYS` overrides), prints
-the expiry, and says where expiry will surface. **The report's blind spot is not fixed** — an
-expiring signing certificate is invisible to the platform, and the console cannot warn about it.
+the expiry, and says where expiry will surface.
+
+**The report's blind spot is fixed too.** Migration 0008 records the `notAfter` of each supplied
+leaf at provisioning — a validity window is not key material, not a credential and not content, so
+recording it costs nothing the privacy rules protect — and `provider-authentication` now carries a
+`certificates` block and `canSignAttestations`, kept **separate from the trust gate** because they
+are separate questions: one is whether a Wallet can authenticate the issuer, the other whether the
+issuer can sign at all. The console shows a row per certificate, and a red notice above the gate
+when one has expired. A provider provisioned before 0008 reads `notAfter: null` and renders **"not
+recorded"**, not "fine" — absence is reported as absence, which is the whole point.
 
 **2. `provision` replaces the whole record, so a re-provision silently drops the access
 certificate.** Deliberate, and documented in `issuance.repository.ts`: an `accessCertificate` not
@@ -42,13 +50,25 @@ provider that has **any** gated policy then fails `attestation_provider_has_no_a
 including issuances of policies with no gate, because the issuer configuration is composed per
 Attestation Provider (A20). Cost one round trip on the day.
 
-**3. Revocation does not work, and our record says it did.** `POST /api/session/revoke` returns
-**500** for suspend, reinstate and revoke alike — an engine defect, `interop-findings.md` **A26**.
-The platform persists the new status *before* calling the engine, on purpose, so the register now
-reads `REVOKED` for an attestation whose status list was never touched while the API returned
-`engine_unavailable` for the same call. **That ordering's stated rationale — the stricter record is
-the safe direction — does not hold here**, because a Relying Party reads the engine's status list,
-not our register. Open decision, recorded in A26, deliberately not settled alone.
+**3. Revocation did not work — and the fix was the engine's own documented field.** `POST
+/api/session/revoke` returned **500** for suspend, reinstate and revoke alike. The engine's
+`StatusUpdateDto` marks `credentialConfigurationId` optional — *"if omitted, all credentials linked
+to the session are updated"* — and **the omitted path is the one that crashes**. One session, one
+status, two calls: without the field `500`, with it `204`. The adapter now always sends it, which is
+what the platform meant anyway, and the whole lifecycle was then verified live through the platform
+API: suspend, reinstate, revoke, and un-revocation refused, with no engine error.
+`interop-findings.md` **A26**; report drafted at
+[`upstream/eudiplo-session-revoke-optional-field.md`](upstream/eudiplo-session-revoke-optional-field.md),
+unfiled.
+
+**The open decision it exposed is not closed by that.** The platform persists a new status *before*
+calling the engine, on purpose, and while the engine was failing the register read `REVOKED` for an
+attestation whose status list had never been touched — with the API returning `engine_unavailable`
+for the same call. The ordering's stated rationale, that the stricter record is the safe direction,
+**does not hold**: a Relying Party reads the engine's status list, not our register, so the
+attestation kept verifying as valid everywhere it mattered. The workaround removes today's instance,
+not the question — any engine failure reproduces it. Whether to keep the ordering, roll the local
+change back, or record and retry the divergence is recorded in A26 and deliberately left open.
 
 ### The wallet wall moved, and the old explanation was wrong
 

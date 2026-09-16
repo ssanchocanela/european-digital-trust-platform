@@ -149,10 +149,24 @@ export interface EudiIssuerPort {
    *
    * The platform, not the engine, enforces that `REVOKED` is terminal. This method simply carries
    * out a transition the domain has already approved.
+   *
+   * ## Why the policy identity is part of the input
+   *
+   * It names *which* credential configuration the transition applies to, and the wrapped engine
+   * needs it. Its status-update contract marks that field optional — "if omitted, all credentials
+   * linked to the session are updated" — and **the omitted path is the broken one**: the engine
+   * throws a `TypeORMError` about an undefined value in a `where` condition and answers `500`.
+   * Measured on one session, one status, two calls: without the field `500`, with it `204`.
+   * `docs/interop-findings.md` A26.
+   *
+   * These are platform concepts — a policy and its version. The engine's identifier format is the
+   * adapter's business and is derived there, so this port stays free of engine identifiers.
    */
   updateCredentialStatus(input: {
     readonly session: CredentialOfferHandle;
     readonly status: CredentialStatus;
+    readonly policyId: string;
+    readonly policyVersion: number;
   }): Promise<void>;
 
   cancelIssuance(session: CredentialOfferHandle): Promise<void>;

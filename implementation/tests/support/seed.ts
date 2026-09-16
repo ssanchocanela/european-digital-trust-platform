@@ -1,4 +1,9 @@
-import type { PresentationPolicyId, RelyingPartyServiceId, TenantId } from "@edtp/shared";
+import type {
+  IntendedUseId,
+  PresentationPolicyId,
+  RelyingPartyServiceId,
+  TenantId,
+} from "@edtp/shared";
 import { asId } from "@edtp/shared";
 import type { Harness } from "./harness.js";
 import { TEST_CERTIFICATE_PEM, TEST_PRIVATE_JWK } from "./harness.js";
@@ -16,7 +21,7 @@ export interface SeededTenant {
   readonly tenantId: TenantId;
   readonly apiKey: string;
   readonly serviceId: RelyingPartyServiceId;
-  readonly intendedUseId: string;
+  readonly intendedUseId: IntendedUseId;
   readonly policyId: PresentationPolicyId;
   readonly webhookSecret: string;
   readonly engineTenantRef: string;

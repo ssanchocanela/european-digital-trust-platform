@@ -36,6 +36,8 @@ const schema = z.object({
    * the tenant of the presenting token (ADR 0002 Decision 3).
    */
   ENGINE_TENANT_CREDENTIALS: z.string().min(1),
+  /** Engine trust list of wallet providers. Unset: no wallet attestation at the token endpoint. */
+  ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: z.string().min(1).optional(),
 
   /** Public base URL of this API, used for same-device return URLs. */
   PLATFORM_PUBLIC_URL: z.string().url(),

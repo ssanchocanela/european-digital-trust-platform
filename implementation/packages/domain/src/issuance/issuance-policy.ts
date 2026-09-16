@@ -1,7 +1,7 @@
 import type { LocalisedText } from "@edtp/shared";
 import { PlatformError } from "@edtp/shared";
 import type { RetentionPolicy } from "../kernel/policies.js";
-import type { PolicyStatus } from "../kernel/policy-version.js";
+import type { PolicyContainerStatus, PolicyStatus } from "../kernel/policy-version.js";
 import { type CredentialType, declaredClaimPaths } from "./credential-type.js";
 
 /**
@@ -77,7 +77,15 @@ export interface IssuancePolicy {
   readonly tenantId: string;
   readonly credentialTypeId: string;
   readonly name: string;
-  readonly status: "ACTIVE" | "ARCHIVED";
+  /**
+   * The container's own lifecycle, `RETIRED` rather than `ARCHIVED`.
+   *
+   * It said `ARCHIVED` until 16 September 2026 while the kernel that governs every policy
+   * container said `RETIRED` — two names for one state, in a codebase where the verification
+   * side already used the kernel's. No row had ever held either value, because nothing could
+   * set one: the state was modelled and enforced and unreachable.
+   */
+  readonly status: PolicyContainerStatus;
   readonly createdAt: Date;
 }
 
@@ -180,6 +188,26 @@ export const validateIssuancePolicyVersion = (
         "way: an attestation that cannot be revoked must say so in its type.",
     });
   }
+  // A presentation gate is an *authorization* step: the Wallet is sent to an authorization server
+  // that runs an OpenID4VP presentation before it may collect anything. A pre-authorized code skips
+  // the authorization server by construction, so the two together describe a policy whose gate can
+  // never run — and the failure is silent: the offer is minted, the Wallet collects the credential,
+  // and the eligibility presentation the policy asked for simply does not happen.
+  //
+  // Observed on a live stack on 13 September 2026, which is the only reason it is caught here: the
+  // combination was accepted, provisioned, and produced an offer naming the built-in authorization
+  // server. Nothing in the engine's response said anything was wrong.
+  if (input.eligibilityPresentationPolicyId && input.flow === "PRE_AUTHORIZED_CODE") {
+    details.push({
+      path: "flow",
+      code: "gate_requires_authorization_code",
+      message:
+        "A policy gated on a presentation must use the AUTHORIZATION_CODE flow. A pre-authorized " +
+        "code bypasses the authorization server, so the eligibility presentation would never run " +
+        "and the credential would be issued without it.",
+    });
+  }
+
   if (input.statusPolicy.suspensionAllowed && !input.statusPolicy.statusListEnabled) {
     details.push({
       path: "statusPolicy.suspensionAllowed",

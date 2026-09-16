@@ -131,6 +131,10 @@ describe("migrations", () => {
         "issued_at",
         "status",
         "status_changed_at",
+        // A timestamp saying whether the engine acknowledged the current status, migration 0009.
+        // It holds no attribute value and no content: it is a fact about the platform's own
+        // agreement with the engine, of the same kind as `status_changed_at` beside it.
+        "status_confirmed_at",
         "status_list_index",
         "status_list_uri",
         "tenant_id",

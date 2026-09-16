@@ -12,6 +12,7 @@ import type {
 import { asId, PlatformError } from "@edtp/shared";
 import type { EngineClient } from "./client.js";
 import { normaliseIssuanceOutcome } from "./issuance-outcome-mapping.js";
+import { buildPresentationConfigBody } from "./presentation-config.js";
 import {
   engineCredentialIssuerMetadataSchema,
   engineIssuerOfferResponseSchema,
@@ -46,7 +47,24 @@ import {
  * presenting token.
  */
 export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvisioningPort {
-  constructor(private readonly client: EngineClient) {}
+  constructor(
+    private readonly client: EngineClient,
+    /**
+     * Wallet authentication at the token endpoint, when a deployment enables it.
+     *
+     * The self-built wallet authenticates with `attest_jwt_client_auth` and refuses an
+     * authorization server that does not advertise it ("Client attestation based authentication is
+     * not supported by the authorization server"). The engine advertises it only with
+     * `walletAttestationRequired`, and then verifies the attestation against a wallet-provider trust
+     * list held **in the engine**, referenced by id — a URL is not accepted, and a missing list is a
+     * `401` at the token endpoint. `scripts/setup-wallet-provider-trust.sh` creates it.
+     *
+     * Set here rather than on the engine by hand because the issuer configuration is written whole
+     * by this adapter (A20): a setting made directly on the engine is reverted by the next
+     * provisioning. It was, once, on 16 September 2026. `interop-findings.md` A28.
+     */
+    private readonly options: { readonly walletProviderTrustListId?: string } = {},
+  ) {}
 
   async createCredentialOffer(
     input: CreateCredentialOfferInput,
@@ -76,6 +94,21 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         credentialClaims: {
           [configId]: { type: "inline", claims: claims as Record<string, unknown> },
         },
+        // **Named, not left to the engine.** The tenant advertises every authorization server its
+        // provider needs (A20), and the offer has to say which one *this* credential goes through.
+        // Without it the engine picks for itself and chose the built-in one, so a policy gated on a
+        // presentation minted an offer that skipped the gate entirely — the metadata advertised the
+        // `oid4vp` server and the offer never pointed at it.
+        //
+        // Verified on the running engine, 13 September 2026: an offer without this field carries
+        // `"authorization_server": ".../issuers/{ref}"` whatever the policy says.
+        ...(plan.eligibilityPresentationPolicyId
+          ? {
+              authorization_server: eligibilityAuthorizationServerId(
+                plan.eligibilityPresentationPolicyId,
+              ),
+            }
+          : {}),
       }),
     );
 
@@ -104,12 +137,26 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
   async updateCredentialStatus(input: {
     readonly session: CredentialOfferHandle;
     readonly status: CredentialStatus;
+    readonly policyId: string;
+    readonly policyVersion: number;
   }): Promise<void> {
     // The engine exposes status mutation only as a session-keyed call. The platform has already
     // approved the transition in the domain — in particular that `REVOKED` is terminal
     // (`AS-AP-07-007` / `VCR_04`), which the engine itself does **not** enforce.
+    //
+    // `credentialConfigurationId` is sent even though the engine's own contract marks it optional,
+    // because **the optional path is the one that crashes**: omitting it makes the engine build a
+    // `where` condition on an undefined column value and answer `500`
+    // (`StatusListService.updateStatus`). Measured on one session with one status and two calls —
+    // without the field `500`, with it `204`. So this is not belt-and-braces; it is the difference
+    // between revocation working and not working at all. `interop-findings.md` A26.
+    //
+    // Sending it also narrows the call to this transaction's own configuration, which is what the
+    // platform means anyway: a status change applies to the attestation issued here, not to every
+    // credential the engine happens to have linked to the session.
     await this.client.request(input.session.engineTenantRef, "POST", "/session/revoke", {
       sessionId: input.session.ref,
+      credentialConfigurationId: credentialConfigIdFor(input.policyId, input.policyVersion),
       status: toEngineStatus(input.status),
     });
   }
@@ -129,9 +176,12 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
   async provisionCredentialConfiguration(input: IssuanceProvisioningInput): Promise<void> {
     const { plan, engineTenantRef } = input;
 
-    // 1. The issuance configuration. `authorizationServers` is required with at least one entry,
-    //    and `registrationCertificate` is what the engine turns into `issuer_info` in the
-    //    Wallet-facing metadata — trust gate (a).
+    // 1. The issuance configuration. This call is **tenant-scoped**, and that is the whole
+    //    difficulty: `authorizationServers`, `display` and `registrationCertificate` describe the
+    //    Credential Issuer, not the credential configuration written in step 2. Composing them from
+    //    the credential type being provisioned meant every issuance silently overwrote the previous
+    //    one's — `interop-findings.md` A20 — so they are composed from the **provider** instead.
+    //
     // The authorization server list is a **discriminated union** on `type`; an entry without it is
     // accepted by the DTO but then ignored, and the offer fails later with "No enabled
     // authorization server configured" — a failure a long way from its cause, which is why this is
@@ -144,23 +194,91 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     //               presentation configuration by id — so eligibility can require a PID before
     //               issuing, **reusing a verification policy** exactly as §7.3 asks. The engine
     //               supports this natively; the platform only has to name the configuration.
-    const authorizationServer = plan.eligibilityPresentationPolicyId
-      ? {
-          type: "oid4vp",
-          id: "eligibility-oid4vp",
-          presentationConfigId: presentationConfigIdFor(plan.eligibilityPresentationPolicyId),
-          enabled: true,
-        }
-      : // `id` must not be "built-in": the engine reserves that value and answers
-        // `Authorization server id 'built-in' is reserved`. A platform-owned name avoids the clash
-        // and makes the engine-side object traceable to us.
-        { type: "built-in", id: "edtp-issuer-as", enabled: true };
+    //
+    // Both are sent when the provider needs both. Verified against the engine on 13 September 2026:
+    // the metadata then advertises both `…/issuers/{ref}` and
+    // `…/issuers/{ref}/authorization-servers/eligibility-oid4vp`, which is what makes an offer
+    // naming either of them consistent with what the Wallet reads. A20 proposed a second engine
+    // tenant per authorization model; it is not needed, because the engine takes a list.
+    const context = plan.providerContext;
+    const authorizationServers: Record<string, unknown>[] = [];
+    if (context.requiresBuiltInAuthorizationServer) {
+      // `id` must not be "built-in": the engine reserves that value and answers
+      // `Authorization server id 'built-in' is reserved`. A platform-owned name avoids the clash
+      // and makes the engine-side object traceable to us.
+      authorizationServers.push({ type: "built-in", id: "edtp-issuer-as", enabled: true });
+    }
+    if (context.eligibilityPresentations.length > 0 && !context.accessKeyBindingRef) {
+      // The eligibility presentation is a **signed request object from the issuer**, and a Wallet
+      // Unit accepts only an access certificate chaining to an anchor from a notified list
+      // (`AS-WP-06-005` / `RPA_04`). Without one, provisioning would produce an authorization step
+      // that fails on the phone with a message about the relying party — a failure a long way from
+      // its cause, which is the whole lesson of `interop-findings.md` A22.
+      throw PlatformError.engine(
+        "attestation_provider_has_no_access_certificate",
+        "This Attestation Provider gates issuance on a presentation but was provisioned without " +
+          "an access certificate. The request object would be signed by the wrong party, or not " +
+          "at all, and no Wallet would accept it.",
+      );
+    }
+
+    for (const eligibility of context.eligibilityPresentations) {
+      // **Written here, on the issuer's own engine tenant.** It used to be referenced and never
+      // written: the verifier adapter creates presentation configurations lazily, on the *Relying
+      // Party Instance's* tenant, at the first presentation. A gating policy nobody had presented
+      // against therefore resolved to nothing, and the engine accepts that silently (A21). It
+      // worked only where one engine tenant served both roles. `interop-findings.md` A22.
+      //
+      // Signed with the provider's access certificate, not the Relying Party's: reusing a
+      // verification policy means reusing its *content*, not the other party's credentials.
+      const configId = presentationConfigIdFor(eligibility.policyId, eligibility.policyVersion);
+      await this.client.request(
+        engineTenantRef,
+        "POST",
+        "/verifier/config",
+        buildPresentationConfigBody({
+          configId,
+          policyId: eligibility.policyId,
+          policyVersion: eligibility.policyVersion,
+          credentialRequirement: eligibility.credentialRequirement,
+          requestedClaims: eligibility.requestedClaims,
+          statusCheckMode: eligibility.statusCheckMode,
+          // The provider's own, guaranteed present by the check above.
+          accessKeyChainId: context.accessKeyBindingRef as string,
+        }),
+      );
+
+      authorizationServers.push({
+        type: "oid4vp",
+        // One per gating policy, so two PID-gated credential types on one provider do not collide
+        // on a shared id — which would be A20 again, one level down.
+        id: eligibilityAuthorizationServerId(eligibility.policyId),
+        presentationConfigId: configId,
+        enabled: true,
+      });
+    }
+    if (authorizationServers.length === 0) {
+      // The engine requires at least one. Reaching here would mean the provider view was composed
+      // without the policy currently being provisioned, which is a platform bug rather than a
+      // configuration error — so it fails loudly instead of emitting a tenant nothing can use.
+      throw PlatformError.engine(
+        "issuer_authorization_servers_empty",
+        "No authorization server could be composed for the Attestation Provider.",
+      );
+    }
 
     const issuanceConfig: Record<string, unknown> = {
-      authorizationServers: [authorizationServer],
-      display: plan.credential.display.map((d) => ({ name: d.value, locale: d.lang })),
+      authorizationServers,
+      // The **issuer's** name, not the credential's. See `PlanAttestationProviderContext`.
+      display: [{ name: context.issuerDisplayName, locale: "en" }],
       batchSize: 1,
       notificationEndpointEnabled: true,
+      ...(this.options.walletProviderTrustListId
+        ? {
+            walletAttestationRequired: true,
+            walletProviderTrustLists: [{ trustListId: this.options.walletProviderTrustListId }],
+          }
+        : { walletAttestationRequired: false }),
     };
 
     const registrationCertificateJwt = plan.providerContext.registrationCertificateJwt;
@@ -236,6 +354,31 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
   }
 
   /**
+   * The provider's own access certificate, for the §7.3 eligibility presentation.
+   *
+   * `usageType: "access"` — the same value the verifier adapter uses, and for the same reason: this
+   * key signs a presentation *request*. What makes it a separate method rather than a flag is that
+   * the two keys belong to different roles the same organisation plays, and one method taking a
+   * usage type would make it possible to pass the wrong one. `interop-findings.md` A22.
+   */
+  async importAccessCertificate(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+    readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+    readonly certificateChain: readonly string[];
+  }): Promise<{ readonly keyBindingRef: string }> {
+    const response = keyChainIdSchema.parse(
+      await this.client.request(input.engineTenantRef, "POST", "/key-chain/import", {
+        key: input.privateKeyJwk,
+        usageType: "access",
+        description: input.name,
+        crt: [...input.certificateChain],
+      }),
+    );
+    return { keyBindingRef: response.id };
+  }
+
+  /**
    * Fetches the provider-authentication evidence a Wallet would see — trust gate (a).
    *
    * Deliberately reads the **well-known** document rather than the management API, because the
@@ -299,20 +442,95 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
  *
  * Derived from the policy and version so re-provisioning is idempotent and a published version's
  * configuration can never be silently replaced by a different version's.
+ *
+ * Two callers, one rule: provisioning writes the configuration under this id, and a status change
+ * names the same id so the engine narrows the update to it. They must not drift, which is why the
+ * format lives in one function rather than in a template string at each site.
  */
+const credentialConfigIdFor = (policyId: string, policyVersion: number): string =>
+  `c-${policyId}-v${policyVersion}`;
+
 const credentialConfigId = (plan: IssuancePlan): string =>
-  `c-${plan.policyId}-v${plan.policyVersion}`;
+  credentialConfigIdFor(plan.policyId, plan.policyVersion);
 
 /**
  * The engine-side presentation configuration id for a verification policy.
  *
- * Must match what the verifier adapter produces, or the issuance flow would reference a
- * configuration that does not exist. Verification compiles `p-<policyId>-v<version>`; an eligibility
- * presentation always uses version 1 of the named policy, because the stretch goal reuses a policy
- * rather than pinning a version — a decision recorded in `docs/eudiplo-integration.md`.
+ * **Deliberately distinct from the verifier adapter's id**, which is `p-<policyId>-v<version>`.
+ *
+ * The two write the same engine endpoint, and on an engine tenant that serves both a Relying Party
+ * Instance and an Attestation Provider they would write the same object — with different
+ * `accessKeyChainId`s, because the two are different parties. Observed on the running stack: creating
+ * an ordinary presentation with a gating policy rewrote the configuration from the Attestation
+ * Provider's access key to the Relying Party's, after which the issuer's eligibility request would
+ * have been signed by the wrong party and a Wallet told a different organisation was asking.
+ *
+ * `interop-findings.md` A23. The same A20 family: one tenant-scoped engine object with two owners.
+ *
+ * The version is the eligibility presentation's own, not a hard-coded 1: a published version is
+ * immutable, so the id resolves to the same configuration for the life of that version and
+ * publishing a new one never mutates what an in-flight issuance is using.
  */
-const presentationConfigIdFor = (presentationPolicyId: string): string =>
-  `p-${presentationPolicyId}-v1`;
+const presentationConfigIdFor = (presentationPolicyId: string, version: number): string =>
+  `elig-p-${presentationPolicyId}-v${version}`;
+
+/**
+ * The engine-side id of the authorization server that gates issuance on one presentation policy.
+ *
+ * Derived from the policy rather than fixed, because a provider may gate two credential types on
+ * two different policies and a shared id would let one overwrite the other inside the same call —
+ * the same defect as A20, one level down.
+ */
+const eligibilityAuthorizationServerId = (presentationPolicyId: string): string =>
+  `eligibility-${presentationPolicyId}`;
+
+/**
+ * Proof types this issuer advertises, and why it is only `jwt`.
+ *
+ * The engine defaults to `["attestation", "jwt"]` and emits the `attestation` entry as bare
+ * `{proof_signing_alg_values_supported: [...]}`. **That document does not parse.** The wallet's
+ * OpenID4VCI library refuses it outright:
+ *
+ *     IllegalArgumentException: attestation proof must contain 'key_attestations_required'
+ *       at CredentialIssuerMetadataJsonParser.proofTypeMeta
+ *     -> CredentialIssuerMetadataValidationError.InvalidCredentialsSupported
+ *     -> CredentialOfferRequestError.UnableToResolveCredentialIssuerMetadata
+ *
+ * and one malformed entry fails the **whole** metadata document, so every credential configuration
+ * on the tenant becomes unreadable — not just the one being offered. The wallet then shows a
+ * generic error carrying no message, because the exception has none. `interop-findings.md` A28.
+ *
+ * Advertising `attestation` is also a claim the platform cannot back. It means "I accept a key
+ * attestation as proof", and the accompanying `key_attestations_required` is what states the key
+ * storage and user authentication levels demanded. V0 demands none, so there is nothing truthful to
+ * put there — and announcing the proof type while declining to say what it requires is exactly the
+ * malformed shape the library rejects. `jwt` is what this issuer actually accepts, and it is the
+ * proof the platform's own contract test builds.
+ */
+// `attestation`, not `jwt`: Wallet Core 0.30.2 has no plain JWT proof — every JWT proof carries a
+// key attestation, which the engine resolves as signer `custom` and refuses — while an attestation
+// proof is verified by the engine against its wallet-provider trust list. `interop-findings.md` A29.
+const PROOF_TYPES_SUPPORTED = ["attestation"] as const;
+
+/**
+ * The key-attestation requirement published beside the proof type.
+ *
+ * **This is a parser requirement, not a security property, and it must never be described as one.**
+ * The platform does not verify a key attestation and the wrapped engine does not either.
+ *
+ * It is published because the wallet's OpenID4VCI library refuses metadata without it. The
+ * specification marks `key_attestations_required` OPTIONAL; `eudi-lib-jvm-openid4vci-kt` 0.13.1
+ * treats it as mandatory on every proof type, and rejects both encodings that would mean "required,
+ * with no constraints" — an empty object reads as absent, and an empty `key_storage` array is
+ * refused outright with "keyStorage, if provided, must be non-empty". So an issuer that demands
+ * nothing has no way to say so, and since one malformed entry fails the **whole** metadata document,
+ * a single such configuration makes every credential on the tenant unreadable.
+ * `interop-findings.md` A28.
+ *
+ * `iso_18045_basic` is the lowest of the four levels the library accepts. Chosen deliberately: it
+ * is the least a wallet has to satisfy, and the least this document can be read as claiming.
+ */
+const KEY_ATTESTATIONS_REQUIRED = { key_storage: ["iso_18045_basic"] } as const;
 
 const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string, unknown> => {
   if (plan.credential.format === "dc+sd-jwt") {
@@ -324,6 +542,8 @@ const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string,
         ? { cryptographic_binding_methods_supported: ["jwk"] }
         : {}),
       credential_signing_alg_values_supported: ["ES256"],
+      proofTypesSupported: [...PROOF_TYPES_SUPPORTED],
+      keyAttestationsRequired: { key_storage: [...KEY_ATTESTATIONS_REQUIRED.key_storage] },
     };
   }
   return {
@@ -331,6 +551,8 @@ const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string,
     doctype: plan.credential.doctype,
     display: plan.credential.display.map((d) => ({ name: d.value, locale: d.lang })),
     credential_signing_alg_values_supported: ["ES256"],
+    proofTypesSupported: [...PROOF_TYPES_SUPPORTED],
+    keyAttestationsRequired: { key_storage: [...KEY_ATTESTATIONS_REQUIRED.key_storage] },
   };
 };
 

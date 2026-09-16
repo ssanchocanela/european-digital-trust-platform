@@ -9,10 +9,22 @@ import type { EngineSessionResponse } from "./schemas.js";
  * alike and is not decidable, so the adapter branches on the machine-readable failure code and
  * degrades visibly when it meets one it does not know.
  *
- * What differs from verification is the meaning of the intermediate states. An issuance session
- * goes `active` → (wallet collects the offer) → `fetched` → `completed`, so `fetched` means the
- * Wallet has begun but no attestation exists yet. Mapping it to `SETTLED` would report an issuance
- * that has not happened.
+ * What differs from verification is the meaning of the intermediate states, and this comment had it
+ * wrong until 16 September 2026. It said `fetched` meant the Wallet had begun and no attestation
+ * existed yet. **Read against the engine, the opposite is true**: `Oid4vciService.getCredential`
+ * issues and returns the credential and only *then* sets `fetched`. `completed` is set solely by the
+ * Wallet's notification with `credential_accepted` — and the notification endpoint is OPTIONAL for a
+ * Wallet in OpenID4VCI.
+ *
+ * So a Wallet that does not notify — the modified test wallet does not — left every issuance
+ * `ISSUING` for ever, with no issued-attestation record, while an attestation it had actually
+ * collected sat in the holder's wallet **unrevocable from the platform**, because revocation works
+ * from that record. Found the first time a wallet collected a credential from this platform. The
+ * eighth response state assumed rather than read.
+ *
+ * `fetched` is therefore `ISSUED`: the attestation exists, is signed, and has its status-list entry.
+ * What it does not say is that the Wallet accepted it — a Wallet can still reject a credential it
+ * received — and the platform has no evidence of that either way unless the Wallet notifies.
  */
 
 /**
@@ -91,8 +103,9 @@ export const normaliseIssuanceOutcome = (session: EngineSessionResponse): Issuan
       return settled(failureCode ? classifyFailure(failureCode) : "PROTOCOL_ERROR");
 
     case "fetched":
-      // The Wallet has collected the offer and is exchanging tokens. No attestation yet.
-      return progressOnly("ISSUING");
+      // The attestation has been issued and returned to the Wallet. See the note at the top.
+      if (failureCode) return settled(classifyFailure(failureCode));
+      return settled("ISSUED");
 
     case "active":
       return progressOnly("AWAITING_WALLET");

@@ -6,7 +6,7 @@ import {
 import type { EudiIssuerProvisioningPort } from "@edtp/eudi-issuer-port";
 import type { IssuanceRepository, WebhookEndpointRepository } from "@edtp/persistence";
 import { asId, newOpaqueToken, newWebhookEndpointId, PlatformError } from "@edtp/shared";
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Post } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { IssuanceService } from "../modules/issuances/issuance.service.js";
 import {
@@ -18,7 +18,8 @@ import {
   REGISTERED_EVALUATORS,
   WEBHOOK_ENDPOINT_REPOSITORY,
 } from "../tokens.js";
-import { assertTenantMatches, Ctx, type RequestContext } from "./auth.js";
+import { assertTenantMatches, assertUuidPathParam, Ctx, type RequestContext } from "./auth.js";
+import { certificateChainNotAfter } from "./certificate-validity.js";
 import {
   changeCredentialStatusSchema,
   createAttestationProviderSchema,
@@ -27,6 +28,7 @@ import {
   createIssuancePolicyVersionSchema,
   createIssuanceSchema,
   provisionAttestationProviderSchema,
+  setIssuancePolicyStatusSchema,
 } from "./schemas.js";
 
 /**
@@ -44,7 +46,12 @@ export class IssuanceConfigurationController {
     private readonly endpoints: WebhookEndpointRepository,
     @Inject(ISSUER_PROVISIONING_PORT) private readonly provisioning: EudiIssuerProvisioningPort,
     @Inject(REGISTERED_EVALUATORS) private readonly evaluators: readonly string[],
-    @Inject(REGISTERED_CONNECTORS) private readonly connectors: readonly string[],
+    @Inject(REGISTERED_CONNECTORS)
+    private readonly connectors: readonly {
+      readonly name: string;
+      readonly kind: string;
+      readonly sampleSubjectReferences?: readonly string[];
+    }[],
     @Inject(FEATURE_PID_DURING_ISSUANCE) private readonly pidDuringIssuanceEnabled: boolean,
   ) {}
 
@@ -81,6 +88,33 @@ export class IssuanceConfigurationController {
     };
   }
 
+  @Delete(":tenantId/attestation-providers/:providerId/provision")
+  @ApiOperation({
+    summary: "Release the provider's engine tenant so another provider can be given it",
+  })
+  async decommission(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("providerId") providerId: string,
+  ) {
+    // An engine tenant serves one Attestation Provider, because the engine's issuer configuration is
+    // tenant-scoped (`interop-findings.md` A20). This is the way back: without it the first provider
+    // to claim an engine tenant holds it for ever, and one registered by mistake makes that tenant
+    // permanently unusable.
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("providerId", providerId);
+    const { released } = await this.issuance.releaseEngineTenant({
+      tenantId: id,
+      attestationProviderId: providerId,
+    });
+    // Says what actually happened rather than always "released": releasing a provider that held
+    // nothing is not an error, but it is not the same event either.
+    return {
+      released: released !== undefined,
+      ...(released ? { engineTenantRef: released } : {}),
+    };
+  }
+
   @Post(":tenantId/attestation-providers/:providerId/provision")
   @ApiOperation({
     summary: "Provision the engine tenant, signing key and registration certificate",
@@ -102,6 +136,20 @@ export class IssuanceConfigurationController {
       privateKeyJwk: input.signingCertificate.privateKeyJwk,
       certificateChain: input.signingCertificate.certificateChain,
     });
+
+    // The provider's own access certificate, when supplied. Imported with `usageType: "access"`,
+    // not `"attestation"`: it signs presentation requests, and the engine keys trust decisions off
+    // the usage type. A22.
+    let accessKeyBindingRef: string | undefined;
+    if (input.accessCertificate) {
+      const importedAccess = await this.provisioning.importAccessCertificate({
+        engineTenantRef: input.engineTenantRef,
+        name: `Attestation Provider ${providerId} (eligibility presentation)`,
+        privateKeyJwk: input.accessCertificate.privateKeyJwk,
+        certificateChain: input.accessCertificate.certificateChain,
+      });
+      accessKeyBindingRef = importedAccess.keyBindingRef;
+    }
 
     // The callback destination, when one is asked for. The same shared kernel object a Relying
     // Party Service references, so issuance reuses the Milestone 1 queue, signing, retry schedule
@@ -131,6 +179,22 @@ export class IssuanceConfigurationController {
       attestationProviderId: providerId,
       engineTenantRef: input.engineTenantRef,
       signingKeyBindingRef: imported.keyBindingRef,
+      // Read from the supplied leaf, because the engine hands back only an opaque reference and the
+      // platform would otherwise be unable to say whether this provider can still sign. Migration
+      // 0008, and `certificate-validity.ts` for the afternoon that motivated it.
+      signingCertificateNotAfter: certificateChainNotAfter(
+        input.signingCertificate.certificateChain,
+        "attestation-signing certificate",
+      ),
+      ...(accessKeyBindingRef ? { accessKeyBindingRef } : {}),
+      ...(input.accessCertificate
+        ? {
+            accessCertificateNotAfter: certificateChainNotAfter(
+              input.accessCertificate.certificateChain,
+              "access certificate",
+            ),
+          }
+        : {}),
       ...(input.registrationCertificateJwt
         ? { registrationCertificateJwt: input.registrationCertificateJwt }
         : {}),
@@ -140,12 +204,61 @@ export class IssuanceConfigurationController {
     return {
       provisioned: true,
       keyBindingRef: imported.keyBindingRef,
+      // Stated, because its absence is what makes a §7.3 gating policy unprovisionable.
+      accessCertificateImported: accessKeyBindingRef !== undefined,
       // Stated in the response, not only in a log: without it a Wallet cannot authenticate the
       // provider before issuance (ARF §6.6.2.2).
       registrationCertificatePublished: input.registrationCertificateJwt !== undefined,
       ...(webhookEndpointId ? { webhookEndpointId } : {}),
       // Shown once and never again, exactly as on the verification side.
       ...(webhookSecret ? { webhookSecret } : {}),
+    };
+  }
+
+  @Post(":tenantId/issuance-policies/:policyId/status")
+  @ApiOperation({ summary: "Retire an issuance policy, or bring a retired one back" })
+  async setIssuancePolicyStatus(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("policyId") policyId: string,
+    @Body() body: unknown,
+  ) {
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("policyId", policyId);
+    const input = setIssuancePolicyStatusSchema.parse(body);
+
+    // Retiring stops new issuances starting and changes nothing that has already been issued. It is
+    // reversible for exactly that reason — unlike revoking an attestation (`AS-AP-07-007`), which
+    // makes a statement about a credential somebody holds.
+    await this.issuance.setPolicyStatus({ tenantId: id, policyId, to: input.status });
+
+    // Not audited, and that is a gap rather than a decision: **no** configuration change in this
+    // controller is — not registering a provider, not provisioning one, not defining a credential
+    // type, not publishing a version. Auditing this one alone would suggest the others are covered.
+    // Worth closing as a whole, and not by widening it here.
+    return { policyId, status: input.status };
+  }
+
+  @Get(":tenantId/issuance-capabilities")
+  @ApiOperation({
+    summary: "The eligibility rules and authentic sources this deployment can actually use",
+  })
+  async issuanceCapabilities(@Ctx() ctx: RequestContext, @Param("tenantId") tenantId: string) {
+    assertTenantMatches(ctx, tenantId);
+    // Both are **registered at startup** and resolved then, not at runtime — an eligibility rule
+    // decides whether someone receives an attestation about themselves, so it is readable code
+    // under review rather than a string in a database (`EligibilityRuleRef`). Publishing a version
+    // that names something unregistered is refused, and this is what a caller needs to avoid that:
+    // the list, rather than a 422 after filling in a form.
+    //
+    // Platform-wide rather than tenant-scoped, but served under the tenant path so it needs a
+    // tenant credential and nothing more — there is no anonymous inventory of this deployment.
+    return {
+      eligibilityEvaluators: this.evaluators,
+      // Each source with its kind, and — for a fixture only — the subject references it will
+      // answer for. A `REAL` source never lists them: its subject references identify real people,
+      // and a list of them is a directory. See `AuthenticSourceConnector`.
+      authenticSources: this.connectors,
     };
   }
 
@@ -173,8 +286,36 @@ export class IssuanceConfigurationController {
 
     const evidence =
       await this.provisioning.fetchProviderAuthenticationEvidence(engineTenantRef);
+
+    // The certificates this provider holds, and whether they still work.
+    //
+    // Separate from trust gate (a) on purpose. Gate (a) is whether a Wallet can *authenticate* the
+    // provider; this is whether the provider can *sign at all*. Reporting only the first is what
+    // let the console show an issuer blocked solely by B7 on 16 September 2026 while its signing
+    // certificate had expired the day before, with the truth appearing only as a 400 at the last
+    // call of the issuance flow.
+    //
+    // `notAfter: null` means unknown, not fine: a provider provisioned before migration 0008 has no
+    // recorded validity, and `expired` is left null rather than guessed. Re-provision to record it.
+    const now = new Date();
+    const validity = (notAfter?: Date) =>
+      notAfter
+        ? { notAfter: notAfter.toISOString(), expired: notAfter.getTime() <= now.getTime() }
+        : { notAfter: null, expired: null };
+
+    const signing = validity(context.signingCertificateNotAfter);
     return {
       credentialIssuer: evidence.credentialIssuer,
+      certificates: {
+        attestationSigning: signing,
+        ...(context.hasAccessCertificate
+          ? { access: validity(context.accessCertificateNotAfter) }
+          : {}),
+      },
+      // False only when the platform *knows* it cannot sign. An unrecorded validity leaves this
+      // true, because the platform has no evidence either way and inventing a failure would be as
+      // misleading as the silence this replaces.
+      canSignAttestations: signing.expired !== true,
       registrationCertificatePresent: evidence.registrationCertificatePresent,
       metadataSigned: evidence.metadataSigned,
       accessCertificateInSignedMetadata: evidence.accessCertificateInSignedMetadata,
@@ -334,7 +475,7 @@ export class IssuanceConfigurationController {
       {
         credentialType: type,
         registeredEvaluators: this.evaluators,
-        registeredConnectors: this.connectors,
+        registeredConnectors: this.connectors.map((c) => c.name),
         at: new Date(),
       },
     );
@@ -391,6 +532,7 @@ export class IssuanceController {
   @Get("issuances/:issuanceId")
   @ApiOperation({ summary: "Read an issuance transaction" })
   async get(@Ctx() ctx: RequestContext, @Param("issuanceId") issuanceId: string) {
+    assertUuidPathParam("issuanceId", issuanceId);
     return this.issuances.get(ctx.tenantId, issuanceId);
   }
 
@@ -402,6 +544,7 @@ export class IssuanceController {
     @Ctx() ctx: RequestContext,
     @Param("issuedCredentialId") issuedCredentialId: string,
   ) {
+    assertUuidPathParam("issuedCredentialId", issuedCredentialId);
     return this.issuances.changeCredentialStatus({
       tenantId: ctx.tenantId,
       issuedCredentialId,
@@ -418,6 +561,7 @@ export class IssuanceController {
     @Param("issuedCredentialId") issuedCredentialId: string,
     @Body() body: unknown,
   ) {
+    assertUuidPathParam("issuedCredentialId", issuedCredentialId);
     const input = changeCredentialStatusSchema.parse(body);
     return this.issuances.changeCredentialStatus({
       tenantId: ctx.tenantId,

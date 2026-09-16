@@ -222,6 +222,47 @@ describe("issuance policy validation against its credential type", () => {
     expect(() => validateIssuancePolicyVersion(base, context)).not.toThrow();
   });
 
+  it("refuses a presentation gate on a pre-authorized code", () => {
+    // A pre-authorized code skips the authorization server by construction, and the gate *is* an
+    // authorization step. Together they describe a policy whose eligibility presentation can never
+    // run — and it fails silently: the offer is minted, the credential is collected, and the
+    // presentation the policy asked for simply does not happen. Accepted, provisioned and observed
+    // on a live stack before it was caught.
+    expect(
+      () =>
+        validateIssuancePolicyVersion(
+          {
+            ...base,
+            flow: "PRE_AUTHORIZED_CODE",
+            eligibilityPresentationPolicyId: "11111111-1111-4111-8111-111111111111",
+          },
+          context,
+        ),
+      // The thrown message is the envelope; the actionable part is in `details`, which is what a
+      // caller reads and what the API returns for an unprocessable entity.
+    ).toThrow(
+      expect.objectContaining({
+        code: "issuance_policy_version_invalid",
+        details: expect.arrayContaining([
+          expect.objectContaining({ code: "gate_requires_authorization_code", path: "flow" }),
+        ]),
+      }),
+    );
+  });
+
+  it("accepts the same gate on the authorization code flow", () => {
+    expect(() =>
+      validateIssuancePolicyVersion(
+        {
+          ...base,
+          flow: "AUTHORIZATION_CODE",
+          eligibilityPresentationPolicyId: "11111111-1111-4111-8111-111111111111",
+        },
+        context,
+      ),
+    ).not.toThrow();
+  });
+
   it("refuses an unregistered evaluator at publication, not at issuance", () => {
     // A typo must fail while a reviewer is present, not while a User waits.
     expectRefusal(
@@ -323,6 +364,17 @@ describe("issuance transaction state machine", () => {
     expect(canTransitionIssuance("AWAITING_WALLET", "ELIGIBILITY_CHECK")).toBe(true);
     expect(canTransitionIssuance("ELIGIBILITY_CHECK", "ISSUING")).toBe(true);
     expect(canTransitionIssuance("ISSUING", "ISSUED")).toBe(true);
+  });
+
+  it("allows the eligibility gate before the offer as well as after the wallet", () => {
+    // The two flows learn who the subject is at different moments: a pre-authorised code names the
+    // subject up front, PID-during-issuance only when the presentation lands. Both must be able to
+    // ask the question — asking it early is what lets the authentic source be consulted once and
+    // the business client refused synchronously. `interop-findings.md` A19.
+    expect(canTransitionIssuance("CREATED", "ELIGIBILITY_CHECK")).toBe(true);
+    expect(canTransitionIssuance("AWAITING_WALLET", "ELIGIBILITY_CHECK")).toBe(true);
+    expect(canTransitionIssuance("ELIGIBILITY_CHECK", "OFFER_READY")).toBe(true);
+    expect(canTransitionIssuance("ELIGIBILITY_CHECK", "ISSUING")).toBe(true);
   });
 
   it("allows NOT_ELIGIBLE only from ELIGIBILITY_CHECK", () => {
@@ -516,6 +568,11 @@ describe("issuance plan compilation", () => {
     attestationProviderIdentifier: "NLAP.0001",
     signingKeyBindingRef: "key-1",
     engineTenantRef: "tenant-engine-1",
+    // Provider-scoped, not policy-scoped: the engine's issuer configuration describes the
+    // Credential Issuer, and composing it from one policy is `interop-findings.md` A20.
+    issuerDisplayName: "Example Organisation BV",
+    eligibilityPresentations: [],
+    requiresBuiltInAuthorizationServer: true,
   };
 
   it("compiles a published version and deep-freezes the result", () => {

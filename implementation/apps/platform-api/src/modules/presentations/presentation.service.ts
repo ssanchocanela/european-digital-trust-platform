@@ -439,7 +439,12 @@ export class PresentationService {
       );
     }
 
-    const payload = await this.verifier.processPresentationResult(this.toHandle(session));
+    // The requested claims go with it: the engine returns mdoc values flat, and the adapter needs
+    // the paths that were asked for to put them back where the result policy reads them (A24).
+    const payload = await this.verifier.processPresentationResult(
+      this.toHandle(session),
+      version.requestedClaims,
+    );
     if (!payload.disclosedClaims) {
       return this.settle(
         tx,

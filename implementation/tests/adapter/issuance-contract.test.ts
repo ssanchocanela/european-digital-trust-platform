@@ -4,12 +4,19 @@ import { join } from "node:path";
 import {
   compileIssuancePolicy,
   defaultRetentionPolicy,
+  type EligibilityPresentation,
   type IssuancePlan,
   type IssuancePolicyVersion,
+  type VerificationPlan,
 } from "@edtp/domain";
-import { EngineClient, EudiploIssuerAdapter } from "@edtp/eudiplo-adapter";
+import {
+  EngineClient,
+  EudiploIssuerAdapter,
+  presentationConfigId,
+} from "@edtp/eudiplo-adapter";
 import { asId, systemClock } from "@edtp/shared";
 import { beforeAll, describe, expect, it } from "vitest";
+import { selfSignedCertificate } from "../support/self-signed.js";
 
 /**
  * Issuance contract against a **real engine container**, with the protocol artefacts decoded.
@@ -40,6 +47,36 @@ import { beforeAll, describe, expect, it } from "vitest";
  * Skipped, like the other adapter suites, when no engine is reachable — and the skips say so.
  */
 const baseUrl = process.env.ENGINE_BASE_URL;
+
+/**
+ * A gating presentation policy, for the A20 tests.
+ *
+ * Synthetic, and that is sound here only because of a fact this suite established on 13 September
+ * 2026: `POST /issuer/config` does **not** check that `presentationConfigId` names a configuration
+ * that exists — a nonexistent one is accepted with `201` and fails much later, when a Wallet reaches
+ * the authorization step. Recorded as `interop-findings.md` A21. So these tests can assert what the
+ * metadata advertises without provisioning a verifier configuration first, and the id below is
+ * deliberately one that resolves to nothing.
+ */
+const ELIGIBILITY_POLICY_ID = "00000000-0000-4000-8000-00000000a20a";
+
+/**
+ * The eligibility presentation the issuer will write on its **own** engine tenant.
+ *
+ * Content only — a credential requirement, claims, a status-check mode. No Relying Party context,
+ * because in this exchange the issuer is the Relying Party: `interop-findings.md` A22.
+ */
+const eligibilityFor = (policyId: string): EligibilityPresentation => ({
+  policyId,
+  policyVersion: 1,
+  credentialRequirement: {
+    credentialType: "urn:eudi:pid:1",
+    acceptedFormats: ["dc+sd-jwt"],
+    vctValues: ["urn:eudi:pid:1"],
+  },
+  requestedClaims: [{ path: ["birthdate"] }],
+  statusCheckMode: "STRICT",
+});
 const credentialsRaw = process.env.ENGINE_TENANT_CREDENTIALS;
 
 let adapter: EudiploIssuerAdapter | undefined;
@@ -66,7 +103,21 @@ const at = new Date("2026-09-11T12:00:00Z");
 const TENANT = "11111111-1111-1111-1111-111111111111";
 const VCT = "urn:edtp:employee-badge:1";
 
-const planFor = (registrationCertificateJwt?: string): IssuancePlan => {
+/**
+ * @param over  Overrides for the provider-scoped part of the plan. `registrationCertificateJwt`
+ *              stays positional-compatible via the first field, because most call sites want only
+ *              that; the rest exist for the A20 tests, where the point *is* that the engine's issuer
+ *              configuration describes the provider rather than this one credential type.
+ */
+const planFor = (
+  registrationCertificateJwt?: string,
+  over?: {
+    readonly issuerDisplayName?: string;
+    readonly eligibilityPresentations?: readonly EligibilityPresentation[];
+    readonly accessKeyBindingRef?: string;
+    readonly requiresBuiltInAuthorizationServer?: boolean;
+  },
+): IssuancePlan => {
   const version: IssuancePolicyVersion = {
     policyId: "issuance-contract-policy",
     version: 1,
@@ -127,6 +178,10 @@ const planFor = (registrationCertificateJwt?: string): IssuancePlan => {
       ...(registrationCertificateJwt ? { registrationCertificateJwt } : {}),
       signingKeyBindingRef,
       engineTenantRef,
+      issuerDisplayName: over?.issuerDisplayName ?? "Contract Test Organisation BV",
+      eligibilityPresentations: over?.eligibilityPresentations ?? [],
+      ...(over?.accessKeyBindingRef ? { accessKeyBindingRef: over.accessKeyBindingRef } : {}),
+      requiresBuiltInAuthorizationServer: over?.requiresBuiltInAuthorizationServer ?? true,
     },
     at,
   });
@@ -159,21 +214,7 @@ beforeAll(async () => {
   // not presentation requests, and using the wrong usage type would put the key in the wrong role.
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  const cert = execFileSync(
-    "openssl",
-    [
-      "req",
-      "-new",
-      "-x509",
-      "-key",
-      "/dev/stdin",
-      "-days",
-      "2",
-      "-subj",
-      "/CN=edtp-issuance-contract-test/O=Development only/C=EU",
-    ],
-    { input: pem },
-  ).toString();
+  const cert = selfSignedCertificate(pem, "edtp-issuance-contract-test");
   const imported = await adapter.importSigningCertificate({
     engineTenantRef,
     name: "issuance contract test (development, self-signed)",
@@ -185,21 +226,7 @@ beforeAll(async () => {
   // A distinct access-usage chain for the nested presentation request.
   const { privateKey: accessKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const accessPem = accessKey.export({ type: "pkcs8", format: "pem" }).toString();
-  const accessCert = execFileSync(
-    "openssl",
-    [
-      "req",
-      "-new",
-      "-x509",
-      "-key",
-      "/dev/stdin",
-      "-days",
-      "2",
-      "-subj",
-      "/CN=edtp-issuance-contract-access/O=Development only/C=EU",
-    ],
-    { input: accessPem },
-  ).toString();
+  const accessCert = selfSignedCertificate(accessPem, "edtp-issuance-contract-access");
   const accessImported = await client.request<{ id: string }>(
     engineTenantRef,
     "POST",
@@ -493,5 +520,136 @@ describe("issuance contract against a real engine (skipped when none is reachabl
     await expect(adapter.getIssuanceStatus(offer.session)).rejects.toMatchObject({
       kind: "ENGINE",
     });
+  }, 60_000);
+
+  /**
+   * `interop-findings.md` A20, against the engine that produced it.
+   *
+   * `POST /issuer/config` is tenant-scoped. The adapter used to compose it from the credential type
+   * being provisioned, so provisioning a PID-gated type left the tenant advertising only its
+   * `oid4vp` server and an ordinary type left only `built-in` — while offers for the other kind went
+   * on naming a server the metadata no longer listed. A Wallet checking an offer's
+   * `authorization_server` against the issuer metadata, which OpenID4VCI expects where more than one
+   * exists, would refuse an offer the engine was willing to honour.
+   *
+   * These read the **Wallet-facing** metadata rather than the management API, because that document
+   * is what the defect was invisible in and what a Wallet actually reads.
+   */
+  const issuerMetadata = async (): Promise<Record<string, unknown>> => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/openid-credential-issuer/issuers/${engineTenantRef}`,
+    );
+    return (await response.json()) as Record<string, unknown>;
+  };
+
+  it("advertises every authorization server the provider needs, not the last one provisioned", async () => {
+    if (!reachable || !adapter) return;
+    await adapter.provisionCredentialConfiguration({
+      engineTenantRef,
+      plan: planFor(undefined, {
+        eligibilityPresentations: [eligibilityFor(ELIGIBILITY_POLICY_ID)],
+        accessKeyBindingRef: accessKeyBindingRefForPresentation,
+        requiresBuiltInAuthorizationServer: true,
+      }),
+    });
+
+    const metadata = await issuerMetadata();
+    const list = metadata.authorization_servers as string[];
+    expect(Array.isArray(list)).toBe(true);
+    // Compared against the engine's own `credential_issuer`, not against `ENGINE_BASE_URL`: the
+    // engine emits its configured public URL, which is not necessarily the host the test connects
+    // on. The built-in server is advertised as the issuer's own URL; the gated one gets a path
+    // under it.
+    const issuer = metadata.credential_issuer as string;
+    expect(list).toContain(issuer);
+    expect(list).toContain(
+      `${issuer}/authorization-servers/eligibility-${ELIGIBILITY_POLICY_ID}`,
+    );
+    // Both, which is the whole of A20: before the fix this list held exactly one.
+    expect(list).toHaveLength(2);
+  }, 60_000);
+
+  it("writes the eligibility presentation configuration on the issuer's own engine tenant", async () => {
+    if (!reachable || !adapter || !client) return;
+    // A22. It used to be referenced and never written: the verifier adapter creates presentation
+    // configurations lazily, at the first presentation, on the *Relying Party Instance's* tenant.
+    // This asserts the configuration exists on the **issuer's** tenant after provisioning alone,
+    // with no presentation ever having been created — which is the state a gated issuance is in.
+    const policyId = "00000000-0000-4000-8000-00000000a22a";
+    await adapter.provisionCredentialConfiguration({
+      engineTenantRef,
+      plan: planFor(undefined, {
+        eligibilityPresentations: [eligibilityFor(policyId)],
+        accessKeyBindingRef: accessKeyBindingRefForPresentation,
+        requiresBuiltInAuthorizationServer: false,
+      }),
+    });
+
+    const configs = await client.request<{ id: string; accessKeyChainId?: string }[]>(
+      engineTenantRef,
+      "GET",
+      "/verifier/config",
+    );
+    const written = configs.find((c) => c.id === `elig-p-${policyId}-v1`);
+    expect(written).toBeDefined();
+    // Namespaced away from the verifier adapter's id. The two write the same engine endpoint, and on
+    // a tenant serving both roles they would fight over one object with different access keys —
+    // observed on the running stack, `interop-findings.md` A23.
+    //
+    // Asserted as a property of the two id functions rather than as the absence of a `p-…` config on
+    // the tenant: the engine keeps whatever earlier runs wrote, so an absence assertion would pass
+    // or fail on leftovers instead of on the code.
+    expect(written?.id).not.toBe(
+      presentationConfigId({ policyId, policyVersion: 1 } as unknown as VerificationPlan),
+    );
+    // Signed with the **provider's** access certificate, not a Relying Party's. Reusing a
+    // verification policy means reusing its content, not another party's credentials.
+    expect(written?.accessKeyChainId).toBe(accessKeyBindingRefForPresentation);
+  }, 60_000);
+
+  it("refuses a gating policy when the provider has no access certificate of its own", async () => {
+    if (!reachable || !adapter) return;
+    // Without one the request object would be unsigned or signed by the wrong party, and a Wallet
+    // accepts only an access certificate chaining to a notified anchor (`AS-WP-06-005` / `RPA_04`).
+    // The failure belongs here, not on the phone.
+    await expect(
+      adapter.provisionCredentialConfiguration({
+        engineTenantRef,
+        plan: planFor(undefined, {
+          eligibilityPresentations: [eligibilityFor(ELIGIBILITY_POLICY_ID)],
+          requiresBuiltInAuthorizationServer: true,
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "attestation_provider_has_no_access_certificate" });
+  }, 60_000);
+
+  it("names the Credential Issuer after the organisation, not after a credential", async () => {
+    if (!reachable || !adapter) return;
+    // The display written here is the *issuer's*. Composing it from the credential type made the
+    // metadata announce a Wallet-visible issuer called "Employee badge".
+    await adapter.provisionCredentialConfiguration({
+      engineTenantRef,
+      plan: planFor(undefined, { issuerDisplayName: "Contract Test Organisation BV" }),
+    });
+
+    const display = (await issuerMetadata()).display as { name?: string }[] | undefined;
+    expect(display?.[0]?.name).toBe("Contract Test Organisation BV");
+    expect(display?.[0]?.name).not.toBe("Employee badge");
+  }, 60_000);
+
+  it("refuses to provision a tenant with no authorization server at all", async () => {
+    if (!reachable || !adapter) return;
+    // The engine requires a non-empty list and answers a failure a long way from its cause. An
+    // empty composition means the provider view was built without the policy being provisioned,
+    // which is a platform bug — so it fails here, named.
+    await expect(
+      adapter.provisionCredentialConfiguration({
+        engineTenantRef,
+        plan: planFor(undefined, {
+          eligibilityPresentations: [],
+          requiresBuiltInAuthorizationServer: false,
+        }),
+      }),
+    ).rejects.toMatchObject({ code: "issuer_authorization_servers_empty" });
   }, 60_000);
 });

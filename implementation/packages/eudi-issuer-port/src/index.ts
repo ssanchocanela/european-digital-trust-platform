@@ -149,10 +149,24 @@ export interface EudiIssuerPort {
    *
    * The platform, not the engine, enforces that `REVOKED` is terminal. This method simply carries
    * out a transition the domain has already approved.
+   *
+   * ## Why the policy identity is part of the input
+   *
+   * It names *which* credential configuration the transition applies to, and the wrapped engine
+   * needs it. Its status-update contract marks that field optional — "if omitted, all credentials
+   * linked to the session are updated" — and **the omitted path is the broken one**: the engine
+   * throws a `TypeORMError` about an undefined value in a `where` condition and answers `500`.
+   * Measured on one session, one status, two calls: without the field `500`, with it `204`.
+   * `docs/interop-findings.md` A26.
+   *
+   * These are platform concepts — a policy and its version. The engine's identifier format is the
+   * adapter's business and is derived there, so this port stays free of engine identifiers.
    */
   updateCredentialStatus(input: {
     readonly session: CredentialOfferHandle;
     readonly status: CredentialStatus;
+    readonly policyId: string;
+    readonly policyVersion: number;
   }): Promise<void>;
 
   cancelIssuance(session: CredentialOfferHandle): Promise<void>;
@@ -169,6 +183,21 @@ export interface EudiIssuerProvisioningPort {
 
   /** Imports the attestation-signing key and its certificate chain. Returns an opaque reference. */
   importSigningCertificate(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+    readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+    readonly certificateChain: readonly string[];
+  }): Promise<{ readonly keyBindingRef: string }>;
+
+  /**
+   * Imports the provider's **own** access certificate, for the §7.3 eligibility presentation.
+   *
+   * Separate from `importSigningCertificate` because the two keys are not interchangeable: the
+   * engine keys trust decisions off the usage type, and an attestation-signing key used to sign a
+   * presentation request would be the wrong key in the wrong role. In that exchange the issuer is
+   * the Relying Party — `interop-findings.md` A22.
+   */
+  importAccessCertificate(input: {
     readonly engineTenantRef: string;
     readonly name: string;
     readonly privateKeyJwk: Readonly<Record<string, unknown>>;

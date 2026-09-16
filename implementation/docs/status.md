@@ -1,10 +1,74 @@
 # Where the work stands
 
-Written 12 September 2026, updated 13 September. **The one page to read after `CLAUDE.md` when picking the work up.**
+Written 12 September 2026, updated 16 September. **The one page to read after `CLAUDE.md` when picking the work up.**
 
 Everything here is state that the code and the git history do not make obvious: what is in flight,
 what is blocked and why, and what the next action is. Findings live in their own documents and are
 linked rather than repeated.
+
+---
+
+## 16 September 2026 — the platform issued an attestation, end to end
+
+**The first credential this platform has ever issued.** Offer → issuer metadata → authorization
+server metadata → DPoP-bound access token on the pre-authorized code → nonce → ES256 key-binding
+proof → `POST /vci/credential` **200** → OpenID4VCI clause 10 notification → the platform's
+transaction at **`ISSUED`** with an `issuedCredentialId`, and the attestation in the register.
+
+**Say exactly what that is, and what it is not.** It was collected by a **conformant OpenID4VCI
+client written for the purpose**, not by a wallet — roughly 120 lines of Node that speak the
+protocol. It is evidence that the platform, the wrapped engine and the issuance chain complete a
+real issuance. It is **not** evidence about any wallet, and it touches neither trust gate: the
+client authenticates nothing about the issuer, which is precisely what a Wallet Unit is required to
+do (ARF §6.6.2.2) and cannot (B7).
+
+### Three things this found that nothing else had
+
+**1. The attestation-signing certificate had expired, and nothing said so.** `smoke-issuance.sh`
+minted it with `-days 2`; the chain was provisioned on the 13th, so it died on the 15th. Everything
+upstream stayed green — the offer minted, resolved over public HTTPS, the token endpoint issued a
+DPoP-bound token — and the refusal arrived only at the last call of the flow:
+`400 credential_request_denied · Certificate expired on 2026-09-15T08:19:35.000Z`.
+**`GET …/provider-authentication` reported nothing about it**, because that report covers trust
+gate (a) and this is the attestation key, so the console showed an issuer blocked only by B7 while
+it had been unable to sign for a day. The script now mints 90 days (`CERT_DAYS` overrides), prints
+the expiry, and says where expiry will surface. **The report's blind spot is not fixed** — an
+expiring signing certificate is invisible to the platform, and the console cannot warn about it.
+
+**2. `provision` replaces the whole record, so a re-provision silently drops the access
+certificate.** Deliberate, and documented in `issuance.repository.ts`: an `accessCertificate` not
+supplied is cleared. The consequence is not obvious from the call site — every issuance under a
+provider that has **any** gated policy then fails `attestation_provider_has_no_access_certificate`,
+including issuances of policies with no gate, because the issuer configuration is composed per
+Attestation Provider (A20). Cost one round trip on the day.
+
+**3. Revocation does not work, and our record says it did.** `POST /api/session/revoke` returns
+**500** for suspend, reinstate and revoke alike — an engine defect, `interop-findings.md` **A26**.
+The platform persists the new status *before* calling the engine, on purpose, so the register now
+reads `REVOKED` for an attestation whose status list was never touched while the API returned
+`engine_unavailable` for the same call. **That ordering's stated rationale — the stricter record is
+the safe direction — does not hold here**, because a Relying Party reads the engine's status list,
+not our register. Open decision, recorded in A26, deliberately not settled alone.
+
+### The wallet wall moved, and the old explanation was wrong
+
+W4 (`wd-2,wd-3`) was sent a **pre-authorized-code** offer. Its own HTTP log shows the offer fetched
+(200) and the issuer metadata fetched (200, `Accept: application/jwt; application/json`, unsigned
+JSON) — and then **no further request and no logged error**. That is the identical stop point as
+§8.1d, which was an `AUTHORIZATION_CODE` offer. **So §8.1d's conclusion — that the gap is the
+authorization-code start — is wrong**: both flows stop before they diverge, in offer resolution.
+
+The silence is structural: `WalletCoreDocumentsController.resolveDocumentOffer` maps the cause to
+`IssuerNotTrusted(reason)` or `Failure(message)` — UI states, never log lines. Distinguishing them
+needs the screen, and the wallet blocks screenshots, so it needs the accessibility tree, which does
+work. **Not yet done.** Note when doing it that the screen cannot settle it on its own:
+`toUntrustedIssuerReasonOrNull` maps `IssuerNotTrustedException` **and** `MissingSignedMetadata` to
+the same `ACCESS_CERTIFICATE` reason, so gate (a) and gate (b) render identically.
+
+**`wd-1` was never built.** `tools/test-wallet/deviations/` holds only `wd-2.patch` and
+`wd-3.patch`. The deviation that would relax gate (b) — `forVct(<our vct>, TrustPolicy.Action.INFORM)`,
+`milestone-2-issuer-trust.md` — does not exist, so none of the four installed wallets can accept a
+non-qualified EAA from us whatever else is fixed.
 
 ---
 

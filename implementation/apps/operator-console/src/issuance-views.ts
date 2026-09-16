@@ -1,5 +1,6 @@
 import { html, type SafeHtml } from "./html.js";
 import type {
+  AuthenticSourceOption,
   CertificateValidity,
   IssuanceOption,
   IssuanceSummary,
@@ -262,6 +263,16 @@ export const issuancePolicyView = (options: {
     readonly expiresAt: string;
   };
   readonly qr?: SafeHtml;
+  /**
+   * Subject references the authentic source will answer for, when it is a fixture.
+   *
+   * Offered rather than hinted. The field used to carry `fixture-subject-adult` as a *placeholder*,
+   * which renders as grey text inside an empty box and reads as a filled-in value — so the form was
+   * submitted empty, or with something invented, and answered "Subject at the authentic source was
+   * not found", which is correct and useless. A field whose only valid values are four known
+   * strings should say what they are.
+   */
+  readonly knownSubjects?: readonly string[];
   readonly error?: string;
 }): SafeHtml => html`
   <p class="crumb"><a href="/issuance">Issuance</a></p>
@@ -314,8 +325,24 @@ export const issuancePolicyView = (options: {
       <label>
         <span>Who is this for — your own reference for the subject at the authentic source</span>
         <input type="text" name="subjectReference" required maxlength="200"
-               placeholder="fixture-subject-adult">
+               list="known-subjects" autocomplete="off"
+               value="${options.knownSubjects?.[0] ?? ""}">
+        ${
+          options.knownSubjects && options.knownSubjects.length > 0
+            ? html`<datalist id="known-subjects">
+                ${options.knownSubjects.map((s) => html`<option value="${s}"></option>`)}
+              </datalist>`
+            : ""
+        }
       </label>
+      ${
+        options.knownSubjects && options.knownSubjects.length > 0
+          ? html`<p class="hint">
+              The authentic source is a <strong>fixture</strong>, so it answers for these and
+              nothing else: ${options.knownSubjects.map((s) => html`<code>${s}</code> `)}
+            </p>`
+          : ""
+      }
       <div class="actions">
         <button type="submit" ${options.policy.publishedVersion === null ? "disabled" : ""}>
           Create the offer
@@ -492,7 +519,7 @@ export const ATTRIBUTE_ROWS = 6;
 export const newIssuanceView = (options: {
   readonly providers: readonly { readonly id: string; readonly name: string }[];
   readonly evaluators: readonly string[];
-  readonly connectors: readonly string[];
+  readonly connectors: readonly AuthenticSourceOption[];
   readonly gate?: ProviderAuthentication;
   readonly error?: string;
   readonly submitted?: Readonly<Record<string, string>>;
@@ -628,12 +655,15 @@ export const newIssuanceView = (options: {
             <span>Authentic source</span>
             <select name="connector" required>
               ${options.connectors.map(
-                (c) => html`<option value="${c}"${selected("connector", c)}>${c}</option>`,
+                (c) =>
+                  html`<option value="${c.name}"${selected("connector", c.name)}>
+                    ${c.name} — ${c.kind === "FIXTURE" ? "test data" : "real source"}
+                  </option>`,
               )}
             </select>
           </label>
           ${
-            options.connectors.every((c) => c.toLowerCase().includes("fixture"))
+            options.connectors.every((c) => c.kind === "FIXTURE")
               ? html`<p class="notice warn">
                   <strong>The only authentic source available is a fixture.</strong> Whatever is
                   defined here will be issued with <strong>test data</strong>, not with attributes

@@ -47,6 +47,11 @@ source ./pins.env
 UPSTREAM_DIR="$HERE/upstream"
 OUT_DIR="$HERE/out"
 DEVIATIONS="none"
+# Diagnostic logging, opt-in and stamped. NOT a deviation: it changes no behaviour and
+# invalidates no result. It exists because two places in the upstream reduce a throwable to
+# `localizedMessage` and discard it, so a Kotlin exception raised without a message reaches
+# the screen as "Oups! Something went wrong" and reaches the log as nothing at all.
+DIAGNOSTICS=no
 SKIP_BUILD="no"
 WRPAC_LOTE=""
 APP_ID_SUFFIX=""
@@ -56,6 +61,7 @@ BUILD_TYPE="release"
 while [ $# -gt 0 ]; do
   case "$1" in
     --deviations) DEVIATIONS="${2:-}"; shift 2 ;;
+    --diagnostics) DIAGNOSTICS=yes; shift 1 ;;
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
     --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
@@ -227,6 +233,20 @@ for patch in "$HERE"/patches/*.patch; do
   echo "    applied $(basename "$patch")"
 done
 
+# Diagnostic logging, opt-in. Applied here because it touches `src/main` in two modules, not a
+# flavour source set — it instruments upstream code that every flavour shares.
+#
+# It is deliberately NOT a deviation. A deviation changes what the wallet accepts and so changes
+# what a result means; this only prints what upstream already computed and then discarded. It is
+# still stamped into version.properties, because a build that was instrumented and a build that was
+# not are different builds, and a run record should not have to take anyone's word for which it was.
+if [ "$DIAGNOSTICS" = "yes" ]; then
+  [ -f "$HERE/diagnostics/diag-issuance.patch" ] || die "diagnostics/diag-issuance.patch is missing."
+  git apply --whitespace=nowarn "$HERE/diagnostics/diag-issuance.patch" ||
+    die "failed to apply diagnostics/diag-issuance.patch against the pinned tag."
+  echo "    applied diagnostics/diag-issuance.patch (logging only, tag EDTP-DIAG)"
+fi
+
 # --- 4. Generated flavour source sets ----------------------------------------------------------
 #
 # Three modules carry per-flavour sources, so a third flavour needs a third source set in each.
@@ -288,6 +308,7 @@ EFFECTIVE_APP_NAME="${APP_NAME:-$EDTP_APP_NAME}"
 cat > version.properties <<EOF
 VERSION_NAME=$EDTP_VERSION_NAME
 EDTP_DEVIATIONS=$DEVIATIONS
+EDTP_DIAGNOSTICS=$DIAGNOSTICS
 EDTP_APP_ID_SUFFIX=$EFFECTIVE_APP_ID_SUFFIX
 EDTP_APP_NAME=$EFFECTIVE_APP_NAME
 EDTP_WRPAC_LOTE=$WRPAC_LOTE

@@ -167,6 +167,18 @@ export interface ProviderAuthentication {
   readonly message?: string;
 }
 
+/**
+ * An authentic source this deployment has registered.
+ *
+ * `sampleSubjectReferences` is present only for a **fixture**. A real source never lists its
+ * subject references — they identify real people, and a list of them is a directory.
+ */
+export interface AuthenticSourceOption {
+  readonly name: string;
+  readonly kind: string;
+  readonly sampleSubjectReferences?: readonly string[];
+}
+
 /** One recorded step of a presentation. Evidence, never content. */
 export interface AuditEvent {
   readonly at: string;
@@ -583,7 +595,7 @@ export class PlatformClient {
   /** What eligibility rules and authentic sources this deployment actually has registered. */
   async issuanceCapabilities(): Promise<{
     readonly eligibilityEvaluators: readonly string[];
-    readonly authenticSources: readonly string[];
+    readonly authenticSources: readonly AuthenticSourceOption[];
   }> {
     const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
     return this.call(

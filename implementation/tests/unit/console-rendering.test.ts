@@ -263,13 +263,20 @@ describe("the issuance builder", () => {
       newIssuanceView({
         providers,
         evaluators: ["AlwaysEligible", "MinimumAge"],
-        connectors: ["fixture"],
+        connectors: [
+          {
+            name: "fixture",
+            kind: "FIXTURE",
+            sampleSubjectReferences: ["fixture-subject-adult"],
+          },
+        ],
       }),
     );
 
     expect(out).toContain(">AlwaysEligible<");
     expect(out).toContain(">MinimumAge<");
-    expect(out).toContain(">fixture<");
+    expect(out).toContain('value="fixture"');
+    expect(out).toContain("test data");
     // Nothing that exists in the domain but is not registered in this deployment.
     expect(out).not.toContain(">ManualReview<");
   });
@@ -279,7 +286,17 @@ describe("the issuance builder", () => {
     // alone tells an operator nothing about the consequence, so the screen states it where the
     // choice is made.
     const out = toHtmlString(
-      newIssuanceView({ providers, evaluators: ["AlwaysEligible"], connectors: ["fixture"] }),
+      newIssuanceView({
+        providers,
+        evaluators: ["AlwaysEligible"],
+        connectors: [
+          {
+            name: "fixture",
+            kind: "FIXTURE",
+            sampleSubjectReferences: ["fixture-subject-adult"],
+          },
+        ],
+      }),
     );
     expect(out).toContain("only authentic source available is a fixture");
     expect(out).toContain("test data");
@@ -291,7 +308,14 @@ describe("the issuance builder", () => {
       newIssuanceView({
         providers,
         evaluators: ["AlwaysEligible"],
-        connectors: ["fixture", "hr-system"],
+        connectors: [
+          {
+            name: "fixture",
+            kind: "FIXTURE",
+            sampleSubjectReferences: ["fixture-subject-adult"],
+          },
+          { name: "hr-system", kind: "REAL" },
+        ],
       }),
     );
     expect(out).not.toContain("only authentic source available is a fixture");
@@ -302,7 +326,13 @@ describe("the issuance builder", () => {
       newIssuanceView({
         providers: [],
         evaluators: ["AlwaysEligible"],
-        connectors: ["fixture"],
+        connectors: [
+          {
+            name: "fixture",
+            kind: "FIXTURE",
+            sampleSubjectReferences: ["fixture-subject-adult"],
+          },
+        ],
       }),
     );
     expect(out).toContain("no Attestation Provider");
@@ -316,7 +346,13 @@ describe("the issuance builder", () => {
       newIssuanceView({
         providers,
         evaluators: ["AlwaysEligible"],
-        connectors: ["fixture"],
+        connectors: [
+          {
+            name: "fixture",
+            kind: "FIXTURE",
+            sampleSubjectReferences: ["fixture-subject-adult"],
+          },
+        ],
         error: "Give the credential at least one attribute.",
         submitted: { name: "Company representative", validityDays: "180", format: "mso_mdoc" },
       }),
@@ -332,7 +368,13 @@ describe("the issuance builder", () => {
       newIssuanceView({
         providers,
         evaluators: ["AlwaysEligible"],
-        connectors: ["fixture"],
+        connectors: [
+          {
+            name: "fixture",
+            kind: "FIXTURE",
+            sampleSubjectReferences: ["fixture-subject-adult"],
+          },
+        ],
         submitted: { name: '"><script>alert(1)</script>' },
       }),
     );
@@ -454,5 +496,37 @@ describe("retired policies on the issuance list", () => {
     );
     expect(active).toContain("<h2>Retire this policy</h2>");
     expect(active).not.toContain("Bring it back");
+  });
+});
+
+describe("the offer form's subject reference", () => {
+  const policy = {
+    id: "p1",
+    name: "Employee badge issuance",
+    credentialTypeName: "Employee badge",
+    credentialFormat: "dc+sd-jwt",
+    publishedVersion: 1,
+    status: "ACTIVE",
+  };
+
+  it("pre-fills a real value rather than a placeholder that looks like one", () => {
+    // A grey placeholder inside an empty box reads as filled in. It was submitted empty, answered
+    // "Subject at the authentic source was not found", and cost a demonstration several attempts.
+    const out = toHtmlString(
+      issuancePolicyView({
+        policy,
+        issuances: [],
+        knownSubjects: ["fixture-subject-adult", "fixture-subject-minor"],
+      }),
+    );
+    expect(out).toContain('value="fixture-subject-adult"');
+    expect(out).not.toContain('placeholder="fixture-subject-adult"');
+    expect(out).toContain('<option value="fixture-subject-minor">');
+  });
+
+  it("offers no list when the source is not a fixture", () => {
+    const out = toHtmlString(issuancePolicyView({ policy, issuances: [] }));
+    expect(out).not.toContain("<datalist");
+    expect(out).not.toContain("answers for these and nothing else");
   });
 });

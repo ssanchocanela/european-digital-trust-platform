@@ -68,8 +68,14 @@ export const ENGINE_RULES: readonly Rule[] = [
   },
   {
     methods: ["POST"],
-    pattern: new RegExp(`^/issuers/${ID}/authorize/(par|token)$`),
-    why: "IaaS — pushed authorization and token",
+    // `challenge` is the client-attestation nonce endpoint, and it is not optional for a wallet
+    // that authenticates with `attest_jwt_client_auth` — the authorization server advertises it as
+    // `challenge_endpoint` and the wallet calls it before the token request. It was missing here
+    // until 16 September 2026, so the engine answered `200` on localhost and the gateway answered
+    // `404` through the tunnel, which reads on the phone as an issuer that does not implement the
+    // flow it advertises.
+    pattern: new RegExp(`^/issuers/${ID}/authorize/(par|token|challenge)$`),
+    why: "IaaS — pushed authorization, token, and the client-attestation challenge",
   },
   {
     methods: ["GET"],

@@ -461,6 +461,51 @@ const presentationConfigIdFor = (presentationPolicyId: string, version: number):
 const eligibilityAuthorizationServerId = (presentationPolicyId: string): string =>
   `eligibility-${presentationPolicyId}`;
 
+/**
+ * Proof types this issuer advertises, and why it is only `jwt`.
+ *
+ * The engine defaults to `["attestation", "jwt"]` and emits the `attestation` entry as bare
+ * `{proof_signing_alg_values_supported: [...]}`. **That document does not parse.** The wallet's
+ * OpenID4VCI library refuses it outright:
+ *
+ *     IllegalArgumentException: attestation proof must contain 'key_attestations_required'
+ *       at CredentialIssuerMetadataJsonParser.proofTypeMeta
+ *     -> CredentialIssuerMetadataValidationError.InvalidCredentialsSupported
+ *     -> CredentialOfferRequestError.UnableToResolveCredentialIssuerMetadata
+ *
+ * and one malformed entry fails the **whole** metadata document, so every credential configuration
+ * on the tenant becomes unreadable — not just the one being offered. The wallet then shows a
+ * generic error carrying no message, because the exception has none. `interop-findings.md` A28.
+ *
+ * Advertising `attestation` is also a claim the platform cannot back. It means "I accept a key
+ * attestation as proof", and the accompanying `key_attestations_required` is what states the key
+ * storage and user authentication levels demanded. V0 demands none, so there is nothing truthful to
+ * put there — and announcing the proof type while declining to say what it requires is exactly the
+ * malformed shape the library rejects. `jwt` is what this issuer actually accepts, and it is the
+ * proof the platform's own contract test builds.
+ */
+const PROOF_TYPES_SUPPORTED = ["jwt"] as const;
+
+/**
+ * The key-attestation requirement published beside the proof type.
+ *
+ * **This is a parser requirement, not a security property, and it must never be described as one.**
+ * The platform does not verify a key attestation and the wrapped engine does not either.
+ *
+ * It is published because the wallet's OpenID4VCI library refuses metadata without it. The
+ * specification marks `key_attestations_required` OPTIONAL; `eudi-lib-jvm-openid4vci-kt` 0.13.1
+ * treats it as mandatory on every proof type, and rejects both encodings that would mean "required,
+ * with no constraints" — an empty object reads as absent, and an empty `key_storage` array is
+ * refused outright with "keyStorage, if provided, must be non-empty". So an issuer that demands
+ * nothing has no way to say so, and since one malformed entry fails the **whole** metadata document,
+ * a single such configuration makes every credential on the tenant unreadable.
+ * `interop-findings.md` A28.
+ *
+ * `iso_18045_basic` is the lowest of the four levels the library accepts. Chosen deliberately: it
+ * is the least a wallet has to satisfy, and the least this document can be read as claiming.
+ */
+const KEY_ATTESTATIONS_REQUIRED = { key_storage: ["iso_18045_basic"] } as const;
+
 const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string, unknown> => {
   if (plan.credential.format === "dc+sd-jwt") {
     return {
@@ -471,6 +516,8 @@ const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string,
         ? { cryptographic_binding_methods_supported: ["jwk"] }
         : {}),
       credential_signing_alg_values_supported: ["ES256"],
+      proofTypesSupported: [...PROOF_TYPES_SUPPORTED],
+      keyAttestationsRequired: { key_storage: [...KEY_ATTESTATIONS_REQUIRED.key_storage] },
     };
   }
   return {
@@ -478,6 +525,8 @@ const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string,
     doctype: plan.credential.doctype,
     display: plan.credential.display.map((d) => ({ name: d.value, locale: d.lang })),
     credential_signing_alg_values_supported: ["ES256"],
+    proofTypesSupported: [...PROOF_TYPES_SUPPORTED],
+    keyAttestationsRequired: { key_storage: [...KEY_ATTESTATIONS_REQUIRED.key_storage] },
   };
 };
 

@@ -89,7 +89,19 @@ export class AppModule {
         // Names only. Policy validation refuses an unknown evaluator or connector at publication,
         // so a typo fails while a reviewer is present rather than while a User is waiting.
         { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },
-        { provide: REGISTERED_CONNECTORS, useValue: [...deps.registry.connectors.keys()] },
+        {
+          provide: REGISTERED_CONNECTORS,
+          // Name and sample subjects, not just the name: the console needs to offer a
+          // fixture's known subject references rather than hint at them in a placeholder,
+          // which reads as a filled-in field and is not one.
+          useValue: [...deps.registry.connectors.values()].map((c) => ({
+            name: c.name,
+            kind: c.kind,
+            ...(c.sampleSubjectReferences
+              ? { sampleSubjectReferences: c.sampleSubjectReferences }
+              : {}),
+          })),
+        },
         {
           provide: FEATURE_PID_DURING_ISSUANCE,
           useValue: deps.config.FEATURE_PID_DURING_ISSUANCE,

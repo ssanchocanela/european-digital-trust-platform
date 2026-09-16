@@ -638,12 +638,27 @@ const main = async (): Promise<void> => {
       );
       return;
     }
+    // The fixture's known subject references, so the offer form can offer them. Read from the
+    // platform, not hard-coded: the console has no privileged view, and a deployment with a real
+    // authentic source returns none — a real source's subject references are not ours to list.
+    const knownSubjects = await platform
+      .issuanceCapabilities()
+      .then((c) =>
+        c.authenticSources
+          // Enforced here as well as stated on the interface: a REAL source's subject references
+          // identify real people, so even one that wrongly sent them would not be displayed.
+          .filter((a) => a.kind === "FIXTURE")
+          .flatMap((a) => a.sampleSubjectReferences ?? []),
+      )
+      .catch(() => []);
+
     render(
       response,
       policy.name,
       issuancePolicyView({
         policy,
         issuances,
+        ...(knownSubjects.length > 0 ? { knownSubjects } : {}),
         ...(gate ? { gate } : {}),
         ...(extra.offer ? { offer: extra.offer } : {}),
         ...(extra.offer

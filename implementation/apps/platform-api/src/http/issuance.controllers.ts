@@ -46,7 +46,12 @@ export class IssuanceConfigurationController {
     private readonly endpoints: WebhookEndpointRepository,
     @Inject(ISSUER_PROVISIONING_PORT) private readonly provisioning: EudiIssuerProvisioningPort,
     @Inject(REGISTERED_EVALUATORS) private readonly evaluators: readonly string[],
-    @Inject(REGISTERED_CONNECTORS) private readonly connectors: readonly string[],
+    @Inject(REGISTERED_CONNECTORS)
+    private readonly connectors: readonly {
+      readonly name: string;
+      readonly kind: string;
+      readonly sampleSubjectReferences?: readonly string[];
+    }[],
     @Inject(FEATURE_PID_DURING_ISSUANCE) private readonly pidDuringIssuanceEnabled: boolean,
   ) {}
 
@@ -250,6 +255,9 @@ export class IssuanceConfigurationController {
     // tenant credential and nothing more — there is no anonymous inventory of this deployment.
     return {
       eligibilityEvaluators: this.evaluators,
+      // Each source with its kind, and — for a fixture only — the subject references it will
+      // answer for. A `REAL` source never lists them: its subject references identify real people,
+      // and a list of them is a directory. See `AuthenticSourceConnector`.
       authenticSources: this.connectors,
     };
   }
@@ -467,7 +475,7 @@ export class IssuanceConfigurationController {
       {
         credentialType: type,
         registeredEvaluators: this.evaluators,
-        registeredConnectors: this.connectors,
+        registeredConnectors: this.connectors.map((c) => c.name),
         at: new Date(),
       },
     );

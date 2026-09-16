@@ -28,6 +28,16 @@ export interface AuthenticSourceConnector {
    * V0 ships only `FIXTURE`.
    */
   readonly kind: "REAL" | "FIXTURE";
+  /**
+   * Subject references this connector will answer for, when it is safe to enumerate them.
+   *
+   * **A `REAL` connector must never populate this.** A real authentic source's subject references
+   * identify real people, and a list of them is a directory — exactly the thing a console has no
+   * business displaying and this platform has no business holding. It exists so a `FIXTURE` can
+   * stop pretending to be a free-text lookup against a system of record: its four subjects are
+   * part of the test data, and a console that shows them is telling the truth about what it is.
+   */
+  readonly sampleSubjectReferences?: readonly string[];
   fetch(input: {
     readonly subjectReference: string;
     /** Exactly the claim paths the credential type declares. Minimisation at the source. */

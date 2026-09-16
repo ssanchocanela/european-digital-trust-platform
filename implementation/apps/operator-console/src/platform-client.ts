@@ -507,6 +507,8 @@ export class PlatformClient {
     readonly evaluator: string;
     readonly evaluatorParameters: Readonly<Record<string, unknown>>;
     readonly connector: string;
+    /** Only the parameters the chosen source declares. Empty for the fixture. */
+    readonly connectorParameters: Readonly<Record<string, unknown>>;
     readonly flow: "PRE_AUTHORIZED_CODE" | "AUTHORIZATION_CODE";
     readonly holderBinding: "KEY_BOUND" | "BEARER";
     readonly suspensionAllowed: boolean;
@@ -559,7 +561,7 @@ export class PlatformClient {
         credentialTypeId: type.credentialTypeId,
         purpose: [{ lang: "en", value: input.purpose }],
         eligibilityRule: { evaluator: input.evaluator, parameters: input.evaluatorParameters },
-        authenticSource: { connector: input.connector, parameters: {} },
+        authenticSource: { connector: input.connector, parameters: input.connectorParameters },
         holderBinding: input.holderBinding,
         flow: input.flow,
         credentialValiditySeconds: input.validitySeconds,
@@ -590,6 +592,48 @@ export class PlatformClient {
         `${encodeURIComponent(policyId)}/status`,
       { status },
     );
+  }
+
+  /**
+   * The authentic source a policy's latest published version reads from, or `undefined`.
+   *
+   * Read from the policy detail the API returns, not inferred from the policy name: two policies can
+   * issue the same credential type from different sources, and only one of them can be issued from a
+   * presentation.
+   */
+  async issuancePolicySource(policyId: string): Promise<string | undefined> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const detail = await this.call<{
+      versions?: readonly {
+        readonly version: number;
+        readonly status: string;
+        readonly authenticSource?: { readonly connector?: string };
+      }[];
+    }>(
+      "GET",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/issuance-policies/${encodeURIComponent(policyId)}`,
+    );
+    const published = (detail.versions ?? [])
+      .filter((v) => v.status === "PUBLISHED")
+      .sort((a, b) => b.version - a.version)[0];
+    return published?.authenticSource?.connector;
+  }
+
+  /**
+   * Active, published issuance policies that issue **from a verified presentation**.
+   *
+   * These are what a verified presentation can be turned into. One detail request per policy, which
+   * is fine at the size of a tenant's policy list and keeps the console to routes the API already has.
+   */
+  async policiesIssuingFromPresentations(): Promise<readonly IssuanceOption[]> {
+    const policies = await this.listIssuancePolicies();
+    const candidates = policies.filter(
+      (p) => p.status !== "RETIRED" && p.publishedVersion !== null,
+    );
+    const sources = await Promise.all(
+      candidates.map((p) => this.issuancePolicySource(p.id).catch(() => undefined)),
+    );
+    return candidates.filter((_, i) => sources[i] === "verified-presentation");
   }
 
   /** What eligibility rules and authentic sources this deployment actually has registered. */

@@ -112,6 +112,7 @@ const defineIssuanceForm = z
     validityDays: z.coerce.number().int().positive().max(3650),
     evaluator: z.string().min(1).max(100),
     minimumAgeYears: z.coerce.number().int().min(0).max(150).optional(),
+    maxAgeMinutes: z.coerce.number().int().min(1).max(1440).optional(),
     connector: z.string().min(1).max(100),
     flow: z.enum(["PRE_AUTHORIZED_CODE", "AUTHORIZATION_CODE"]),
     holderBinding: z.enum(["KEY_BOUND", "BEARER"]),
@@ -503,7 +504,7 @@ const main = async (): Promise<void> => {
     }
     const form = parsed.data;
 
-    const claims = Array.from({ length: ATTRIBUTE_ROWS }, (_, i) => i)
+    const rows = Array.from({ length: ATTRIBUTE_ROWS }, (_, i) => i)
       .map((i) => ({
         path: (body[`claimPath${i}`] ?? "").trim(),
         label: (body[`claimLabel${i}`] ?? "").trim(),
@@ -513,16 +514,49 @@ const main = async (): Promise<void> => {
           | "boolean"
           | "date",
         mandatory: body[`claimMandatory${i}`] === "on",
+        fixed: (body[`claimFixed${i}`] ?? "").trim(),
       }))
-      .filter((c) => c.path.length > 0)
-      .map((c) => ({
-        path: [c.path],
-        // An attribute with no label would reach a wallet as its raw name. Defaulting to the name
-        // is better than refusing the form over a field the operator may reasonably leave blank.
-        label: c.label.length > 0 ? c.label : c.path,
-        valueType: c.valueType,
-        mandatory: c.mandatory,
-      }));
+      .filter((c) => c.path.length > 0);
+
+    // Fixed values, typed as their attribute declares. Only the presentation-backed source reads
+    // them; accepting one for any other source would store a value that is silently never used.
+    const fixedClaims: Record<string, string | number | boolean> = {};
+    for (const row of rows.filter((r) => r.fixed.length > 0)) {
+      if (row.valueType === "number") {
+        const n = Number(row.fixed);
+        if (!Number.isFinite(n)) {
+          await redisplay(`The fixed value for ${row.path} is not a number.`, 400);
+          return;
+        }
+        fixedClaims[row.path] = n;
+      } else if (row.valueType === "boolean") {
+        if (row.fixed !== "true" && row.fixed !== "false") {
+          await redisplay(`The fixed value for ${row.path} must be true or false.`, 400);
+          return;
+        }
+        fixedClaims[row.path] = row.fixed === "true";
+      } else {
+        fixedClaims[row.path] = row.fixed;
+      }
+    }
+    const fromPresentation = form.connector === "verified-presentation";
+    if (!fromPresentation && Object.keys(fixedClaims).length > 0) {
+      await redisplay(
+        "Fixed values apply only when the attributes come from verified-presentation. With any " +
+          "other source they would be stored and never used.",
+        400,
+      );
+      return;
+    }
+
+    const claims = rows.map((c) => ({
+      path: [c.path],
+      // An attribute with no label would reach a wallet as its raw name. Defaulting to the name
+      // is better than refusing the form over a field the operator may reasonably leave blank.
+      label: c.label.length > 0 ? c.label : c.path,
+      valueType: c.valueType,
+      mandatory: c.mandatory,
+    }));
 
     if (claims.length === 0) {
       await redisplay("Give the credential at least one attribute.", 400);
@@ -549,6 +583,9 @@ const main = async (): Promise<void> => {
             ? { minimumAgeYears: form.minimumAgeYears ?? 18 }
             : {},
         connector: form.connector,
+        connectorParameters: fromPresentation
+          ? { maxAgeSeconds: (form.maxAgeMinutes ?? 15) * 60, fixedClaims }
+          : {},
         flow: form.flow,
         holderBinding: form.holderBinding,
         suspensionAllowed: form.suspensionAllowed === "on",
@@ -641,6 +678,7 @@ const main = async (): Promise<void> => {
     // The fixture's known subject references, so the offer form can offer them. Read from the
     // platform, not hard-coded: the console has no privileged view, and a deployment with a real
     // authentic source returns none — a real source's subject references are not ours to list.
+    const source = await platform.issuancePolicySource(policyId).catch(() => undefined);
     const knownSubjects = await platform
       .issuanceCapabilities()
       .then((c) =>
@@ -659,6 +697,7 @@ const main = async (): Promise<void> => {
         policy,
         issuances,
         ...(knownSubjects.length > 0 ? { knownSubjects } : {}),
+        ...(source ? { source } : {}),
         ...(gate ? { gate } : {}),
         ...(extra.offer ? { offer: extra.offer } : {}),
         ...(extra.offer
@@ -1137,7 +1176,12 @@ const main = async (): Promise<void> => {
     const id = request.params.presentationId ?? "";
     try {
       const view = await platform.readPresentation(id);
-      renderPresentation(response, view, interactions.get(id));
+      // Only a verified presentation can be issued from; for anything else no panel is drawn.
+      const issueFrom =
+        view.status === "VERIFIED"
+          ? await platform.policiesIssuingFromPresentations().catch(() => [])
+          : undefined;
+      renderPresentation(response, view, interactions.get(id), issueFrom);
     } catch (error) {
       const message =
         error instanceof PlatformApiError
@@ -1169,6 +1213,7 @@ const main = async (): Promise<void> => {
     response: Response,
     view: Awaited<ReturnType<PlatformClient["readPresentation"]>>,
     interaction: Interaction | undefined,
+    issueFrom?: Awaited<ReturnType<PlatformClient["policiesIssuingFromPresentations"]>>,
   ): void => {
     let qrValue: string | undefined;
     let qrLabel: string | undefined;
@@ -1218,6 +1263,7 @@ const main = async (): Promise<void> => {
         ...(startUrl ? { startUrl } : {}),
         reachability,
         run,
+        ...(issueFrom ? { issueFrom } : {}),
       }),
       true,
     );

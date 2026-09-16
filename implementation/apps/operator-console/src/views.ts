@@ -1,5 +1,10 @@
 import { html, type SafeHtml } from "./html.js";
-import type { CreatedPresentation, PolicyOption, PresentationView } from "./platform-client.js";
+import type {
+  CreatedPresentation,
+  IssuanceOption,
+  PolicyOption,
+  PresentationView,
+} from "./platform-client.js";
 import { renderQrWithValue } from "./qr.js";
 import type { ReachabilityProblem } from "./reachability.js";
 
@@ -215,6 +220,13 @@ export const presentationView = (options: {
   readonly startUrl?: string;
   readonly reachability: readonly ReachabilityProblem[];
   readonly run: RunContext;
+  /**
+   * Issuance policies that can be issued from this presentation, when it is VERIFIED.
+   *
+   * Undefined when the presentation is not verified, so no panel is drawn at all; an empty list when
+   * it is verified and nothing issues from presentations, so the panel says how to define one.
+   */
+  readonly issueFrom?: readonly IssuanceOption[];
 }): SafeHtml => {
   const { created, view, run } = options;
   const terminal = isTerminal(view.status);
@@ -271,6 +283,8 @@ export const presentationView = (options: {
         <div id="result-block">${resultBlock(view)}</div>
       </section>
     </div>
+
+    ${options.issueFrom ? issueFromPanel(view.presentationId, options.issueFrom) : ""}
 
     <h2>Run record</h2>
     <p class="lead">
@@ -448,7 +462,16 @@ export const CONSOLE_JS = `"use strict";
       }
       if (failureValue) failureValue.textContent = view.failureCode || "—";
       if (resultBlock && view.resultHtml) resultBlock.innerHTML = view.resultHtml;
-      if (view.terminal) { stop("Terminal state reached; polling stopped."); return; }
+      if (view.terminal) {
+        // A verified presentation can be issued from, and that panel is rendered by the server. Reload
+        // once to draw it, rather than building markup here — escaping stays in one place.
+        if (view.status === "VERIFIED" && !document.getElementById("issue-from-presentation")) {
+          window.location.reload();
+          return;
+        }
+        stop("Terminal state reached; polling stopped.");
+        return;
+      }
       window.setTimeout(tick, 2000);
     }).catch(function (error) {
       stop("Polling failed (" + error.message + "). Reload to resume.");
@@ -457,6 +480,58 @@ export const CONSOLE_JS = `"use strict";
 
   window.setTimeout(tick, 2000);
 })();
+`;
+
+/**
+ * Step three of the demonstration, one click from step two.
+ *
+ * A verified presentation identifies a person; an issuance policy whose source is
+ * `verified-presentation` builds a credential from it. The button carries the **presentation id** as
+ * the subject reference, which is exactly what that source takes — so the operator never copies an
+ * identifier between screens, and a mistyped one never reaches the platform.
+ *
+ * The verified values are not repeated here: the result panel above already shows what the platform
+ * returned, and the credential is built by the platform from its own retained result, not from
+ * anything this page could send.
+ */
+const issueFromPanel = (
+  presentationId: string,
+  policies: readonly IssuanceOption[],
+): SafeHtml => html`
+  <section class="panel" id="issue-from-presentation">
+    <h2>Issue a credential from this presentation</h2>
+    ${
+      policies.length === 0
+        ? html`<p class="empty">
+            No issuance policy issues from a verified presentation yet.
+            <a href="/issuance/new">Define one</a> with the source <code>verified-presentation</code>.
+          </p>`
+        : html`
+          <p class="sub">
+            The person was identified by what they just presented. Each of these builds a credential
+            from that — within the time the policy allows — and opens its offer, ready to scan.
+          </p>
+          <table class="offers">
+            <tbody>
+              ${policies.map(
+                (p) => html`
+                  <tr>
+                    <td><strong>${p.name}</strong></td>
+                    <td class="dim">${p.credentialTypeName} <code class="format">${p.credentialFormat}</code></td>
+                    <td class="right">
+                      <form method="post" action="/issuance/${p.id}/offer" class="inline">
+                        <input type="hidden" name="subjectReference" value="${presentationId}">
+                        <button type="submit">Issue</button>
+                      </form>
+                    </td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        `
+    }
+  </section>
 `;
 
 /** The JSON the poller consumes. Rendered server-side so escaping stays in one place. */

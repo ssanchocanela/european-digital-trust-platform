@@ -18,7 +18,11 @@ import {
   errorMessageOf,
   type PolicyOption,
 } from "@edtp/operator-console/platform-client.js";
-import { statusPayload, testDriverView } from "@edtp/operator-console/views.js";
+import {
+  presentationView,
+  statusPayload,
+  testDriverView,
+} from "@edtp/operator-console/views.js";
 import { describe, expect, it } from "vitest";
 
 describe("escaping", () => {
@@ -298,7 +302,7 @@ describe("the issuance builder", () => {
         ],
       }),
     );
-    expect(out).toContain("only authentic source available is a fixture");
+    expect(out).toContain("Every authentic source available is a fixture");
     expect(out).toContain("test data");
   });
 
@@ -318,7 +322,7 @@ describe("the issuance builder", () => {
         ],
       }),
     );
-    expect(out).not.toContain("only authentic source available is a fixture");
+    expect(out).not.toContain("Every authentic source available is a fixture");
   });
 
   it("refuses to pretend there is something to issue under when there is no provider", () => {
@@ -528,5 +532,79 @@ describe("the offer form's subject reference", () => {
     const out = toHtmlString(issuancePolicyView({ policy, issuances: [] }));
     expect(out).not.toContain("<datalist");
     expect(out).not.toContain("answers for these and nothing else");
+  });
+});
+
+describe("issuing from a verified presentation, in the console", () => {
+  const presentationId = "23511a29-d1b3-4fde-9547-34c50e2776d7";
+  const representative = {
+    id: "3c6cb0ae-346b-4aed-82d1-2b980203bb6b",
+    name: "Company representative (from a verified PID)",
+    credentialTypeName: "Company representative",
+    credentialFormat: "dc+sd-jwt",
+    publishedVersion: 1,
+    status: "ACTIVE",
+  };
+  const pageFor = (status: string, issueFrom?: readonly (typeof representative)[]) =>
+    toHtmlString(
+      presentationView({
+        created: { presentationId, status, expiresAt: "2026-09-16T16:34:08.000Z" },
+        view: {
+          presentationId,
+          businessReference: "demo-identify",
+          status,
+          policyId: "b022662f-3760-42d0-8ca2-be3446abbfdd",
+          policyVersion: 1,
+          expiresAt: "2026-09-16T16:34:08.000Z",
+        },
+        reachability: [],
+        run: { platformCommit: "test", engineDigest: "test", trustEnvironment: "TEST" },
+        ...(issueFrom ? { issueFrom } : {}),
+      }),
+    );
+
+  it("offers to issue from a verified presentation, carrying its id as the subject", () => {
+    // The operator never copies an identifier between screens, so a mistyped one never reaches the
+    // platform — the button carries exactly what the verified-presentation source takes.
+    const out = pageFor("VERIFIED", [representative]);
+    expect(out).toContain('id="issue-from-presentation"');
+    expect(out).toContain(`action="/issuance/${representative.id}/offer"`);
+    expect(out).toContain(`name="subjectReference" value="${presentationId}"`);
+  });
+
+  it("draws no panel for a presentation that is not verified", () => {
+    expect(pageFor("PENDING")).not.toContain("issue-from-presentation");
+  });
+
+  it("says how to define one when nothing issues from presentations", () => {
+    const out = pageFor("VERIFIED", []);
+    expect(out).toContain("No issuance policy issues from a verified presentation yet");
+    expect(out).toContain('href="/issuance/new"');
+  });
+
+  it("asks a presentation-backed policy for a presentation id, not a fixture subject", () => {
+    const out = toHtmlString(
+      issuancePolicyView({
+        policy: representative,
+        issuances: [],
+        source: "verified-presentation",
+        knownSubjects: ["fixture-subject-adult"],
+      }),
+    );
+    expect(out).toContain("Presentation id");
+    // A fixture subject offered here would be refused as not a presentation, so it is not offered.
+    expect(out).not.toContain("fixture-subject-adult");
+  });
+
+  it("lets the builder set a fixed value per attribute", () => {
+    const out = toHtmlString(
+      newIssuanceView({
+        providers: [{ id: "11111111-1111-1111-1111-111111111111", name: "Acme Issuer BV" }],
+        evaluators: ["AlwaysEligible"],
+        connectors: [{ name: "verified-presentation", kind: "FIXTURE" }],
+      }),
+    );
+    expect(out).toContain('name="claimFixed0"');
+    expect(out).toContain('name="maxAgeMinutes"');
   });
 });

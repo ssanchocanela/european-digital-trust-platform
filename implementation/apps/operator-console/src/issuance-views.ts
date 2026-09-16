@@ -273,6 +273,8 @@ export const issuancePolicyView = (options: {
    * strings should say what they are.
    */
   readonly knownSubjects?: readonly string[];
+  /** The policy's authentic source. `verified-presentation` changes what the subject is. */
+  readonly source?: string;
   readonly error?: string;
 }): SafeHtml => html`
   <p class="crumb"><a href="/issuance">Issuance</a></p>
@@ -322,26 +324,43 @@ export const issuancePolicyView = (options: {
         : html`<p class="dim">No offer open. Create one below.</p>`
     }
     <form method="post" action="/issuance/${options.policy.id}/offer">
-      <label>
-        <span>Who is this for — your own reference for the subject at the authentic source</span>
-        <input type="text" name="subjectReference" required maxlength="200"
-               list="known-subjects" autocomplete="off"
-               value="${options.knownSubjects?.[0] ?? ""}">
-        ${
-          options.knownSubjects && options.knownSubjects.length > 0
-            ? html`<datalist id="known-subjects">
-                ${options.knownSubjects.map((s) => html`<option value="${s}"></option>`)}
-              </datalist>`
-            : ""
-        }
-      </label>
       ${
-        options.knownSubjects && options.knownSubjects.length > 0
-          ? html`<p class="hint">
-              The authentic source is a <strong>fixture</strong>, so it answers for these and
-              nothing else: ${options.knownSubjects.map((s) => html`<code>${s}</code> `)}
-            </p>`
-          : ""
+        options.source === "verified-presentation"
+          ? html`
+            <label>
+              <span>Presentation id — a presentation this tenant verified moments ago</span>
+              <input type="text" name="subjectReference" required maxlength="200"
+                     autocomplete="off" pattern="[0-9a-fA-F-]{36}">
+            </label>
+            <p class="hint">
+              This credential is built from a verified presentation, so the subject is that
+              presentation. The simpler route: open the verified presentation and press
+              <strong>Issue</strong> there, which fills this in for you.
+            </p>
+          `
+          : html`
+            <label>
+              <span>Who is this for — your own reference for the subject at the authentic source</span>
+              <input type="text" name="subjectReference" required maxlength="200"
+                     list="known-subjects" autocomplete="off"
+                     value="${options.knownSubjects?.[0] ?? ""}">
+              ${
+                options.knownSubjects && options.knownSubjects.length > 0
+                  ? html`<datalist id="known-subjects">
+                      ${options.knownSubjects.map((s) => html`<option value="${s}"></option>`)}
+                    </datalist>`
+                  : ""
+              }
+            </label>
+            ${
+              options.knownSubjects && options.knownSubjects.length > 0
+                ? html`<p class="hint">
+                    The authentic source is a <strong>fixture</strong>, so it answers for these and
+                    nothing else: ${options.knownSubjects.map((s) => html`<code>${s}</code> `)}
+                  </p>`
+                : ""
+            }
+          `
       }
       <div class="actions">
         <button type="submit" ${options.policy.publishedVersion === null ? "disabled" : ""}>
@@ -595,7 +614,7 @@ export const newIssuanceView = (options: {
           </p>
           <table class="attributes">
             <thead>
-              <tr><th>Attribute name</th><th>Label shown to the holder</th><th>Type</th><th>Mandatory</th></tr>
+              <tr><th>Attribute name</th><th>Label shown to the holder</th><th>Type</th><th>Mandatory</th><th>Fixed value</th></tr>
             </thead>
             <tbody>
               ${Array.from({ length: ATTRIBUTE_ROWS }, (_, i) => {
@@ -620,6 +639,9 @@ export const newIssuanceView = (options: {
                       <input type="checkbox" name="claimMandatory${n}" value="on"
                              ${options.submitted && !options.submitted[`claimMandatory${n}`] ? "" : "checked"}>
                     </td>
+                    <td><input type="text" name="claimFixed${n}" maxlength="200"
+                               value="${was(`claimFixed${n}`)}"
+                               placeholder="${i === 2 ? "Fictitious Company SL" : ""}"></td>
                   </tr>
                 `;
               })}
@@ -628,6 +650,13 @@ export const newIssuanceView = (options: {
           <p class="hint">
             For an mdoc the attribute name is the element within its namespace; the namespace comes
             from the doctype above.
+          </p>
+          <p class="hint">
+            <strong>Fixed value</strong> applies only when the attributes come from a
+            <code>verified-presentation</code>: an attribute with a fixed value takes it from this
+            definition, every other one is read from the presentation under the same name. Use it for
+            what the presentation cannot prove — the company and the capacity to act for it — and
+            remember that a value typed here is asserted by nobody.
           </p>
         </fieldset>
 
@@ -662,13 +691,25 @@ export const newIssuanceView = (options: {
               )}
             </select>
           </label>
+          <label>
+            <span>From a verified presentation: how recent it must be (minutes)</span>
+            <input type="number" name="maxAgeMinutes" min="1" max="1440"
+                   value="${was("maxAgeMinutes", "15")}">
+          </label>
+          <p class="hint">
+            With <code>verified-presentation</code> the subject is a presentation this tenant verified:
+            the person is identified by what they presented a moment ago, and the credential is built
+            from it. Older presentations, other tenants' presentations and unverified ones are refused.
+          </p>
           ${
             options.connectors.every((c) => c.kind === "FIXTURE")
               ? html`<p class="notice warn">
-                  <strong>The only authentic source available is a fixture.</strong> Whatever is
-                  defined here will be issued with <strong>test data</strong>, not with attributes
-                  any authoritative party asserted. A real source is a connector somebody writes and
-                  registers; it is not a setting on this page.
+                  <strong>Every authentic source available is a fixture.</strong> Whatever is defined
+                  here will be issued with <strong>test data</strong>, or with values typed on this
+                  page, not with attributes any authoritative party asserted. That includes a
+                  credential built from a verified presentation: its identity attributes were
+                  verified, but whatever it attests beyond them was not. A real source is a connector
+                  somebody writes and registers; it is not a setting on this page.
                 </p>`
               : ""
           }

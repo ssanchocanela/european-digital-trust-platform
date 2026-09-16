@@ -80,6 +80,14 @@ export interface IssuedCredentialListItem {
    * `revokedAt` would assert a reason the row does not carry. `status` says what it is now.
    */
   readonly statusChangedAt?: Date;
+  /**
+   * Whether the engine acknowledged this status, so a Relying Party would actually see it.
+   *
+   * False means the platform intends the status and the status list may not carry it. Reported
+   * rather than hidden: the whole point of recording it is that an operator shown only `REVOKED`
+   * believes a revocation took effect when it may not have. `interop-findings.md` A26.
+   */
+  readonly statusConfirmed: boolean;
 }
 
 export interface NamedListItem {
@@ -445,6 +453,7 @@ export class ListingRepository {
         issuedAt: r.issuedAt,
         expiresAt: r.expiresAt,
         ...(r.statusChangedAt ? { statusChangedAt: r.statusChangedAt } : {}),
+        statusConfirmed: r.statusConfirmedAt !== null,
         // `engineSessionRef`, `statusListUri` and `statusListIndex` are deliberately absent. The
         // revocation index is an `ISSU_35` unique element, and the session reference is metadata that
         // must never be returned or logged (`CLAUDE.md` §6.8).

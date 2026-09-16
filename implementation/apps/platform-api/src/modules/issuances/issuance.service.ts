@@ -478,16 +478,53 @@ export class IssuanceService {
       at: now,
     });
 
-    await this.issuer.updateCredentialStatus({
-      session: {
-        ref: record.engineSessionRef as CredentialOfferHandle["ref"],
-        engineTenantRef: version ? await this.engineTenantFor(input.tenantId, record) : "",
-      },
+    // The engine is told second, and whether it agreed is recorded rather than assumed.
+    //
+    // A failure here used to leave the platform claiming a status the status list did not carry,
+    // with nothing anywhere saying so — the register read `REVOKED`, the API returned
+    // `engine_unavailable`, and a Relying Party reading the engine's status list still saw a valid
+    // attestation. Three parties, three answers, and the operator was shown the reassuring one.
+    //
+    // The transition stays persisted: rolling it back would mean a revocation the operator
+    // requested silently not happening, which is worse, and it would race a concurrent writer. What
+    // changes is that the record now distinguishes *intended* from *in effect*.
+    try {
+      await this.issuer.updateCredentialStatus({
+        session: {
+          ref: record.engineSessionRef as CredentialOfferHandle["ref"],
+          engineTenantRef: version ? await this.engineTenantFor(input.tenantId, record) : "",
+        },
+        status: input.to,
+        // Which configuration the transition applies to. The engine's contract calls this optional
+        // and its omitted path returns 500 — A26 — so the platform always names it.
+        policyId: record.issuancePolicyId,
+        policyVersion: record.issuancePolicyVersion,
+      });
+    } catch (error) {
+      // Audited before rethrowing, because this is the one event nothing else records: the caller
+      // gets an error and goes away, and without this the divergence exists only as a row whose
+      // `statusConfirmedAt` is null.
+      await this.audit.record({
+        tenantId: input.tenantId,
+        actor: "platform",
+        action: "credential.status_change_unconfirmed",
+        subjectType: "issued_credential",
+        subjectId: record.id,
+        detail: {
+          from: record.status,
+          to: input.to,
+          // The code only. An engine message can carry detail that is not ours to store.
+          failureCode: error instanceof PlatformError ? error.code : "engine_error",
+        },
+      });
+      throw error;
+    }
+
+    await this.issuance.confirmStatus({
+      tenantId: input.tenantId,
+      id: record.id,
       status: input.to,
-      // Which configuration the transition applies to. The engine's contract calls this optional
-      // and its omitted path returns 500 — A26 — so the platform always names it.
-      policyId: record.issuancePolicyId,
-      policyVersion: record.issuancePolicyVersion,
+      at: now,
     });
 
     await this.audit.record({

@@ -123,6 +123,14 @@ export interface IssuedCredentialSummary {
   readonly issuedAt: string;
   readonly expiresAt: string;
   readonly statusChangedAt?: string;
+  /**
+   * Whether the engine acknowledged this status.
+   *
+   * Optional here only because an older API would not send it; absent is treated as confirmed, so
+   * the console never invents a warning. `false` is the case that matters: the platform intends the
+   * status and the status list a Relying Party reads may not carry it.
+   */
+  readonly statusConfirmed?: boolean;
 }
 
 /**

@@ -326,6 +326,11 @@ export const issuedCredentialsView = (options: {
     What a wallet has actually collected. <strong>Revocation cannot be undone</strong> — a revoked
     attestation stays revoked, and only a suspended one can be reinstated.
   </p>
+  <p class="sub">
+    A status marked <strong>not in effect</strong> is one the platform intends and the wrapped
+    engine has not acknowledged — the status list a Relying Party reads may still say something
+    else. Repeating the action retries it; the call is idempotent.
+  </p>
   ${options.error ? html`<p class="notice error">${options.error}</p>` : ""}
   ${options.notice ? html`<p class="notice info">${options.notice}</p>` : ""}
 
@@ -347,7 +352,13 @@ export const issuedCredentialsView = (options: {
               (c) => html`
                 <tr>
                   <td><code>${c.issuedCredentialId.slice(0, 8)}</code></td>
-                  <td>${chip(c.status)}</td>
+                  <td>${chip(c.status)}${
+                    c.statusConfirmed === false
+                      ? html` <span class="chip chip-bad" title="The engine has not acknowledged this
+                          status, so the status list a Relying Party reads may not carry it. Repeat
+                          the action to retry — it is idempotent.">not in effect</span>`
+                      : ""
+                  }</td>
                   <td class="dim">${when(c.issuedAt)}</td>
                   <td class="dim">${when(c.statusChangedAt)}</td>
                   <td class="right">${statusActions(c)}</td>

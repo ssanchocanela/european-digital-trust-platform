@@ -34,3 +34,6 @@ tools/test-wallet/out/
 # content. See docs/credential-catalogue.md.
 pox*.json
 credential-catalogue/
+
+# Vitest JSON summaries, read by scripts/check-test-results.mjs. Regenerated on every run.
+.vitest/

@@ -747,6 +747,12 @@ export class IssuanceRepository {
       statusListUri: record.statusListUri ?? null,
       statusListIndex: record.statusListIndex ?? null,
       statusChangedAt: record.statusChangedAt ?? null,
+      // Confirmed on arrival. The engine issued this attestation, so the status list it maintains
+      // already carries the initial status — unlike a later transition, which the engine has to be
+      // told about and may refuse. Leaving it null here would mark every freshly collected
+      // attestation "not in effect", which is both false and the kind of warning that teaches an
+      // operator to ignore warnings.
+      statusConfirmedAt: record.issuedAt,
     });
     return { id };
   }
@@ -800,7 +806,15 @@ export class IssuanceRepository {
 
     const updated = await this.db
       .update(issuedCredentials)
-      .set({ status: input.to, statusChangedAt: input.at })
+      .set({
+        status: input.to,
+        statusChangedAt: input.at,
+        // Unconfirmed until the engine says otherwise. The platform decides and persists first —
+        // that is what makes the transition atomic against a concurrent writer, pinned by the
+        // `status` in the `WHERE` below — but persisting is not the same as the status list
+        // carrying it, and a Relying Party reads the status list. `confirmStatus` closes the gap.
+        statusConfirmedAt: null,
+      })
       .where(
         and(
           eq(issuedCredentials.id, input.id),
@@ -816,6 +830,30 @@ export class IssuanceRepository {
         `The attestation was not ${input.from}; another writer changed it first.`,
       );
     }
+  }
+
+  /**
+   * Records that the engine acknowledged the attestation's current status.
+   *
+   * Pinned to the status it is confirming, so a late acknowledgement of a superseded transition
+   * cannot mark a newer, still-unconfirmed status as agreed.
+   */
+  async confirmStatus(input: {
+    readonly tenantId: TenantId;
+    readonly id: string;
+    readonly status: CredentialStatus;
+    readonly at: Date;
+  }): Promise<void> {
+    await this.db
+      .update(issuedCredentials)
+      .set({ statusConfirmedAt: input.at })
+      .where(
+        and(
+          eq(issuedCredentials.id, input.id),
+          eq(issuedCredentials.tenantId, input.tenantId),
+          eq(issuedCredentials.status, input.status),
+        ),
+      );
   }
 
   // --- mapping -------------------------------------------------------------

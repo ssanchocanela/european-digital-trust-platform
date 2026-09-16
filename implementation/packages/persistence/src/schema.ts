@@ -843,6 +843,16 @@ export const issuedCredentials = pgTable(
     statusListUri: text("status_list_uri"),
     statusListIndex: integer("status_list_index"),
     statusChangedAt: ts("status_changed_at"),
+    /**
+     * When the engine acknowledged the status in `status`.
+     *
+     * Null means it has not: the platform intends this status and the status list a Relying Party
+     * reads may not carry it. The distinction exists because on 16 September 2026 the register read
+     * `REVOKED` for an attestation whose status list had never been touched — the engine was
+     * returning 500 — while the API returned `engine_unavailable` for the same call.
+     * `interop-findings.md` A26, migration 0009.
+     */
+    statusConfirmedAt: ts("status_confirmed_at"),
   },
   (t) => [
     index("issued_credentials_tenant_idx").on(t.tenantId),

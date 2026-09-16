@@ -35,6 +35,7 @@ afterAll(async () => {
 });
 
 const issuance = () => harness.deps.repositories.issuance;
+const listing = () => harness.deps.repositories.listing;
 
 /** A tenant, an organisation and an Attestation Provider, using the real writes. */
 const seedProvider = async (legalName: string) => {
@@ -527,5 +528,119 @@ describe("certificate validity is recorded, because the platform holds nothing e
     );
     expect(after.hasAccessCertificate).toBe(false);
     expect(after.accessCertificateNotAfter).toBeUndefined();
+  });
+});
+
+/**
+ * Whether a status change is *in effect*, as distinct from intended.
+ *
+ * The platform decides, persists, and then tells the engine. When the engine refuses, the register
+ * used to keep the new status with nothing anywhere saying the status list had not moved — which is
+ * exactly what happened during the A26 outage on 16 September 2026. A Relying Party reads the
+ * engine's status list, so a revoked-in-our-database attestation went on verifying as valid.
+ */
+describe("a status change records whether the engine agreed", () => {
+  const seedIssued = async (seed: Awaited<ReturnType<typeof seedProvider>>) => {
+    const policy = await seedPolicy(seed, { name: "Issued badge" });
+    const transactionId = randomUUID();
+    await issuance().createTransaction({
+      id: transactionId,
+      tenantId: seed.tenantId,
+      policyId: policy.id,
+      policyVersion: 1,
+      credentialTypeId: seed.credentialTypeId,
+      state: "ISSUED",
+      subjectReference: "fixture-subject-adult",
+      deliveryStatus: "NOT_REQUESTED",
+      expiresAt: new Date(seed.at.getTime() + 3_600_000),
+      createdAt: seed.at,
+      updatedAt: seed.at,
+    });
+    const { id } = await issuance().recordIssued({
+      tenantId: seed.tenantId,
+      issuanceTransactionId: transactionId,
+      credentialTypeId: seed.credentialTypeId,
+      issuancePolicyId: policy.id,
+      issuancePolicyVersion: 1,
+      status: "VALID",
+      issuedAt: seed.at,
+      expiresAt: new Date(seed.at.getTime() + 86_400_000),
+      engineSessionRef: "engine-session-1",
+    });
+    return id;
+  };
+
+  const confirmedOf = async (
+    seed: Awaited<ReturnType<typeof seedProvider>>,
+    id: string,
+  ): Promise<boolean> => {
+    const listed = await listing().issuedCredentials(seed.tenantId, {
+      limit: 50,
+    } as Parameters<ReturnType<typeof listing>["issuedCredentials"]>[1]);
+    const item = listed.items.find((i) => i.issuedCredentialId === id);
+    expect(item).toBeDefined();
+    return item?.statusConfirmed === true;
+  };
+
+  it("a freshly collected attestation is confirmed, not flagged", async () => {
+    // The engine issued it, so the status list already carries the initial status. Flagging every
+    // new attestation would be false and would teach an operator to ignore the flag.
+    const seed = await seedProvider("Confirmed BV");
+    const id = await seedIssued(seed);
+    expect(await confirmedOf(seed, id)).toBe(true);
+  });
+
+  it("a transition is unconfirmed until the engine acknowledges it", async () => {
+    const seed = await seedProvider("Pending BV");
+    const id = await seedIssued(seed);
+
+    await issuance().changeStatus({
+      tenantId: seed.tenantId,
+      id,
+      from: "VALID",
+      to: "REVOKED",
+      suspensionAllowed: false,
+      at: new Date(seed.at.getTime() + 1000),
+    });
+
+    // Persisted, and honest about not being in effect. This is the state the platform was in during
+    // the A26 outage while reporting only `REVOKED`.
+    const record = await issuance().findIssued(seed.tenantId, id);
+    expect(record?.status).toBe("REVOKED");
+    expect(await confirmedOf(seed, id)).toBe(false);
+
+    await issuance().confirmStatus({
+      tenantId: seed.tenantId,
+      id,
+      status: "REVOKED",
+      at: new Date(seed.at.getTime() + 2000),
+    });
+    expect(await confirmedOf(seed, id)).toBe(true);
+  });
+
+  it("confirming a status the row no longer has does nothing", async () => {
+    // A late acknowledgement of a superseded transition must not mark a newer, still-unconfirmed
+    // status as agreed. Pinned because the obvious implementation — set the timestamp by id —
+    // would do exactly that.
+    const seed = await seedProvider("Superseded BV");
+    const id = await seedIssued(seed);
+
+    await issuance().changeStatus({
+      tenantId: seed.tenantId,
+      id,
+      from: "VALID",
+      to: "REVOKED",
+      suspensionAllowed: false,
+      at: new Date(seed.at.getTime() + 1000),
+    });
+
+    await issuance().confirmStatus({
+      tenantId: seed.tenantId,
+      id,
+      status: "VALID",
+      at: new Date(seed.at.getTime() + 2000),
+    });
+
+    expect(await confirmedOf(seed, id)).toBe(false);
   });
 });

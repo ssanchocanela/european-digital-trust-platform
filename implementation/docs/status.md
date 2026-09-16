@@ -32,7 +32,12 @@ DPoP-bound token — and the refusal arrived only at the last call of the flow:
 **`GET …/provider-authentication` reported nothing about it**, because that report covers trust
 gate (a) and this is the attestation key, so the console showed an issuer blocked only by B7 while
 it had been unable to sign for a day. The script now mints 90 days (`CERT_DAYS` overrides), prints
-the expiry, and says where expiry will surface.
+the expiry, and says where expiry will surface. And rotating one is now a repository tool rather
+than an act of improvisation: [`scripts/rotate-attestation-key.sh`](../scripts/rotate-attestation-key.sh),
+which **reads the provider's current state first and refuses to run** if it holds an access
+certificate it has not been given a replacement for — because `provision` replaces the whole record,
+and a rotation that sent only a signing key would silently remove the other one. That trap caught
+this project once on the day, and it is the reason the script exists in the shape it does.
 
 **The report's blind spot is fixed too.** Migration 0008 records the `notAfter` of each supplied
 leaf at provisioning — a validity window is not key material, not a credential and not content, so

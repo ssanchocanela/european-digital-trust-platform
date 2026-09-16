@@ -401,6 +401,18 @@ export class PlatformClient {
   }
 
   /** Starts an issuance and returns the offer for a wallet. */
+  /**
+   * Creates a credential offer.
+   *
+   * The wallet-facing URI arrives as **`interaction`**, the same field name the verification side
+   * uses — not `offer`. This read it as `offer` until 16 September 2026, so `created.offer` was
+   * always `undefined` and the console had **never once displayed a credential offer**: the button
+   * created the transaction and the screen then said "No offer open". The one capability the
+   * issuance console exists for, silently absent, because nobody read the route's answer.
+   *
+   * The seventh time on this project. The others: A18, A24, the console's error envelope, the audit
+   * envelope, the service-instance field, and `registrationCertificatePublished` on the gate panel.
+   */
   async createIssuance(input: {
     readonly policyId: string;
     readonly subjectReference: string;
@@ -408,8 +420,9 @@ export class PlatformClient {
   }): Promise<{
     readonly issuanceId: string;
     readonly status: string;
-    readonly offer?: { readonly uri: string };
+    readonly interaction?: { readonly type: string; readonly uri: string };
     readonly expiresAt: string;
+    readonly warnings?: readonly string[];
   }> {
     return this.call("POST", "/v1/issuances", input);
   }
@@ -449,6 +462,118 @@ export class PlatformClient {
       `/v1/tenants/${encodeURIComponent(tenantId)}/attestation-providers?limit=100`,
     );
     return page.items;
+  }
+
+  /**
+   * Defines what this tenant issues: a credential type, a policy over it, and a published version.
+   *
+   * Three calls, in that order, because they are three business objects and the platform models
+   * them separately — the type says what the attestation *is*, the policy who may receive one and
+   * where its values come from, and the version makes a particular answer immutable.
+   *
+   * There is no partial success worth reporting to an operator: a credential type with no policy is
+   * invisible on every screen, so a failure at step two or three surfaces as the failure it is and
+   * the type is left behind rather than deleted. Deleting it would be worse — it may be the one
+   * thing that succeeded, and the routes to remove it do not exist.
+   */
+  async defineIssuance(input: {
+    readonly attestationProviderId: string;
+    readonly name: string;
+    readonly format: "dc+sd-jwt" | "mso_mdoc";
+    readonly typeIdentifier: string;
+    readonly rulebookIdentifier: string;
+    readonly rulebookVersion: string;
+    readonly claims: readonly {
+      readonly path: readonly string[];
+      readonly label: string;
+      readonly valueType: "string" | "number" | "boolean" | "date";
+      readonly mandatory: boolean;
+    }[];
+    readonly validitySeconds: number;
+    readonly statusMechanism: "TOKEN_STATUS_LIST" | "NONE";
+    readonly purpose: string;
+    readonly evaluator: string;
+    readonly evaluatorParameters: Readonly<Record<string, unknown>>;
+    readonly connector: string;
+    readonly flow: "PRE_AUTHORIZED_CODE" | "AUTHORIZATION_CODE";
+    readonly holderBinding: "KEY_BOUND" | "BEARER";
+    readonly suspensionAllowed: boolean;
+  }): Promise<{ readonly policyId: string }> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const base = `/v1/tenants/${encodeURIComponent(tenantId)}`;
+
+    const type = await this.call<{ credentialTypeId: string }>(
+      "POST",
+      `${base}/credential-types`,
+      {
+        attestationProviderId: input.attestationProviderId,
+        name: input.name,
+        format: input.format,
+        // `vct` for SD-JWT VC, `doctype` for mdoc. The same box on the form, because to an operator
+        // it is one question — what this credential is called in the protocol.
+        ...(input.format === "dc+sd-jwt"
+          ? { vct: input.typeIdentifier }
+          : { doctype: input.typeIdentifier }),
+        rulebook: {
+          identifier: input.rulebookIdentifier,
+          version: input.rulebookVersion,
+          // Trust configuration, not a label: ARF §6.3.2.4 makes the Rulebook the source of anchors
+          // for verifying this attestation's signature. The console does not offer the other value,
+          // because publishing a list is a deliberate act with its own consequences.
+          anchorSource: "RULEBOOK_ONLY",
+        },
+        claims: input.claims.map((c) => ({
+          path: c.path,
+          display: [{ lang: "en", value: c.label }],
+          mandatory: c.mandatory,
+          valueType: c.valueType,
+        })),
+        display: [{ lang: "en", value: input.name }],
+        validitySeconds: input.validitySeconds,
+        statusMechanism: input.statusMechanism,
+        requiresKeyBinding: input.holderBinding === "KEY_BOUND",
+      },
+    );
+
+    const policy = await this.call<{ policyId: string }>("POST", `${base}/issuance-policies`, {
+      credentialTypeId: type.credentialTypeId,
+      name: input.name,
+    });
+
+    await this.call(
+      "POST",
+      `${base}/issuance-policies/${encodeURIComponent(policy.policyId)}/versions`,
+      {
+        credentialTypeId: type.credentialTypeId,
+        purpose: [{ lang: "en", value: input.purpose }],
+        eligibilityRule: { evaluator: input.evaluator, parameters: input.evaluatorParameters },
+        authenticSource: { connector: input.connector, parameters: {} },
+        holderBinding: input.holderBinding,
+        flow: input.flow,
+        credentialValiditySeconds: input.validitySeconds,
+        statusPolicy: {
+          // Must agree with the credential type: a policy that promises revocation over a type with
+          // no status mechanism is refused at publication, and rightly.
+          statusListEnabled: input.statusMechanism === "TOKEN_STATUS_LIST",
+          suspensionAllowed: input.suspensionAllowed,
+        },
+        publish: true,
+      },
+    );
+
+    return { policyId: policy.policyId };
+  }
+
+  /** What eligibility rules and authentic sources this deployment actually has registered. */
+  async issuanceCapabilities(): Promise<{
+    readonly eligibilityEvaluators: readonly string[];
+    readonly authenticSources: readonly string[];
+  }> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    return this.call(
+      "GET",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/issuance-capabilities`,
+    );
   }
 
   /** The audit trail of one presentation. */

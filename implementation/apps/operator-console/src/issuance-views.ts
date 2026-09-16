@@ -172,9 +172,14 @@ export const issuanceOffersView = (options: {
   ${options.error ? html`<p class="notice error">${options.error}</p>` : ""}
   ${gatePanel(options.gate)}
 
+  <p class="actions"><a href="/issuance/new" class="button">Define a credential to issue</a></p>
+
   ${
     options.policies.length === 0
-      ? html`<p class="empty">No issuance policies yet.</p>`
+      ? html`<p class="empty">
+          Nothing is defined yet. <a href="/issuance/new">Define a credential to issue</a> — what it
+          is, who may receive one, and how it is collected.
+        </p>`
       : html`
         <table class="offers">
           <thead>
@@ -383,4 +388,275 @@ const statusActions = (c: IssuedCredentialSummary): SafeHtml => {
   return c.status === "SUSPENDED"
     ? html`${action("VALID", "Reinstate")} ${action("REVOKED", "Revoke")}`
     : html`${action("SUSPENDED", "Suspend")} ${action("REVOKED", "Revoke")}`;
+};
+
+// --- 4. defining what this tenant issues --------------------------------------------------------
+
+/** How many attribute rows the form offers. Blank ones are ignored. */
+export const ATTRIBUTE_ROWS = 6;
+
+/**
+ * The issuance builder — the screen the console was missing.
+ *
+ * The verification side has had `/offers/new` since the console existed: an entity defines what it
+ * asks for. The issuance side had only the operating screens, so an entity could offer and monitor
+ * what somebody else had defined through the API, and "define a credential to issue" was not a
+ * thing the console could do at all.
+ *
+ * ## It offers what is registered, and nothing else
+ *
+ * Eligibility evaluators and authentic-source connectors are **registered at startup** and resolved
+ * then, not at runtime — a deliberate choice recorded on `EligibilityRuleRef`: a rule that decides
+ * whether someone receives an attestation about themselves should be readable code under review,
+ * not a string in a database. So this form lists the ones that exist and offers no free-text box
+ * for either. Today that is two evaluators and **one** connector.
+ *
+ * ## And it says the connector is a fixture
+ *
+ * The single connector is a fixture, and the screen says so where the choice is made rather than in
+ * a footnote. An operator who defines a credential here gets one whose attribute values come from
+ * test data, and finding that out after issuing would be the kind of surprise this console exists
+ * to prevent. The V0 plan §7.2 requires the connector to be labelled a fixture in its own name; the
+ * console says it again in words.
+ *
+ * ## Three objects, one form
+ *
+ * A credential type, a policy and a published version are created together. They are three business
+ * objects and the platform keeps them separate — the type is what the attestation *is*, the policy
+ * who may receive one and where the values come from, the version an immutable answer — but asking
+ * an operator to fill three forms to express one intention would be modelling leaking into a
+ * screen.
+ */
+export const newIssuanceView = (options: {
+  readonly providers: readonly { readonly id: string; readonly name: string }[];
+  readonly evaluators: readonly string[];
+  readonly connectors: readonly string[];
+  readonly gate?: ProviderAuthentication;
+  readonly error?: string;
+  readonly submitted?: Readonly<Record<string, string>>;
+}): SafeHtml => {
+  const was = (field: string, fallback = ""): string => options.submitted?.[field] ?? fallback;
+  const selected = (field: string, value: string, fallback = ""): string =>
+    (options.submitted?.[field] ?? fallback) === value ? " selected" : "";
+
+  return html`
+    <p class="crumb"><a href="/issuance">Issuance</a></p>
+    <h1>Define a credential to issue</h1>
+    <p class="lead">
+      What the attestation <strong>is</strong>, who may receive one, and how it is collected. This
+      creates a credential type, a policy over it, and a published version — published, so it can be
+      offered immediately. A published version is <strong>immutable</strong>: changing any of this
+      later means publishing a new version, and attestations already issued keep the terms they were
+      issued under.
+    </p>
+    ${options.error ? html`<p class="notice error">${options.error}</p>` : ""}
+    ${gatePanel(options.gate)}
+
+    ${
+      options.providers.length === 0
+        ? html`<p class="notice warn">
+            This tenant has no Attestation Provider, so there is nothing to issue under. A provider
+            is registered and provisioned through the API — it needs an engine tenant and a signing
+            certificate, neither of which belongs in a form.
+          </p>`
+        : html`
+      <form method="post" action="/issuance/new">
+        <fieldset>
+          <legend>1 · What is issued</legend>
+          <label>
+            <span>Issued by</span>
+            <select name="attestationProviderId" required>
+              ${options.providers.map(
+                (p) => html`<option value="${p.id}"${selected("attestationProviderId", p.id)}>
+                  ${p.name}
+                </option>`,
+              )}
+            </select>
+          </label>
+          <label>
+            <span>Name — what a wallet shows the holder</span>
+            <input type="text" name="name" required maxlength="200"
+                   value="${was("name")}" placeholder="Employee badge">
+          </label>
+          <label>
+            <span>Format</span>
+            <select name="format" required>
+              <option value="dc+sd-jwt"${selected("format", "dc+sd-jwt", "dc+sd-jwt")}>
+                SD-JWT VC (dc+sd-jwt)
+              </option>
+              <option value="mso_mdoc"${selected("format", "mso_mdoc")}>mdoc (mso_mdoc)</option>
+            </select>
+          </label>
+          <label>
+            <span>Type identifier — the <code>vct</code> for SD-JWT VC, the <code>doctype</code> for mdoc</span>
+            <input type="text" name="typeIdentifier" required maxlength="500"
+                   value="${was("typeIdentifier")}" placeholder="urn:example:employee-badge:1">
+          </label>
+          <p class="hint">
+            Choose an identifier under a namespace you control. One that resembles an official
+            identifier without being one hides a gap instead of recording it.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>2 · Its attributes</legend>
+          <p class="hint">
+            Leave a row blank to skip it. At least one attribute is required, and a mandatory one
+            must be present for the attestation to be issued at all.
+          </p>
+          <table class="attributes">
+            <thead>
+              <tr><th>Attribute name</th><th>Label shown to the holder</th><th>Type</th><th>Mandatory</th></tr>
+            </thead>
+            <tbody>
+              ${Array.from({ length: ATTRIBUTE_ROWS }, (_, i) => {
+                const n = String(i);
+                return html`
+                  <tr>
+                    <td><input type="text" name="claimPath${n}" maxlength="200"
+                               value="${was(`claimPath${n}`)}"
+                               placeholder="${i === 0 ? "employee_id" : ""}"></td>
+                    <td><input type="text" name="claimLabel${n}" maxlength="200"
+                               value="${was(`claimLabel${n}`)}"
+                               placeholder="${i === 0 ? "Employee number" : ""}"></td>
+                    <td>
+                      <select name="claimType${n}">
+                        <option value="string"${selected(`claimType${n}`, "string", "string")}>text</option>
+                        <option value="number"${selected(`claimType${n}`, "number")}>number</option>
+                        <option value="boolean"${selected(`claimType${n}`, "boolean")}>yes/no</option>
+                        <option value="date"${selected(`claimType${n}`, "date")}>date</option>
+                      </select>
+                    </td>
+                    <td class="centre">
+                      <input type="checkbox" name="claimMandatory${n}" value="on"
+                             ${options.submitted && !options.submitted[`claimMandatory${n}`] ? "" : "checked"}>
+                    </td>
+                  </tr>
+                `;
+              })}
+            </tbody>
+          </table>
+          <p class="hint">
+            For an mdoc the attribute name is the element within its namespace; the namespace comes
+            from the doctype above.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>3 · Who may receive one, and where the values come from</legend>
+          <label>
+            <span>Eligibility rule</span>
+            <select name="evaluator" required>
+              ${options.evaluators.map(
+                (e) => html`<option value="${e}"${selected("evaluator", e)}>${e}</option>`,
+              )}
+            </select>
+          </label>
+          <label>
+            <span>Minimum age, when the rule is <code>MinimumAge</code></span>
+            <input type="number" name="minimumAgeYears" min="0" max="150"
+                   value="${was("minimumAgeYears", "18")}">
+          </label>
+          <p class="hint">
+            The rule is evaluated against the attributes as the authentic source returns them,
+            <strong>before</strong> they are narrowed for the credential — so a rule can read a date
+            of birth that the attestation itself will not carry.
+          </p>
+          <label>
+            <span>Authentic source</span>
+            <select name="connector" required>
+              ${options.connectors.map(
+                (c) => html`<option value="${c}"${selected("connector", c)}>${c}</option>`,
+              )}
+            </select>
+          </label>
+          ${
+            options.connectors.every((c) => c.toLowerCase().includes("fixture"))
+              ? html`<p class="notice warn">
+                  <strong>The only authentic source available is a fixture.</strong> Whatever is
+                  defined here will be issued with <strong>test data</strong>, not with attributes
+                  any authoritative party asserted. A real source is a connector somebody writes and
+                  registers; it is not a setting on this page.
+                </p>`
+              : ""
+          }
+        </fieldset>
+
+        <fieldset>
+          <legend>4 · How it is collected, and for how long it lasts</legend>
+          <label>
+            <span>Purpose — shown to the holder when the wallet asks for approval</span>
+            <input type="text" name="purpose" required maxlength="300"
+                   value="${was("purpose")}"
+                   placeholder="Issue an employee badge to a verified employee">
+          </label>
+          <label>
+            <span>Valid for (days)</span>
+            <input type="number" name="validityDays" required min="1" max="3650"
+                   value="${was("validityDays", "30")}">
+          </label>
+          <label>
+            <span>Collection flow</span>
+            <select name="flow" required>
+              <option value="PRE_AUTHORIZED_CODE"${selected("flow", "PRE_AUTHORIZED_CODE", "PRE_AUTHORIZED_CODE")}>
+                Pre-authorized code — the holder is known before the offer is made
+              </option>
+              <option value="AUTHORIZATION_CODE"${selected("flow", "AUTHORIZATION_CODE")}>
+                Authorization code — the holder authenticates during collection
+              </option>
+            </select>
+          </label>
+          <label>
+            <span>Holder binding</span>
+            <select name="holderBinding" required>
+              <option value="KEY_BOUND"${selected("holderBinding", "KEY_BOUND", "KEY_BOUND")}>
+                Key-bound — only this wallet can present it
+              </option>
+              <option value="BEARER"${selected("holderBinding", "BEARER")}>
+                Bearer — anyone holding it can present it
+              </option>
+            </select>
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" name="statusListEnabled" value="on"
+                   ${options.submitted && !options.submitted.statusListEnabled ? "" : "checked"}>
+            <span>Maintain a status list, so attestations can be revoked</span>
+          </label>
+          <label class="inline-check">
+            <input type="checkbox" name="suspensionAllowed" value="on"
+                   ${options.submitted?.suspensionAllowed ? "checked" : ""}>
+            <span>Allow suspension as well — reversible, unlike revocation</span>
+          </label>
+          <p class="hint">
+            Revocation cannot be undone (<code>AS-AP-07-007</code>). Suspension is the mechanism for
+            a temporary hold, and it exists only if it is allowed here.
+          </p>
+        </fieldset>
+
+        <fieldset>
+          <legend>5 · The Rulebook that governs it</legend>
+          <p class="hint">
+            <strong>Trust configuration, not documentation.</strong> ARF §6.3.2.4 makes the Rulebook
+            the source of the anchors a wallet uses to verify this attestation's signature.
+          </p>
+          <label>
+            <span>Rulebook identifier</span>
+            <input type="text" name="rulebookIdentifier" required maxlength="500"
+                   value="${was("rulebookIdentifier")}" placeholder="urn:example:rulebook:employee-badge">
+          </label>
+          <label>
+            <span>Rulebook version</span>
+            <input type="text" name="rulebookVersion" required maxlength="50"
+                   value="${was("rulebookVersion", "1.0")}">
+          </label>
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit">Define and publish</button>
+          <a href="/issuance" class="cancel">Cancel</a>
+        </div>
+      </form>
+    `
+    }
+  `;
 };

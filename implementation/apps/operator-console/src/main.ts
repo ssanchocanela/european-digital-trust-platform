@@ -25,9 +25,11 @@ import { loadConfig } from "./config.js";
 import type { SafeHtml } from "./html.js";
 import { type Interaction, InteractionCache } from "./interaction-cache.js";
 import {
+  ATTRIBUTE_ROWS,
   issuanceOffersView,
   issuancePolicyView,
   issuedCredentialsView,
+  newIssuanceView,
 } from "./issuance-views.js";
 import { CONSOLE_CSS, CONTENT_SECURITY_POLICY, notice, page } from "./layout.js";
 import { Logger } from "./logger.js";
@@ -89,6 +91,35 @@ const defineOfferForm = z
     resultKind: z.enum(["VERIFIED_CLAIMS", "AGE_OVER_18"]),
   })
   .strict();
+
+/**
+ * The issuance builder's form.
+ *
+ * Attribute rows are flat fields (`claimPath0`, `claimLabel0`, …) rather than an array, because an
+ * HTML form without JavaScript posts them that way and the console renders a fixed number of rows.
+ * Blank rows are dropped when the form is read, so an operator defining two attributes is not asked
+ * to think about the other four.
+ */
+const defineIssuanceForm = z
+  .object({
+    attestationProviderId: z.string().uuid(),
+    name: z.string().min(1).max(200),
+    format: z.enum(["dc+sd-jwt", "mso_mdoc"]),
+    typeIdentifier: z.string().min(1).max(500),
+    rulebookIdentifier: z.string().min(1).max(500),
+    rulebookVersion: z.string().min(1).max(50),
+    purpose: z.string().min(1).max(300),
+    validityDays: z.coerce.number().int().positive().max(3650),
+    evaluator: z.string().min(1).max(100),
+    minimumAgeYears: z.coerce.number().int().min(0).max(150).optional(),
+    connector: z.string().min(1).max(100),
+    flow: z.enum(["PRE_AUTHORIZED_CODE", "AUTHORIZATION_CODE"]),
+    holderBinding: z.enum(["KEY_BOUND", "BEARER"]),
+    // An unchecked checkbox is simply absent from the body.
+    statusListEnabled: z.literal("on").optional(),
+    suspensionAllowed: z.literal("on").optional(),
+  })
+  .passthrough();
 
 /** The message a caller should see, never a stack and never an engine's diagnostic detail. */
 const messageOf = (error: unknown): string =>
@@ -399,6 +430,136 @@ const main = async (): Promise<void> => {
     }
   });
 
+  // Registered BEFORE `/issuance/:policyId`, so "new" is matched as this screen rather than taken
+  // for a policy identifier and answered with a 404 from the platform.
+  app.get("/issuance/new", async (_request, response) => {
+    try {
+      const [providers, capabilities, gate] = await Promise.all([
+        platform.listAttestationProviders(),
+        platform.issuanceCapabilities(),
+        readGate(),
+      ]);
+      render(
+        response,
+        "Define a credential to issue",
+        newIssuanceView({
+          providers,
+          evaluators: capabilities.eligibilityEvaluators,
+          connectors: capabilities.authenticSources,
+          ...(gate ? { gate } : {}),
+        }),
+        true,
+      );
+    } catch (error) {
+      response.status(502);
+      render(
+        response,
+        "Define a credential to issue",
+        newIssuanceView({
+          providers: [],
+          evaluators: [],
+          connectors: [],
+          error: messageOf(error),
+        }),
+        true,
+      );
+    }
+  });
+
+  app.post("/issuance/new", async (request, response) => {
+    const body = (request.body ?? {}) as Record<string, string>;
+    const parsed = defineIssuanceForm.safeParse(body);
+
+    // Everything the operator typed comes back on a failure. A form this long that empties itself
+    // is a form nobody fills in twice.
+    const redisplay = async (message: string, status: number) => {
+      response.status(status);
+      const [providers, capabilities] = await Promise.all([
+        platform.listAttestationProviders().catch(() => []),
+        platform
+          .issuanceCapabilities()
+          .catch(() => ({ eligibilityEvaluators: [], authenticSources: [] })),
+      ]);
+      render(
+        response,
+        "Define a credential to issue",
+        newIssuanceView({
+          providers,
+          evaluators: capabilities.eligibilityEvaluators,
+          connectors: capabilities.authenticSources,
+          error: message,
+          submitted: body,
+        }),
+        true,
+      );
+    };
+
+    if (!parsed.success) {
+      await redisplay(
+        parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+        400,
+      );
+      return;
+    }
+    const form = parsed.data;
+
+    const claims = Array.from({ length: ATTRIBUTE_ROWS }, (_, i) => i)
+      .map((i) => ({
+        path: (body[`claimPath${i}`] ?? "").trim(),
+        label: (body[`claimLabel${i}`] ?? "").trim(),
+        valueType: (body[`claimType${i}`] ?? "string") as
+          | "string"
+          | "number"
+          | "boolean"
+          | "date",
+        mandatory: body[`claimMandatory${i}`] === "on",
+      }))
+      .filter((c) => c.path.length > 0)
+      .map((c) => ({
+        path: [c.path],
+        // An attribute with no label would reach a wallet as its raw name. Defaulting to the name
+        // is better than refusing the form over a field the operator may reasonably leave blank.
+        label: c.label.length > 0 ? c.label : c.path,
+        valueType: c.valueType,
+        mandatory: c.mandatory,
+      }));
+
+    if (claims.length === 0) {
+      await redisplay("Give the credential at least one attribute.", 400);
+      return;
+    }
+
+    try {
+      const { policyId } = await platform.defineIssuance({
+        attestationProviderId: form.attestationProviderId,
+        name: form.name,
+        format: form.format,
+        typeIdentifier: form.typeIdentifier,
+        rulebookIdentifier: form.rulebookIdentifier,
+        rulebookVersion: form.rulebookVersion,
+        claims,
+        validitySeconds: form.validityDays * 86_400,
+        statusMechanism: form.statusListEnabled === "on" ? "TOKEN_STATUS_LIST" : "NONE",
+        purpose: form.purpose,
+        evaluator: form.evaluator,
+        // Only the parameters the chosen evaluator declares. Sending a minimum age to a rule that
+        // does not take one would be accepted and then ignored, which is worse than not sending it.
+        evaluatorParameters:
+          form.evaluator === "MinimumAge"
+            ? { minimumAgeYears: form.minimumAgeYears ?? 18 }
+            : {},
+        connector: form.connector,
+        flow: form.flow,
+        holderBinding: form.holderBinding,
+        suspensionAllowed: form.suspensionAllowed === "on",
+      });
+      logger.info("issuance defined", { policyId });
+      response.redirect(303, `/issuance/${encodeURIComponent(policyId)}`);
+    } catch (error) {
+      await redisplay(messageOf(error), 400);
+    }
+  });
+
   app.get("/issuance/credentials", async (_request, response) => {
     try {
       const credentials = await platform.listIssuedCredentials();
@@ -535,11 +696,14 @@ const main = async (): Promise<void> => {
         policyId,
         status: created.status,
       });
+      // `interaction`, not `offer`. This read `created.offer` — a field the route has never sent —
+      // so every offer this console created rendered as "No offer open", and the QR the screen is
+      // built around had never been shown. See `PlatformClient.createIssuance`.
       await renderIssuancePolicy(response, policyId, {
-        ...(created.offer
+        ...(created.interaction
           ? {
               offer: {
-                uri: created.offer.uri,
+                uri: created.interaction.uri,
                 issuanceId: created.issuanceId,
                 expiresAt: created.expiresAt,
               },

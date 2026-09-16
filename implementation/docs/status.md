@@ -70,6 +70,35 @@ attestation kept verifying as valid everywhere it mattered. The workaround remov
 not the question — any engine failure reproduces it. Whether to keep the ordering, roll the local
 change back, or record and retry the divergence is recorded in A26 and deliberately left open.
 
+### The issuance console can now define what it issues — and had never shown an offer
+
+`/issuance/new` exists. The verification side has had `/offers/new` since the console was built; the
+issuance side had only the operating screens, so an entity could offer and monitor policies somebody
+else had created through the API, and *"define a credential to issue"* was not something the console
+could do at all. One form creates the credential type, the policy and a published version, because
+those are three objects in the model and one intention on a screen.
+
+It offers **only what this deployment has registered** — read from a new route,
+`GET …/issuance-capabilities`, rather than hard-coded, because evaluators and connectors are
+resolved at startup and a name the form invented would be refused at publication after five
+fieldsets had been filled in. Today that is two evaluators and one connector, and the screen says
+outright that **the only authentic source is a fixture**, so anything defined here issues test data.
+A warning that would become decoration if a real connector were registered: it disappears when one
+is.
+
+**And building it found that the console had never displayed a credential offer.**
+`POST /v1/issuances` answers with `interaction: {type, uri}`; the console read `created.offer`, a
+field that route has never sent. So `created.offer` was always `undefined`, every offer rendered as
+*"No offer open"*, and the QR the whole screen is built around had not once appeared. The QR code
+was wired correctly the whole time — it simply never received an offer. Verified end to end after
+the fix: define → publish → offer → a 53×53-module QR carrying an `openid-credential-offer://` URI.
+
+**That is the seventh time on this project that a response shape was assumed rather than read** —
+after A18, A24, the console's error envelope, the audit envelope, the service-instance field and
+`registrationCertificatePublished` on the gate panel. It is comfortably the most expensive pattern
+here, and the two cheapest defences remain the same: read the route's answer, and write the test
+against a real response rather than a hand-built one.
+
 ### The wallet wall moved, and the old explanation was wrong
 
 W4 (`wd-2,wd-3`) was sent a **pre-authorized-code** offer. Its own HTTP log shows the offer fetched

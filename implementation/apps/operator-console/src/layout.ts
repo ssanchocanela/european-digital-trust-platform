@@ -215,6 +215,18 @@ button {
   border: 1px solid var(--accent); background: var(--accent); color: #fff;
 }
 button.secondary { background: transparent; color: var(--accent); }
+/* A checkbox and its label on one line — a block label would put the box above its own text. */
+label.inline-check { display: flex; align-items: baseline; gap: 8px; }
+label.inline-check > input { width: auto; }
+label.inline-check > span { display: inline; margin: 0; color: var(--fg); font-size: 14px; }
+a.cancel { align-self: center; color: var(--muted); }
+/* The attribute grid in the issuance builder. Inputs sit flush in their cells. */
+table.attributes { margin: 6px 0 10px; }
+table.attributes td { padding: 4px 6px 4px 0; border-bottom: none; }
+table.attributes th { padding: 0 6px 4px 0; border-bottom: 1px solid var(--line); }
+table.attributes input[type=text], table.attributes select { padding: 6px 8px; }
+table.attributes td.centre { text-align: center; }
+table.attributes td.centre input { width: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }

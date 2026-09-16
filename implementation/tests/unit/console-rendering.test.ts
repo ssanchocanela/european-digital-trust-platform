@@ -8,6 +8,7 @@
  */
 import { escapeHtml, html, rawHtml, toHtmlString } from "@edtp/operator-console/html.js";
 import { InteractionCache } from "@edtp/operator-console/interaction-cache.js";
+import { issuancePolicyView, newIssuanceView } from "@edtp/operator-console/issuance-views.js";
 import {
   errorCodeOf,
   errorMessageOf,
@@ -244,5 +245,140 @@ describe("the platform's error envelope", () => {
   it("still reads a nested envelope, in case one is ever sent", () => {
     const nested = JSON.stringify({ error: { code: "x", message: "y" } });
     expect(errorCodeOf(nested)).toBe("x");
+  });
+});
+
+describe("the issuance builder", () => {
+  const providers = [{ id: "11111111-1111-1111-1111-111111111111", name: "Acme Issuer BV" }];
+
+  it("offers only the evaluators and connectors the platform reports", () => {
+    // They are registered at startup and resolved then, so a name this form invented would be
+    // refused at publication, after the operator had filled in five fieldsets. The console has no
+    // privileged view and no hard-coded list: it renders what the API returned.
+    const out = toHtmlString(
+      newIssuanceView({
+        providers,
+        evaluators: ["AlwaysEligible", "MinimumAge"],
+        connectors: ["fixture"],
+      }),
+    );
+
+    expect(out).toContain(">AlwaysEligible<");
+    expect(out).toContain(">MinimumAge<");
+    expect(out).toContain(">fixture<");
+    // Nothing that exists in the domain but is not registered in this deployment.
+    expect(out).not.toContain(">ManualReview<");
+  });
+
+  it("says outright that a fixture-only deployment issues test data", () => {
+    // The V0 plan §7.2 requires the connector to be labelled a fixture in its own name. The name
+    // alone tells an operator nothing about the consequence, so the screen states it where the
+    // choice is made.
+    const out = toHtmlString(
+      newIssuanceView({ providers, evaluators: ["AlwaysEligible"], connectors: ["fixture"] }),
+    );
+    expect(out).toContain("only authentic source available is a fixture");
+    expect(out).toContain("test data");
+  });
+
+  it("drops the fixture warning when a real connector is registered", () => {
+    // Otherwise it becomes decoration, and a warning that is always there is a warning nobody reads.
+    const out = toHtmlString(
+      newIssuanceView({
+        providers,
+        evaluators: ["AlwaysEligible"],
+        connectors: ["fixture", "hr-system"],
+      }),
+    );
+    expect(out).not.toContain("only authentic source available is a fixture");
+  });
+
+  it("refuses to pretend there is something to issue under when there is no provider", () => {
+    const out = toHtmlString(
+      newIssuanceView({
+        providers: [],
+        evaluators: ["AlwaysEligible"],
+        connectors: ["fixture"],
+      }),
+    );
+    expect(out).toContain("no Attestation Provider");
+    // No form at all: submitting one would fail on a field the operator cannot fill in here.
+    expect(out).not.toContain('action="/issuance/new"');
+  });
+
+  it("gives back what the operator typed when the form is redisplayed", () => {
+    // A form with five fieldsets that empties itself on an error is a form nobody fills in twice.
+    const out = toHtmlString(
+      newIssuanceView({
+        providers,
+        evaluators: ["AlwaysEligible"],
+        connectors: ["fixture"],
+        error: "Give the credential at least one attribute.",
+        submitted: { name: "Company representative", validityDays: "180", format: "mso_mdoc" },
+      }),
+    );
+
+    expect(out).toContain('value="Company representative"');
+    expect(out).toContain('value="180"');
+    expect(out).toContain('<option value="mso_mdoc" selected>');
+  });
+
+  it("escapes what the operator typed, because it comes straight back into the page", () => {
+    const out = toHtmlString(
+      newIssuanceView({
+        providers,
+        evaluators: ["AlwaysEligible"],
+        connectors: ["fixture"],
+        submitted: { name: '"><script>alert(1)</script>' },
+      }),
+    );
+    expect(out).not.toContain("<script>alert(1)");
+    expect(out).toContain("&lt;script&gt;");
+  });
+});
+
+describe("what a created credential offer is read from", () => {
+  it("renders the offer when the route's own field name is used", () => {
+    // `POST /v1/issuances` answers with `interaction: {type, uri}`. The console read `offer`, a
+    // field that route has never sent, so `created.offer` was always undefined and every offer
+    // rendered as "No offer open" — the QR this screen is built around had never been displayed.
+    // The seventh shape on this project assumed rather than read.
+    const withOffer = toHtmlString(
+      issuancePolicyView({
+        policy: {
+          id: "p1",
+          name: "Company representative",
+          credentialTypeName: "Company representative",
+          credentialFormat: "dc+sd-jwt",
+          publishedVersion: 1,
+          status: "ACTIVE",
+        },
+        issuances: [],
+        offer: {
+          uri: "openid-credential-offer://?credential_offer_uri=https%3A%2F%2Fexample.test%2Fo%2F1",
+          issuanceId: "i1",
+          expiresAt: "2026-09-16T12:00:00.000Z",
+        },
+        qr: rawHtml("<svg></svg>"),
+      }),
+    );
+    expect(withOffer).toContain("Scan with the wallet");
+    expect(withOffer).toContain("<svg>");
+    expect(withOffer).not.toContain("No offer open");
+
+    const withoutOffer = toHtmlString(
+      issuancePolicyView({
+        policy: {
+          id: "p1",
+          name: "Company representative",
+          credentialTypeName: "Company representative",
+          credentialFormat: "dc+sd-jwt",
+          publishedVersion: 1,
+          status: "ACTIVE",
+        },
+        issuances: [],
+      }),
+    );
+    expect(withoutOffer).toContain("No offer open");
   });
 });

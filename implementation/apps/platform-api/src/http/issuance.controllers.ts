@@ -209,6 +209,26 @@ export class IssuanceConfigurationController {
     };
   }
 
+  @Get(":tenantId/issuance-capabilities")
+  @ApiOperation({
+    summary: "The eligibility rules and authentic sources this deployment can actually use",
+  })
+  async issuanceCapabilities(@Ctx() ctx: RequestContext, @Param("tenantId") tenantId: string) {
+    assertTenantMatches(ctx, tenantId);
+    // Both are **registered at startup** and resolved then, not at runtime — an eligibility rule
+    // decides whether someone receives an attestation about themselves, so it is readable code
+    // under review rather than a string in a database (`EligibilityRuleRef`). Publishing a version
+    // that names something unregistered is refused, and this is what a caller needs to avoid that:
+    // the list, rather than a 422 after filling in a form.
+    //
+    // Platform-wide rather than tenant-scoped, but served under the tenant path so it needs a
+    // tenant credential and nothing more — there is no anonymous inventory of this deployment.
+    return {
+      eligibilityEvaluators: this.evaluators,
+      authenticSources: this.connectors,
+    };
+  }
+
   @Get(":tenantId/attestation-providers/:providerId/provider-authentication")
   @ApiOperation({
     summary: "What a Wallet would see when authenticating this provider (ARF §6.6.2.2)",

@@ -644,3 +644,82 @@ describe("a status change records whether the engine agreed", () => {
     expect(await confirmedOf(seed, id)).toBe(false);
   });
 });
+
+/**
+ * Retiring a policy: the state the platform modelled, enforced, and could not reach.
+ *
+ * `POLICY_CONTAINER_STATUSES` has had `RETIRED` since Milestone 1 and the presentation service has
+ * refused a retired policy since then — but no route set it on either side, so the check had never
+ * had anything to refuse. The issuance side's own type even called it `ARCHIVED`, a second name for
+ * a state no row had ever held.
+ */
+describe("retiring an issuance policy", () => {
+  it("stops new issuances and leaves everything already issued alone", async () => {
+    const seed = await seedProvider("Retiring BV");
+    const policy = await seedPolicy(seed, { name: "Seasonal badge" });
+
+    await issuance().setPolicyStatus({
+      tenantId: seed.tenantId,
+      policyId: policy.id,
+      to: "RETIRED",
+    });
+
+    const after = await issuance().findPolicy(seed.tenantId, policy.id);
+    expect(after?.status).toBe("RETIRED");
+
+    // The published version is untouched: a transaction that used it still resolves it, which is
+    // what makes retirement safe to offer at all.
+    const versions = await issuance().listVersions(seed.tenantId, policy.id);
+    expect(versions.find((v) => v.version === 1)?.status).toBe("PUBLISHED");
+  });
+
+  it("is reversible, unlike revoking an attestation", async () => {
+    // The contrast is the point. `AS-AP-07-007` makes an attestation's revocation irreversible
+    // because it is a statement about a credential somebody holds. Retiring a policy only stops new
+    // transactions starting, so a mis-click should not be permanent.
+    const seed = await seedProvider("Reversible BV");
+    const policy = await seedPolicy(seed, { name: "Temporary badge" });
+
+    await issuance().setPolicyStatus({
+      tenantId: seed.tenantId,
+      policyId: policy.id,
+      to: "RETIRED",
+    });
+    await issuance().setPolicyStatus({
+      tenantId: seed.tenantId,
+      policyId: policy.id,
+      to: "ACTIVE",
+    });
+
+    expect((await issuance().findPolicy(seed.tenantId, policy.id))?.status).toBe("ACTIVE");
+  });
+
+  it("refuses a no-op, so a caller is never told it changed something it did not", async () => {
+    const seed = await seedProvider("Noop BV");
+    const policy = await seedPolicy(seed, { name: "Already active" });
+
+    await expect(
+      issuance().setPolicyStatus({
+        tenantId: seed.tenantId,
+        policyId: policy.id,
+        to: "ACTIVE",
+      }),
+    ).rejects.toMatchObject({ code: "policy_already_in_status" });
+  });
+
+  it("refuses to retire a policy belonging to another tenant", async () => {
+    const mine = await seedProvider("Mine BV");
+    const theirs = await seedProvider("Theirs BV");
+    const policy = await seedPolicy(theirs, { name: "Not yours" });
+
+    await expect(
+      issuance().setPolicyStatus({
+        tenantId: mine.tenantId,
+        policyId: policy.id,
+        to: "RETIRED",
+      }),
+    ).rejects.toMatchObject({ code: "not_found" });
+
+    expect((await issuance().findPolicy(theirs.tenantId, policy.id))?.status).toBe("ACTIVE");
+  });
+});

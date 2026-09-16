@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   assertIssuanceTransition,
+  assertPolicyContainerTransition,
   assertStatusTransition,
   type CredentialStatus,
   type CredentialType,
@@ -12,6 +13,7 @@ import {
   type IssuedCredentialRecord,
   isIssuanceTerminal,
   nextVersionNumber,
+  type PolicyContainerStatus,
 } from "@edtp/domain";
 import type { TenantId } from "@edtp/shared";
 import { PlatformError } from "@edtp/shared";
@@ -516,6 +518,46 @@ export class IssuanceRepository {
     };
   }
 
+  /**
+   * Retires a policy container, or brings one back.
+   *
+   * Retiring stops new issuances starting and changes nothing about attestations already issued:
+   * every transaction references the exact version it used, and a holder's credential keeps the
+   * terms it was issued under. That is why this is reversible, unlike an attestation's revocation
+   * (`AS-AP-07-007`) — see `assertPolicyContainerTransition`.
+   *
+   * The current status is pinned in the `WHERE` clause, so two callers racing cannot both believe
+   * they made the change.
+   */
+  async setPolicyStatus(input: {
+    readonly tenantId: TenantId;
+    readonly policyId: string;
+    readonly to: PolicyContainerStatus;
+  }): Promise<void> {
+    const policy = await this.findPolicy(input.tenantId, input.policyId);
+    if (!policy) throw PlatformError.notFound("Issuance policy");
+    assertPolicyContainerTransition(policy.status, input.to);
+
+    const updated = await this.db
+      .update(issuancePolicies)
+      .set({ status: input.to })
+      .where(
+        and(
+          eq(issuancePolicies.id, input.policyId),
+          eq(issuancePolicies.tenantId, input.tenantId),
+          eq(issuancePolicies.status, policy.status),
+        ),
+      )
+      .returning({ id: issuancePolicies.id });
+
+    if (updated.length === 0) {
+      throw PlatformError.conflict(
+        "policy_status_conflict",
+        "Another writer changed the policy's status first.",
+      );
+    }
+  }
+
   async findPolicy(tenantId: TenantId, id: string): Promise<IssuancePolicy | undefined> {
     const [row] = await this.db
       .select()
@@ -528,7 +570,7 @@ export class IssuanceRepository {
       tenantId: row.tenantId,
       credentialTypeId: row.credentialTypeId,
       name: row.name,
-      status: row.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE",
+      status: row.status === "RETIRED" ? "RETIRED" : "ACTIVE",
       createdAt: row.createdAt,
     };
   }

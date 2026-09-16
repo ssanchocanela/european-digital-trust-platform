@@ -28,6 +28,7 @@ import {
   createIssuancePolicyVersionSchema,
   createIssuanceSchema,
   provisionAttestationProviderSchema,
+  setIssuancePolicyStatusSchema,
 } from "./schemas.js";
 
 /**
@@ -207,6 +208,30 @@ export class IssuanceConfigurationController {
       // Shown once and never again, exactly as on the verification side.
       ...(webhookSecret ? { webhookSecret } : {}),
     };
+  }
+
+  @Post(":tenantId/issuance-policies/:policyId/status")
+  @ApiOperation({ summary: "Retire an issuance policy, or bring a retired one back" })
+  async setIssuancePolicyStatus(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("policyId") policyId: string,
+    @Body() body: unknown,
+  ) {
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("policyId", policyId);
+    const input = setIssuancePolicyStatusSchema.parse(body);
+
+    // Retiring stops new issuances starting and changes nothing that has already been issued. It is
+    // reversible for exactly that reason — unlike revoking an attestation (`AS-AP-07-007`), which
+    // makes a statement about a credential somebody holds.
+    await this.issuance.setPolicyStatus({ tenantId: id, policyId, to: input.status });
+
+    // Not audited, and that is a gap rather than a decision: **no** configuration change in this
+    // controller is — not registering a provider, not provisioning one, not defining a credential
+    // type, not publishing a version. Auditing this one alone would suggest the others are covered.
+    // Worth closing as a whole, and not by widening it here.
+    return { policyId, status: input.status };
   }
 
   @Get(":tenantId/issuance-capabilities")

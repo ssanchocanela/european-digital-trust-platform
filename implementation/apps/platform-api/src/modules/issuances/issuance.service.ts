@@ -98,6 +98,16 @@ export class IssuanceService {
 
     const policy = await this.issuance.findPolicy(command.tenantId, command.policyId);
     if (!policy) throw PlatformError.notFound("Issuance policy");
+    // The same guard the verification side has had since Milestone 1. It was missing here because
+    // nothing could retire an issuance policy — the state was modelled and unreachable — so the
+    // check had never had anything to refuse.
+    if (policy.status === "RETIRED") {
+      throw PlatformError.conflict(
+        "policy_retired",
+        "The issuance policy has been retired and cannot be used. Attestations already issued " +
+          "under it are unaffected and keep the terms they were issued under.",
+      );
+    }
 
     const versions = await this.issuance.listVersions(command.tenantId, command.policyId);
     const version = resolvePublishedVersion(versions);

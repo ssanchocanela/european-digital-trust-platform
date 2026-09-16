@@ -174,8 +174,43 @@ export const issuanceOffersView = (options: {
 
   <p class="actions"><a href="/issuance/new" class="button">Define a credential to issue</a></p>
 
+  ${policyTable(options.policies.filter((p) => p.status !== "RETIRED"))}
+  ${retiredSection(options.policies.filter((p) => p.status === "RETIRED"))}
+
+  <h2>Issued attestations</h2>
+  <p class="sub">
+    Everything a wallet has actually collected, and its status now. Revocation cannot be undone;
+    a suspended attestation can be reinstated.
+  </p>
+  <p class="empty"><a href="/issuance/credentials">Open the register</a></p>
+`;
+
+/**
+ * Retired policies, kept out of the main list but not hidden.
+ *
+ * Deleting a policy is not offered and should not be: attestations issued under it reference the
+ * version they used, and a list that pretended the policy never existed would make those
+ * unexplainable. Retirement is the honest middle — it stops new issuances and stays on the record.
+ */
+const retiredSection = (
+  policies: readonly (IssuanceOption & { readonly issuances: number })[],
+): SafeHtml =>
+  policies.length === 0
+    ? html``
+    : html`
+        <h2>Retired</h2>
+        <p class="sub">
+          No new attestation can be issued under these. The ones already issued are unaffected and
+          keep the terms they were issued under; retiring is reversible.
+        </p>
+        ${policyTable(policies)}
+      `;
+
+const policyTable = (
+  policies: readonly (IssuanceOption & { readonly issuances: number })[],
+): SafeHtml => html`
   ${
-    options.policies.length === 0
+    policies.length === 0
       ? html`<p class="empty">
           Nothing is defined yet. <a href="/issuance/new">Define a credential to issue</a> — what it
           is, who may receive one, and how it is collected.
@@ -192,7 +227,7 @@ export const issuanceOffersView = (options: {
             </tr>
           </thead>
           <tbody>
-            ${options.policies.map(
+            ${policies.map(
               (p) => html`
                 <tr>
                   <td><a href="/issuance/${p.id}">${p.name}</a></td>
@@ -213,13 +248,6 @@ export const issuanceOffersView = (options: {
         </table>
       `
   }
-
-  <h2>Issued attestations</h2>
-  <p class="sub">
-    Everything a wallet has actually collected, and its status now. Revocation cannot be undone;
-    a suspended attestation can be reinstated.
-  </p>
-  <p class="empty"><a href="/issuance/credentials">Open the register</a></p>
 `;
 
 // --- 2. one policy: offer it, and watch what happened -------------------------------------------
@@ -248,6 +276,19 @@ export const issuancePolicyView = (options: {
   </p>
   ${options.error ? html`<p class="notice error">${options.error}</p>` : ""}
   ${gatePanel(options.gate)}
+
+  ${
+    options.policy.status === "RETIRED"
+      ? html`<p class="notice warn">
+          <strong>This policy is retired.</strong> No new attestation can be issued under it. The
+          ones already issued are unaffected and keep the terms they were issued under.
+          <form method="post" action="/issuance/${options.policy.id}/status" class="inline">
+            <input type="hidden" name="status" value="ACTIVE">
+            <button type="submit" class="link">Bring it back</button>
+          </form>
+        </p>`
+      : ""
+  }
 
   <section class="panel">
     <h2>Offer this credential to someone</h2>
@@ -316,6 +357,27 @@ export const issuancePolicyView = (options: {
         `
     }
   </section>
+
+  ${
+    options.policy.status === "RETIRED"
+      ? ""
+      : html`
+        <section>
+          <h2>Retire this policy</h2>
+          <p class="sub">
+            Stops new attestations being issued under it. <strong>Nothing already issued
+            changes</strong> — each one references the version it was issued under, and a holder's
+            credential is untouched. Reversible, unlike revoking an attestation. Deleting is not
+            offered: attestations that reference a policy which had vanished would be
+            unexplainable.
+          </p>
+          <form method="post" action="/issuance/${options.policy.id}/status">
+            <input type="hidden" name="status" value="RETIRED">
+            <div class="actions"><button type="submit" class="secondary">Retire</button></div>
+          </form>
+        </section>
+      `
+  }
 `;
 
 // --- 3. the register of what was actually collected ---------------------------------------------

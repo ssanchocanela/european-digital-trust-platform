@@ -104,6 +104,30 @@ after A18, A24, the console's error envelope, the audit envelope, the service-in
 here, and the two cheapest defences remain the same: read the route's answer, and write the test
 against a real response rather than a hand-built one.
 
+### A policy can be retired, which the platform had modelled and could not do
+
+Tidying the development tenant — eight issuance policies, most of them debris from three days of
+debugging — turned out not to be tidying. **There was no way to retire an issuance policy.**
+`POLICY_CONTAINER_STATUSES` has carried `RETIRED` since Milestone 1 and the presentation service has
+refused a retired policy since then, but **no route on either side ever set it**, so that check had
+never had anything to refuse. The issuance side's own type called the state `ARCHIVED` — a second
+name for a state no row had ever held, which is how a naming drift survives: nothing could produce
+the value, so nothing could disagree about it.
+
+`POST …/issuance-policies/{id}/status` now sets it, the issuance service refuses a retired policy
+the way the verification side always has, and the console shows retired policies in their own
+section rather than mixed into the working list. **Reversible on purpose**, and the contrast with
+revocation is the reason: `AS-AP-07-007` makes an attestation's revocation irreversible because it
+is a statement about a credential somebody holds, while retiring a policy only stops new
+transactions starting — attestations already issued keep the terms they were issued under. Deleting
+is not offered at all: an attestation referencing a policy that had vanished would be unexplainable.
+
+The development tenant is now two live policies and six retired, done through the console.
+
+**The verification side has the identical gap** — a presentation policy cannot be retired either,
+and `presentation.service.ts` has been enforcing `policy_retired` against a state nothing can set.
+Not fixed here, because it was not what was asked; recorded because it is the same hole.
+
 ### The wallet wall moved, and the old explanation was wrong
 
 W4 (`wd-2,wd-3`) was sent a **pre-authorized-code** offer. Its own HTTP log shows the offer fetched

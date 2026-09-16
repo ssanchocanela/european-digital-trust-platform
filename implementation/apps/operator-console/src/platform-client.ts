@@ -564,6 +564,22 @@ export class PlatformClient {
     return { policyId: policy.policyId };
   }
 
+  /**
+   * Retires an issuance policy, or brings a retired one back.
+   *
+   * Reversible, unlike revoking an attestation: retiring stops new issuances starting and changes
+   * nothing about attestations already issued.
+   */
+  async setIssuancePolicyStatus(policyId: string, status: "ACTIVE" | "RETIRED"): Promise<void> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    await this.call(
+      "POST",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/issuance-policies/` +
+        `${encodeURIComponent(policyId)}/status`,
+      { status },
+    );
+  }
+
   /** What eligibility rules and authentic sources this deployment actually has registered. */
   async issuanceCapabilities(): Promise<{
     readonly eligibilityEvaluators: readonly string[];

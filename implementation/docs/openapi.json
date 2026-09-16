@@ -656,6 +656,38 @@
         ]
       }
     },
+    "/v1/tenants/{tenantId}/issuance-policies/{policyId}/status": {
+      "post": {
+        "operationId": "IssuanceConfigurationController_setIssuancePolicyStatus",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Retire an issuance policy, or bring a retired one back",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
     "/v1/tenants/{tenantId}/issuance-capabilities": {
       "get": {
         "operationId": "IssuanceConfigurationController_issuanceCapabilities",

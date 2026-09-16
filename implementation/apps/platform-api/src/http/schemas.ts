@@ -412,6 +412,17 @@ export const createIssuanceSchema = z
   })
   .strict();
 
+/**
+ * Retiring an issuance policy, or bringing one back.
+ *
+ * Reversible on purpose, and the contrast with `changeCredentialStatusSchema` below is the point: a
+ * revoked attestation stays revoked, because revocation is a statement about a credential somebody
+ * holds. Retiring a policy only stops new transactions starting.
+ */
+export const setIssuancePolicyStatusSchema = z
+  .object({ status: z.enum(["ACTIVE", "RETIRED"]) })
+  .strict();
+
 export const changeCredentialStatusSchema = z
   .object({
     /** `VALID` is only reachable from `SUSPENDED`: revocation is irreversible (`VCR_04`). */

@@ -671,6 +671,24 @@ const main = async (): Promise<void> => {
     }
   });
 
+  app.post("/issuance/:policyId/status", async (request, response) => {
+    const policyId = request.params.policyId ?? "";
+    const status = request.body?.status === "RETIRED" ? "RETIRED" : "ACTIVE";
+    try {
+      await platform.setIssuancePolicyStatus(policyId, status);
+      logger.info("issuance policy status changed", { policyId, status });
+      // Back to the list after retiring — the policy has just left it, and staying on a screen whose
+      // main action is now refused would be a strange place to be left.
+      response.redirect(
+        303,
+        status === "RETIRED" ? "/issuance" : `/issuance/${encodeURIComponent(policyId)}`,
+      );
+    } catch (error) {
+      response.status(400);
+      await renderIssuancePolicy(response, policyId, { error: messageOf(error) });
+    }
+  });
+
   app.post("/issuance/:policyId/offer", async (request, response) => {
     const policyId = request.params.policyId ?? "";
     const subjectReference =

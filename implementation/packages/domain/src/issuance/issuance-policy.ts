@@ -1,7 +1,7 @@
 import type { LocalisedText } from "@edtp/shared";
 import { PlatformError } from "@edtp/shared";
 import type { RetentionPolicy } from "../kernel/policies.js";
-import type { PolicyStatus } from "../kernel/policy-version.js";
+import type { PolicyContainerStatus, PolicyStatus } from "../kernel/policy-version.js";
 import { type CredentialType, declaredClaimPaths } from "./credential-type.js";
 
 /**
@@ -77,7 +77,15 @@ export interface IssuancePolicy {
   readonly tenantId: string;
   readonly credentialTypeId: string;
   readonly name: string;
-  readonly status: "ACTIVE" | "ARCHIVED";
+  /**
+   * The container's own lifecycle, `RETIRED` rather than `ARCHIVED`.
+   *
+   * It said `ARCHIVED` until 16 September 2026 while the kernel that governs every policy
+   * container said `RETIRED` — two names for one state, in a codebase where the verification
+   * side already used the kernel's. No row had ever held either value, because nothing could
+   * set one: the state was modelled and enforced and unreachable.
+   */
+  readonly status: PolicyContainerStatus;
   readonly createdAt: Date;
 }
 

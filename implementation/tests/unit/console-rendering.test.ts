@@ -8,7 +8,11 @@
  */
 import { escapeHtml, html, rawHtml, toHtmlString } from "@edtp/operator-console/html.js";
 import { InteractionCache } from "@edtp/operator-console/interaction-cache.js";
-import { issuancePolicyView, newIssuanceView } from "@edtp/operator-console/issuance-views.js";
+import {
+  issuanceOffersView,
+  issuancePolicyView,
+  newIssuanceView,
+} from "@edtp/operator-console/issuance-views.js";
 import {
   errorCodeOf,
   errorMessageOf,
@@ -380,5 +384,75 @@ describe("what a created credential offer is read from", () => {
       }),
     );
     expect(withoutOffer).toContain("No offer open");
+  });
+});
+
+describe("retired policies on the issuance list", () => {
+  const policy = (name: string, status: string) => ({
+    id: `id-${name}`,
+    name,
+    credentialTypeName: "Badge",
+    credentialFormat: "dc+sd-jwt",
+    publishedVersion: 1,
+    status,
+    issuances: 0,
+  });
+
+  it("keeps retired policies out of the working list without hiding them", () => {
+    // Deleting is not offered and should not be: attestations reference the policy version they
+    // were issued under, and a list that pretended the policy never existed would make those
+    // unexplainable. Retirement is the honest middle.
+    const out = toHtmlString(
+      issuanceOffersView({
+        policies: [policy("Live badge", "ACTIVE"), policy("Old badge", "RETIRED")],
+      }),
+    );
+
+    expect(out).toContain("Live badge");
+    expect(out).toContain("Old badge");
+    expect(out).toContain("<h2>Retired</h2>");
+    // The retired one appears after the heading that explains it, not mixed into the live table.
+    expect(out.indexOf("Old badge")).toBeGreaterThan(out.indexOf("<h2>Retired</h2>"));
+    expect(out.indexOf("Live badge")).toBeLessThan(out.indexOf("<h2>Retired</h2>"));
+  });
+
+  it("shows no retired section when nothing is retired", () => {
+    const out = toHtmlString(issuanceOffersView({ policies: [policy("Only", "ACTIVE")] }));
+    expect(out).not.toContain("<h2>Retired</h2>");
+  });
+
+  it("does not offer to retire a policy that already is", () => {
+    const retired = toHtmlString(
+      issuancePolicyView({
+        policy: {
+          id: "p1",
+          name: "Old badge",
+          credentialTypeName: "Badge",
+          credentialFormat: "dc+sd-jwt",
+          publishedVersion: 1,
+          status: "RETIRED",
+        },
+        issuances: [],
+      }),
+    );
+    expect(retired).toContain("This policy is retired");
+    expect(retired).toContain("Bring it back");
+    expect(retired).not.toContain("<h2>Retire this policy</h2>");
+
+    const active = toHtmlString(
+      issuancePolicyView({
+        policy: {
+          id: "p1",
+          name: "Live badge",
+          credentialTypeName: "Badge",
+          credentialFormat: "dc+sd-jwt",
+          publishedVersion: 1,
+          status: "ACTIVE",
+        },
+        issuances: [],
+      }),
+    );
+    expect(active).toContain("<h2>Retire this policy</h2>");
+    expect(active).not.toContain("Bring it back");
   });
 });

@@ -8,6 +8,26 @@ linked rather than repeated.
 
 ---
 
+## 16 September 2026, evening — **a wallet collected an attestation from this platform**
+
+The first time since the issuance side existed. A modified wallet (W4) collected *Employee badge*
+over the tunnel and stored it; the platform recorded it `ISSUED` and it is revocable from the console.
+Evidence and every limit: [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1f.
+
+**To reproduce**, all of these — and the fourth is the one that failed twice on the day:
+
+1. `ENGINE_WALLET_PROVIDER_TRUST_LIST_ID=eudi-dev-wallet-providers` in `.env`, and
+   `./scripts/setup-wallet-provider-trust.sh` once per engine database.
+2. The gateway with **`GATEWAY_PINNED_WALLET_COMPAT=true`** — e.g.
+   `GATEWAY_PINNED_WALLET_COMPAT=true ./scripts/test-session.sh up`. A demo workaround (A29).
+3. **The host clock in sync with real time.** The client-attestation check runs with zero tolerance
+   (A29); two seconds off fails the token request intermittently.
+4. **After restarting Docker, re-apply the session environment** before trusting any offer:
+   `set -a; . /tmp/edtp-test-session/session.env; set +a; docker compose up -d --force-recreate eudiplo platform-api operator-console test-start`.
+   Twice today a plain `up` put the engine back on `localhost` and every offer became unreachable.
+5. **Cold-start the wallet** before sending an intent (`am force-stop`), or scan the QR from the
+   wallet's own scanner. An intent delivered to a wallet already open is dropped.
+
 ## 16 September 2026 — the platform issued an attestation, end to end
 
 **The first credential this platform has ever issued.** Offer → issuer metadata → authorization
@@ -72,8 +92,9 @@ attestation whose status list had never been touched — with the API returning 
 for the same call. The ordering's stated rationale, that the stricter record is the safe direction,
 **does not hold**: a Relying Party reads the engine's status list, not our register, so the
 attestation kept verifying as valid everywhere it mattered. The workaround removes today's instance,
-not the question — any engine failure reproduces it. Whether to keep the ordering, roll the local
-change back, or record and retry the divergence is recorded in A26 and deliberately left open.
+not the question — any engine failure reproduces it. **Settled later the same day**: the ordering is
+kept, and the record now distinguishes intended from in effect — `status_confirmed_at`, migration
+0009, shown in the console as *"not in effect"*. No retry queue; the call is idempotent.
 
 ### The issuance console can now define what it issues — and had never shown an offer
 

@@ -41,6 +41,32 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /**
+   * Compatibility with the pinned test wallet. **A demo workaround, off by default, and never on for a
+   * run meant to evidence anything about the engine.** Two response rewrites, both needed together
+   * for that wallet to complete an issuance against this engine; each exists because the two sides
+   * disagree on something the specification leaves open. `interop-findings.md` A29.
+   *
+   * 1. **Token responses lose `authorization_details`.** The engine always returns them with
+   *    `credential_identifiers` — falling back to the offer's configuration ids when the request
+   *    carried none — and `eudi-lib-jvm-openid4vci-kt` 0.13.1 then refuses a credential request built
+   *    by configuration id, which is the only kind Wallet Core 0.30.2 builds: *"Authorization detail
+   *    type of openid_credential require usage of credential identifiers in credential request"*.
+   *    For a pre-authorized code with none in the request, returning them is optional. Safe for the
+   *    engine: its credential endpoint authorises from the access token's own claims.
+   *
+   * 2. **Issuer metadata gains `key_attestations_required` on the `attestation` proof type.** Wallet
+   *    Core 0.30.2 has no plain JWT proof — every JWT proof carries a key attestation, which the
+   *    engine resolves as signer method `custom` and refuses — so the issuer advertises only
+   *    `attestation`, which the engine verifies against its wallet-provider trust list. But the
+   *    engine publishes `key_attestations_required` only under `jwt`, and the wallet's library
+   *    rejects any proof type without it. The value injected is the adapter's own
+   *    (`iso_18045_basic`): a parser requirement, not a security property.
+   */
+  GATEWAY_PINNED_WALLET_COMPAT: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   /** Bound to every interface: a tunnel connects to it, and on a laptop that means all of them. */
   GATEWAY_BIND_HOST: z.string().min(1).default("127.0.0.1"),
 });
@@ -143,6 +169,98 @@ const createProxy = (
         }
 
         const contentType = String(upstreamResponse.headers["content-type"] ?? "");
+
+        const injectKeyAttestation =
+          config.GATEWAY_PINNED_WALLET_COMPAT &&
+          method === "GET" &&
+          ISSUER_METADATA.test(pathname) &&
+          status >= 200 &&
+          status < 300 &&
+          contentType.includes("application/json");
+
+        if (injectKeyAttestation) {
+          const mdChunks: Buffer[] = [];
+          upstreamResponse.on("data", (chunk: Buffer) => mdChunks.push(chunk));
+          upstreamResponse.on("end", () => {
+            let out = Buffer.concat(mdChunks).toString("utf8");
+            try {
+              const md = JSON.parse(out) as {
+                credential_configurations_supported?: Record<
+                  string,
+                  { proof_types_supported?: Record<string, Record<string, unknown>> }
+                >;
+              };
+              let injected = 0;
+              for (const cfg of Object.values(md.credential_configurations_supported ?? {})) {
+                const attestation = cfg.proof_types_supported?.["attestation"];
+                if (attestation && !("key_attestations_required" in attestation)) {
+                  attestation["key_attestations_required"] = {
+                    key_storage: ["iso_18045_basic"],
+                  };
+                  injected += 1;
+                }
+              }
+              if (injected > 0) {
+                out = JSON.stringify(md);
+                log("injected key_attestations_required into attestation proof types", {
+                  path: pathname,
+                  configurations: injected,
+                });
+              }
+            } catch {
+              // Not JSON after all: passed through untouched.
+            }
+            delete outgoing["content-length"];
+            response.writeHead(status, {
+              ...outgoing,
+              "content-length": Buffer.byteLength(out),
+            });
+            response.end(out);
+          });
+          return;
+        }
+
+        const stripTokenDetails =
+          config.GATEWAY_PINNED_WALLET_COMPAT &&
+          method === "POST" &&
+          TOKEN_ENDPOINT.test(pathname) &&
+          status >= 200 &&
+          status < 300 &&
+          contentType.includes("application/json");
+
+        if (stripTokenDetails) {
+          // Buffered: a token response is small. **The body is never logged** — it carries the
+          // access token and the refresh token.
+          const tokenChunks: Buffer[] = [];
+          upstreamResponse.on("data", (chunk: Buffer) => tokenChunks.push(chunk));
+          upstreamResponse.on("end", () => {
+            let out = Buffer.concat(tokenChunks).toString("utf8");
+            try {
+              const parsed: unknown = JSON.parse(out);
+              if (
+                typeof parsed === "object" &&
+                parsed !== null &&
+                !Array.isArray(parsed) &&
+                "authorization_details" in parsed
+              ) {
+                const copy = { ...(parsed as Record<string, unknown>) };
+                delete copy["authorization_details"];
+                out = JSON.stringify(copy);
+                log("stripped authorization_details from a token response", { path: pathname });
+              }
+            } catch {
+              // Not JSON after all: passed through untouched.
+            }
+            delete outgoing["content-length"];
+            response.writeHead(status, {
+              ...outgoing,
+              "content-length": Buffer.byteLength(out),
+            });
+            response.end(out);
+          });
+          return;
+        }
+
         const shouldStrip =
           config.GATEWAY_STRIP_NONPROTOCOL_ERROR_KEYS &&
           status >= 300 &&
@@ -197,6 +315,12 @@ const createProxy = (
     request.pipe(proxied);
   });
 
+/** The engine's token endpoint for any issuer tenant — the only place the token transform applies. */
+const TOKEN_ENDPOINT = /^\/issuers\/[A-Za-z0-9._-]+\/authorize\/token$/;
+
+/** The Wallet-facing Credential Issuer metadata document. */
+const ISSUER_METADATA = /^\/\.well-known\/openid-credential-issuer\/issuers\/[A-Za-z0-9._-]+$/;
+
 const main = (): void => {
   const parsed = schema.safeParse(process.env);
   if (!parsed.success) {
@@ -208,6 +332,14 @@ const main = (): void => {
     process.exit(1);
   }
   const config = parsed.data;
+
+  if (config.GATEWAY_PINNED_WALLET_COMPAT) {
+    log("pinned-wallet compatibility is ON", {
+      warning:
+        "a demo workaround (A29): token responses and issuer metadata through this gateway are not " +
+        "what the engine sent, so nothing observed through it evidences the engine's behaviour",
+    });
+  }
 
   if (config.GATEWAY_STRIP_NONPROTOCOL_ERROR_KEYS) {
     log("G7 stripping is ON", {

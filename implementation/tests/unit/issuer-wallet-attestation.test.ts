@@ -117,11 +117,15 @@ const provision = async (options?: { walletProviderTrustListId?: string }) => {
 };
 
 describe("proof types a wallet's OpenID4VCI library will parse", () => {
-  it("advertises jwt only — the engine's default `attestation` entry fails the whole document", async () => {
-    const { credential } = await provision();
-    const config = (credential.config ?? {}) as Record<string, unknown>;
-    expect(config.proofTypesSupported).toEqual(["jwt"]);
-  });
+  it("advertises the attestation proof type only", () =>
+    provision().then(({ credential }) => {
+      // Not `jwt`: Wallet Core 0.30.2 has no plain JWT proof — every JWT proof carries a key
+      // attestation, which the engine resolves as signer method `custom` and refuses. An `attestation`
+      // proof is verified by the engine against its wallet-provider trust list. The engine's default
+      // `["attestation", "jwt"]` also fails the wallet's metadata parser. A29.
+      const config = (credential.config ?? {}) as Record<string, unknown>;
+      expect(config.proofTypesSupported).toEqual(["attestation"]);
+    }));
 
   it("always carries a non-empty key_attestations_required", async () => {
     // Absent: "jwt proof must contain 'key_attestations_required'". `{}`: read as absent. An empty

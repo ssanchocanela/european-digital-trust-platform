@@ -507,7 +507,10 @@ const eligibilityAuthorizationServerId = (presentationPolicyId: string): string 
  * malformed shape the library rejects. `jwt` is what this issuer actually accepts, and it is the
  * proof the platform's own contract test builds.
  */
-const PROOF_TYPES_SUPPORTED = ["jwt"] as const;
+// `attestation`, not `jwt`: Wallet Core 0.30.2 has no plain JWT proof — every JWT proof carries a
+// key attestation, which the engine resolves as signer `custom` and refuses — while an attestation
+// proof is verified by the engine against its wallet-provider trust list. `interop-findings.md` A29.
+const PROOF_TYPES_SUPPORTED = ["attestation"] as const;
 
 /**
  * The key-attestation requirement published beside the proof type.

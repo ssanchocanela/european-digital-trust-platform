@@ -492,6 +492,37 @@ which `AS-AP-07-023` (`VCR_13`) permits only after a documented risk analysis th
 performed. **An mdoc presentation with status checking on does not work today, and the reason is in
 the engine.**
 
+### 8.1f Sixth wallet run — **an attestation collected and stored**, modified build
+
+16 September 2026, **W4** (`eu.europa.ec.euidi.edtptest4`), deviations **`wd-2,wd-3`**, rebuilt with
+`--diagnostics` (`EDTP_DIAGNOSTICS=yes`, logging only). Pre-authorized-code offer for
+*Employee badge*, fixture subject, over the tunnel, with the test gateway's
+`GATEWAY_PINNED_WALLET_COMPAT` **on**.
+
+| | |
+|---|---|
+| Wallet HTTP trace | offer 200 · issuer metadata 200 · AS metadata 200 · `authorize/challenge` 200 · `authorize/token` 200 · `vci/nonce` 200 · **`vci/credential` 200** |
+| On the device | *Employee badge*, issued by *Smoke Test Issuer B.V.*, in the Documents list |
+| Platform | transaction `ISSUED`, attestation in the register as `VALID`, status confirmed |
+
+**Every layer between the first attempt on 13 September and this run is recorded** in
+`interop-findings.md` A28 and A29, in the order a wallet met it.
+
+**What this run establishes.** The platform's issuance chain completes against a real wallet on a
+real phone, and the platform records and can revoke what was issued.
+
+**What it does not, and no report may imply otherwise.**
+
+- **A modified build, not the Reference Wallet.** `wd-2` bypasses trust gate (a) — the engine still
+  signs no issuer metadata (B7) — and `wd-3` points access-certificate trust at our list.
+- **The gateway rewrote two responses on the way** (A29). An unmodified path through the engine alone
+  does not complete.
+- **`key_attestations_required: iso_18045_basic` is a parser requirement**, not a checked property.
+- **Wallet attestation was verified** by the engine against the notified **dev** WalletProviders
+  list — a TEST trust list.
+- **No registration certificate** (B3), and *Check Registration Certificates* in its default, off.
+  Not tested in the on position.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

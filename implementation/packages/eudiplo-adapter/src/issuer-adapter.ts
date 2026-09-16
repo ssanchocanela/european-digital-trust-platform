@@ -47,7 +47,24 @@ import {
  * presenting token.
  */
 export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvisioningPort {
-  constructor(private readonly client: EngineClient) {}
+  constructor(
+    private readonly client: EngineClient,
+    /**
+     * Wallet authentication at the token endpoint, when a deployment enables it.
+     *
+     * The self-built wallet authenticates with `attest_jwt_client_auth` and refuses an
+     * authorization server that does not advertise it ("Client attestation based authentication is
+     * not supported by the authorization server"). The engine advertises it only with
+     * `walletAttestationRequired`, and then verifies the attestation against a wallet-provider trust
+     * list held **in the engine**, referenced by id — a URL is not accepted, and a missing list is a
+     * `401` at the token endpoint. `scripts/setup-wallet-provider-trust.sh` creates it.
+     *
+     * Set here rather than on the engine by hand because the issuer configuration is written whole
+     * by this adapter (A20): a setting made directly on the engine is reverted by the next
+     * provisioning. It was, once, on 16 September 2026. `interop-findings.md` A28.
+     */
+    private readonly options: { readonly walletProviderTrustListId?: string } = {},
+  ) {}
 
   async createCredentialOffer(
     input: CreateCredentialOfferInput,
@@ -256,6 +273,12 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       display: [{ name: context.issuerDisplayName, locale: "en" }],
       batchSize: 1,
       notificationEndpointEnabled: true,
+      ...(this.options.walletProviderTrustListId
+        ? {
+            walletAttestationRequired: true,
+            walletProviderTrustLists: [{ trustListId: this.options.walletProviderTrustListId }],
+          }
+        : { walletAttestationRequired: false }),
     };
 
     const registrationCertificateJwt = plan.providerContext.registrationCertificateJwt;

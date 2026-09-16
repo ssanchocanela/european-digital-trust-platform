@@ -154,6 +154,7 @@ services:
       # The engine is reached over the internal compose network only.
       ENGINE_BASE_URL: http://eudiplo:3000
       ENGINE_TENANT_CREDENTIALS: ${ENGINE_TENANT_CREDENTIALS:?set ENGINE_TENANT_CREDENTIALS in .env}
+      ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: ${ENGINE_WALLET_PROVIDER_TRUST_LIST_ID:-}
       JOB_INTERVAL_MS: "15000"
     ports:
       - "127.0.0.1:3100:3100"

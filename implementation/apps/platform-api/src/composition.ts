@@ -147,7 +147,11 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     : new EudiploVerifierAdapter(engineClient as EngineClient);
   const issuerAdapter = options.issuer
     ? undefined
-    : new EudiploIssuerAdapter(engineClient as EngineClient);
+    : new EudiploIssuerAdapter(engineClient as EngineClient, {
+        ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
+          ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
+          : {}),
+      });
 
   const verifier: EudiVerifierPort = options.verifier ?? (adapter as EudiploVerifierAdapter);
   const provisioning: EudiVerifierProvisioningPort =

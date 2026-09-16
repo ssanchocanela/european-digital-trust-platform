@@ -128,6 +128,18 @@ The development tenant is now two live policies and six retired, done through th
 and `presentation.service.ts` has been enforcing `policy_retired` against a state nothing can set.
 Not fixed here, because it was not what was asked; recorded because it is the same hole.
 
+### And there is now a script for showing it to someone
+
+[`demonstration-script.md`](demonstration-script.md). What can be demonstrated, in what order, what
+each run evidences and what it does not — and a table of **sentences that would be untrue**, which
+is the half that matters. "Tested with the EUDI Reference Wallet" is the first row: the modified
+wallet exists precisely because an unmodified one refuses this platform's certificates, so a result
+from a build changed to stop refusing says nothing about the build that refuses.
+
+The honest story is three sentences, and the third is the finding rather than a caveat: verification
+works against a real wallet; issuance works end to end to a conformant client; **no wallet can
+collect the attestation, and the reason is not in this platform**.
+
 ### The wallet wall moved, and the old explanation was wrong
 
 W4 (`wd-2,wd-3`) was sent a **pre-authorized-code** offer. Its own HTTP log shows the offer fetched

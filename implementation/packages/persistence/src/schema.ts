@@ -602,6 +602,19 @@ export const attestationProviders = pgTable(
     /** Opaque reference to the engine key chain holding the attestation-signing key. */
     signingKeyBindingRef: text("signing_key_binding_ref"),
     /**
+     * When the attestation-signing certificate stops working, read from the leaf at provisioning.
+     *
+     * The key itself lives in the engine and the platform holds only an opaque reference, so
+     * without this column the platform cannot answer "can this provider still sign?" at all. On
+     * 16 September 2026 it could not, and the answer had been *no* for a day: the certificate
+     * expired, every call up to the last one still returned 200, and the only place the truth
+     * appeared was `400 credential_request_denied` at `POST /vci/credential`. Migration 0008.
+     *
+     * Not a secret and not content — a validity window, the same class of fact as
+     * `registrationCertificateNotAfter` below.
+     */
+    signingCertificateNotAfter: ts("signing_certificate_not_after"),
+    /**
      * The provider's **own** access certificate, for the §7.3 eligibility presentation.
      *
      * In that exchange the issuer is the Relying Party and signs the request itself, so this is not
@@ -609,6 +622,8 @@ export const attestationProviders = pgTable(
      * presentation needs one. `interop-findings.md` A22, migration 0007.
      */
     accessKeyBindingRef: text("access_key_binding_ref"),
+    /** When the access certificate stops working. Same reasoning as the signing one. */
+    accessCertificateNotAfter: ts("access_certificate_not_after"),
     /** The registration certificate published in the Credential Issuer metadata (gate a). */
     registrationCertificateJwt: text("registration_certificate_jwt"),
     registrationCertificateNotAfter: ts("registration_certificate_not_after"),

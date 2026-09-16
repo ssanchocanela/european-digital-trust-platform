@@ -1,5 +1,6 @@
 import { html, type SafeHtml } from "./html.js";
 import type {
+  CertificateValidity,
   IssuanceOption,
   IssuanceSummary,
   IssuedCredentialSummary,
@@ -71,7 +72,9 @@ const gatePanel = (gate?: ProviderAuthentication): SafeHtml => {
     </p>`;
   }
   const usable = gate.walletCanAuthenticateProvider === true;
+  const cannotSign = gate.canSignAttestations === false;
   return html`
+    ${cannotSign ? expiredCertificateNotice(gate) : ""}
     <div class="notice ${usable ? "info" : "warn"}">
       <p>
         <strong>${
@@ -91,16 +94,68 @@ const gatePanel = (gate?: ProviderAuthentication): SafeHtml => {
         </tr>
         <tr>
           <td>Registration certificate published</td>
-          <td>${gate.registrationCertificatePublished === true ? "yes" : "no"}</td>
+          <td>${gate.registrationCertificatePresent === true ? "yes" : "no"}</td>
           <td class="dim">
             V0 has no reachable provider of registration certificates (blocker B3). The omission is
             reported, never fabricated.
           </td>
         </tr>
+        ${certificateRow("Attestation-signing certificate", gate.certificates?.attestationSigning)}
+        ${certificateRow("Access certificate", gate.certificates?.access)}
       </table>
     </div>
   `;
 };
+
+/**
+ * One certificate's validity, or an honest "not recorded".
+ *
+ * The platform holds no key material, so this date is all it knows about whether the provider can
+ * still sign. An absent date is reported as absent: a provider provisioned before migration 0008
+ * has none, and showing it as healthy would be the same silence that let an expired certificate go
+ * unnoticed for a day on 16 September 2026.
+ */
+const certificateRow = (label: string, validity?: CertificateValidity): SafeHtml => {
+  if (!validity) return html``;
+  if (validity.notAfter === null) {
+    return html`<tr>
+      <td>${label}</td>
+      <td class="dim">not recorded</td>
+      <td class="dim">
+        Provisioned before the platform recorded certificate validity. Re-provision to record it —
+        until then this cannot say whether it works.
+      </td>
+    </tr>`;
+  }
+  return html`<tr>
+    <td>${label}</td>
+    <td>${
+      validity.expired
+        ? html`<span class="chip chip-bad">expired</span>`
+        : html`<span class="chip chip-ok">valid</span>`
+    }</td>
+    <td class="dim">Until ${validity.notAfter.slice(0, 19).replace("T", " ")}</td>
+  </tr>`;
+};
+
+/**
+ * Stated above the trust gate, because it is a different and more immediate failure.
+ *
+ * The gate is about whether a Wallet can authenticate the issuer. This is about whether the issuer
+ * can produce an attestation at all — and when it cannot, every step of the flow still succeeds
+ * until the very last one, which is what made it cost an afternoon.
+ */
+const expiredCertificateNotice = (gate: ProviderAuthentication): SafeHtml => html`
+  <div class="notice error">
+    <p>
+      <strong>This issuer cannot sign.</strong> Its attestation-signing certificate expired
+      ${gate.certificates?.attestationSigning?.notAfter?.slice(0, 10) ?? ""}. Offers will still be
+      created and a wallet will still resolve them; the refusal comes at the last call of the flow,
+      as <code>credential_request_denied</code>.
+    </p>
+    <p class="hint">Re-provision the Attestation Provider with a current certificate.</p>
+  </div>
+`;
 
 // --- 1. what this tenant offers to issue --------------------------------------------------------
 

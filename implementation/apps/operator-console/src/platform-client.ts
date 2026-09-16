@@ -131,10 +131,30 @@ export interface IssuedCredentialSummary {
  * Read and shown rather than assumed, because the answer today is "it cannot", and a console that
  * quietly omitted it would let an operator believe issuance is ready when no wallet can complete it.
  */
+/** Whether one certificate still works. `notAfter: null` means unrecorded, not healthy. */
+export interface CertificateValidity {
+  readonly notAfter: string | null;
+  readonly expired: boolean | null;
+}
+
 export interface ProviderAuthentication {
   readonly metadataSigned?: boolean;
   readonly walletCanAuthenticateProvider?: boolean;
-  readonly registrationCertificatePublished?: boolean;
+  /**
+   * The route's own field name.
+   *
+   * It was read as `registrationCertificatePublished` here until 16 September 2026 — a name the
+   * route has never sent, so the row rendered from it was always `no`. It happened to be right,
+   * because V0 has no registration certificate (B3), which is exactly what made it invisible. The
+   * sixth time on this project that a response shape was assumed rather than read.
+   */
+  readonly registrationCertificatePresent?: boolean;
+  /** Whether the provider can sign at all — separate from whether a Wallet can authenticate it. */
+  readonly canSignAttestations?: boolean;
+  readonly certificates?: {
+    readonly attestationSigning?: CertificateValidity;
+    readonly access?: CertificateValidity;
+  };
   readonly error?: string;
   readonly message?: string;
 }

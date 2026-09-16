@@ -44,8 +44,15 @@ export interface IssuanceContext {
     readonly trustEnvironment: "TEST" | "PRODUCTION";
     readonly createdAt: Date;
     readonly signingKeyBindingRef?: string;
+    /**
+     * When the attestation-signing certificate expires. Absent for a provider provisioned before
+     * migration 0008, which is why the report says "unknown" rather than assuming it is fine.
+     */
+    readonly signingCertificateNotAfter?: Date;
     /** The provider's own access certificate, for a §7.3 eligibility presentation (A22). */
     readonly accessKeyBindingRef?: string;
+    /** When that access certificate expires. */
+    readonly accessCertificateNotAfter?: Date;
     readonly registrationCertificateJwt?: string;
     readonly registrationCertificateNotAfter?: Date;
     readonly engineTenantRef?: string;
@@ -113,8 +120,18 @@ export class IssuanceRepository {
     readonly attestationProviderId: string;
     readonly engineTenantRef: string;
     readonly signingKeyBindingRef: string;
+    /**
+     * When the attestation-signing leaf expires, read from the supplied chain.
+     *
+     * Recorded because the platform otherwise holds nothing about that key but an opaque engine
+     * reference, and so cannot tell an operator the provider has stopped being able to sign —
+     * which is exactly what happened on 16 September 2026. Migration 0008.
+     */
+    readonly signingCertificateNotAfter?: Date;
     /** The provider's own access certificate, for a §7.3 eligibility presentation (A22). */
     readonly accessKeyBindingRef?: string;
+    /** When the access leaf expires. Same reasoning. */
+    readonly accessCertificateNotAfter?: Date;
     readonly registrationCertificateJwt?: string;
     readonly registrationCertificateNotAfter?: Date;
     readonly webhookEndpointId?: string;
@@ -141,9 +158,17 @@ export class IssuanceRepository {
       .set({
         engineTenantRef: input.engineTenantRef,
         signingKeyBindingRef: input.signingKeyBindingRef,
+        signingCertificateNotAfter: input.signingCertificateNotAfter ?? null,
         // Null when not supplied, so re-provisioning without one clears it rather than leaving a
         // reference to a key chain on an engine tenant this provider may no longer be using.
+        //
+        // That clearing is easy to trip over and worth stating: `provision` replaces the whole
+        // record. A re-provision carrying only a new signing certificate removes the provider's
+        // access certificate, and every issuance under a provider with **any** gated policy then
+        // fails `attestation_provider_has_no_access_certificate` — including issuances of policies
+        // that have no gate, because the issuer configuration is composed per provider (A20).
         accessKeyBindingRef: input.accessKeyBindingRef ?? null,
+        accessCertificateNotAfter: input.accessCertificateNotAfter ?? null,
         registrationCertificateJwt: input.registrationCertificateJwt ?? null,
         registrationCertificateNotAfter: input.registrationCertificateNotAfter ?? null,
         ...(input.webhookEndpointId ? { webhookEndpointId: input.webhookEndpointId } : {}),
@@ -231,8 +256,14 @@ export class IssuanceRepository {
         ...(provider.signingKeyBindingRef
           ? { signingKeyBindingRef: provider.signingKeyBindingRef }
           : {}),
+        ...(provider.signingCertificateNotAfter
+          ? { signingCertificateNotAfter: provider.signingCertificateNotAfter }
+          : {}),
         ...(provider.accessKeyBindingRef
           ? { accessKeyBindingRef: provider.accessKeyBindingRef }
+          : {}),
+        ...(provider.accessCertificateNotAfter
+          ? { accessCertificateNotAfter: provider.accessCertificateNotAfter }
           : {}),
         ...(provider.registrationCertificateJwt
           ? { registrationCertificateJwt: provider.registrationCertificateJwt }
@@ -417,11 +448,24 @@ export class IssuanceRepository {
     });
   }
 
-  /** The provider's engine tenant, for the provider-authentication check (trust gate a). */
+  /**
+   * What the provider-authentication report needs from the platform's own records.
+   *
+   * The engine tenant, for trust gate (a) — and the validity of the certificates this provider was
+   * provisioned with, which gate (a) says nothing about. Those are separate questions and the
+   * report answers both, because on 16 September 2026 answering only the first let the console
+   * present an issuer as blocked solely by B7 while its signing certificate had been expired for a
+   * day. Migration 0008.
+   */
   async loadIssuanceContextByProvider(
     tenantId: TenantId,
     attestationProviderId: string,
-  ): Promise<{ readonly engineTenantRef?: string }> {
+  ): Promise<{
+    readonly engineTenantRef?: string;
+    readonly signingCertificateNotAfter?: Date;
+    readonly accessCertificateNotAfter?: Date;
+    readonly hasAccessCertificate: boolean;
+  }> {
     const [row] = await this.db
       .select()
       .from(attestationProviders)
@@ -433,7 +477,16 @@ export class IssuanceRepository {
       )
       .limit(1);
     if (!row) throw PlatformError.notFound("Attestation Provider");
-    return row.engineTenantRef ? { engineTenantRef: row.engineTenantRef } : {};
+    return {
+      ...(row.engineTenantRef ? { engineTenantRef: row.engineTenantRef } : {}),
+      ...(row.signingCertificateNotAfter
+        ? { signingCertificateNotAfter: row.signingCertificateNotAfter }
+        : {}),
+      ...(row.accessCertificateNotAfter
+        ? { accessCertificateNotAfter: row.accessCertificateNotAfter }
+        : {}),
+      hasAccessCertificate: row.accessKeyBindingRef !== null,
+    };
   }
 
   // --- policies ------------------------------------------------------------

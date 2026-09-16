@@ -416,3 +416,116 @@ describe("one engine tenant per Attestation Provider", () => {
     await expect(provision(provider, "engine-tenant-reprovision")).resolves.toBeUndefined();
   });
 });
+
+/**
+ * What the platform records about the certificates it does not hold.
+ *
+ * A certificate goes into the engine and what comes back is an opaque reference, so the platform's
+ * only handle on "can this provider still sign?" is the validity it read at provisioning. Before
+ * migration 0008 it read none, and on 16 September 2026 the attestation-signing certificate had
+ * been expired for a day while every report said the only problem was B7.
+ */
+describe("certificate validity is recorded, because the platform holds nothing else", () => {
+  const DAY = 86_400_000;
+
+  it("round-trips the signing certificate's expiry", async () => {
+    const provider = await seedProvider("Validity BV");
+    const notAfter = new Date(Date.now() + 90 * DAY);
+
+    await issuance().provisionAttestationProvider({
+      tenantId: provider.tenantId,
+      attestationProviderId: provider.providerId,
+      engineTenantRef: "engine-tenant-validity",
+      signingKeyBindingRef: "key-1",
+      signingCertificateNotAfter: notAfter,
+    });
+
+    const context = await issuance().loadIssuanceContextByProvider(
+      provider.tenantId,
+      provider.providerId,
+    );
+    expect(context.signingCertificateNotAfter?.getTime()).toBe(notAfter.getTime());
+  });
+
+  it("records an expiry already in the past, rather than refusing it", async () => {
+    // The platform is not the authority on whether a certificate is usable — the engine refuses it
+    // at `POST /vci/credential`. The platform's job is to be able to *say so first*, which means
+    // storing the date whatever it is.
+    const provider = await seedProvider("Expired BV");
+    const notAfter = new Date(Date.now() - DAY);
+
+    await issuance().provisionAttestationProvider({
+      tenantId: provider.tenantId,
+      attestationProviderId: provider.providerId,
+      engineTenantRef: "engine-tenant-expired",
+      signingKeyBindingRef: "key-1",
+      signingCertificateNotAfter: notAfter,
+    });
+
+    const context = await issuance().loadIssuanceContextByProvider(
+      provider.tenantId,
+      provider.providerId,
+    );
+    expect(context.signingCertificateNotAfter?.getTime()).toBe(notAfter.getTime());
+    expect(context.signingCertificateNotAfter!.getTime()).toBeLessThan(Date.now());
+  });
+
+  it("leaves validity absent when none was recorded, so a report can say unknown", async () => {
+    // A provider provisioned before migration 0008. Reporting `null` is the honest answer; the
+    // alternative — treating absence as healthy — is the silence this change exists to end.
+    const provider = await seedProvider("Legacy BV");
+    await issuance().provisionAttestationProvider({
+      tenantId: provider.tenantId,
+      attestationProviderId: provider.providerId,
+      engineTenantRef: "engine-tenant-legacy",
+      signingKeyBindingRef: "key-1",
+    });
+
+    const context = await issuance().loadIssuanceContextByProvider(
+      provider.tenantId,
+      provider.providerId,
+    );
+    expect(context.signingCertificateNotAfter).toBeUndefined();
+    expect(context.hasAccessCertificate).toBe(false);
+  });
+
+  it("re-provisioning without an access certificate clears it, validity included", async () => {
+    // The trap, pinned. `provision` replaces the whole record, so a re-provision carrying only a new
+    // signing certificate removes the access certificate — and then every issuance under a provider
+    // with *any* gated policy fails `attestation_provider_has_no_access_certificate`, including
+    // issuances of policies that have no gate, because the issuer configuration is composed per
+    // provider (A20). Cost a round trip on 16 September 2026.
+    const provider = await seedProvider("Rotation BV");
+    await issuance().provisionAttestationProvider({
+      tenantId: provider.tenantId,
+      attestationProviderId: provider.providerId,
+      engineTenantRef: "engine-tenant-rotation",
+      signingKeyBindingRef: "key-1",
+      signingCertificateNotAfter: new Date(Date.now() + 90 * DAY),
+      accessKeyBindingRef: "access-key-1",
+      accessCertificateNotAfter: new Date(Date.now() + 60 * DAY),
+    });
+
+    const before = await issuance().loadIssuanceContextByProvider(
+      provider.tenantId,
+      provider.providerId,
+    );
+    expect(before.hasAccessCertificate).toBe(true);
+    expect(before.accessCertificateNotAfter).toBeDefined();
+
+    await issuance().provisionAttestationProvider({
+      tenantId: provider.tenantId,
+      attestationProviderId: provider.providerId,
+      engineTenantRef: "engine-tenant-rotation",
+      signingKeyBindingRef: "key-2",
+      signingCertificateNotAfter: new Date(Date.now() + 90 * DAY),
+    });
+
+    const after = await issuance().loadIssuanceContextByProvider(
+      provider.tenantId,
+      provider.providerId,
+    );
+    expect(after.hasAccessCertificate).toBe(false);
+    expect(after.accessCertificateNotAfter).toBeUndefined();
+  });
+});

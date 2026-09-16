@@ -19,6 +19,7 @@ import {
   WEBHOOK_ENDPOINT_REPOSITORY,
 } from "../tokens.js";
 import { assertTenantMatches, assertUuidPathParam, Ctx, type RequestContext } from "./auth.js";
+import { certificateChainNotAfter } from "./certificate-validity.js";
 import {
   changeCredentialStatusSchema,
   createAttestationProviderSchema,
@@ -172,7 +173,22 @@ export class IssuanceConfigurationController {
       attestationProviderId: providerId,
       engineTenantRef: input.engineTenantRef,
       signingKeyBindingRef: imported.keyBindingRef,
+      // Read from the supplied leaf, because the engine hands back only an opaque reference and the
+      // platform would otherwise be unable to say whether this provider can still sign. Migration
+      // 0008, and `certificate-validity.ts` for the afternoon that motivated it.
+      signingCertificateNotAfter: certificateChainNotAfter(
+        input.signingCertificate.certificateChain,
+        "attestation-signing certificate",
+      ),
       ...(accessKeyBindingRef ? { accessKeyBindingRef } : {}),
+      ...(input.accessCertificate
+        ? {
+            accessCertificateNotAfter: certificateChainNotAfter(
+              input.accessCertificate.certificateChain,
+              "access certificate",
+            ),
+          }
+        : {}),
       ...(input.registrationCertificateJwt
         ? { registrationCertificateJwt: input.registrationCertificateJwt }
         : {}),
@@ -217,8 +233,36 @@ export class IssuanceConfigurationController {
 
     const evidence =
       await this.provisioning.fetchProviderAuthenticationEvidence(engineTenantRef);
+
+    // The certificates this provider holds, and whether they still work.
+    //
+    // Separate from trust gate (a) on purpose. Gate (a) is whether a Wallet can *authenticate* the
+    // provider; this is whether the provider can *sign at all*. Reporting only the first is what
+    // let the console show an issuer blocked solely by B7 on 16 September 2026 while its signing
+    // certificate had expired the day before, with the truth appearing only as a 400 at the last
+    // call of the issuance flow.
+    //
+    // `notAfter: null` means unknown, not fine: a provider provisioned before migration 0008 has no
+    // recorded validity, and `expired` is left null rather than guessed. Re-provision to record it.
+    const now = new Date();
+    const validity = (notAfter?: Date) =>
+      notAfter
+        ? { notAfter: notAfter.toISOString(), expired: notAfter.getTime() <= now.getTime() }
+        : { notAfter: null, expired: null };
+
+    const signing = validity(context.signingCertificateNotAfter);
     return {
       credentialIssuer: evidence.credentialIssuer,
+      certificates: {
+        attestationSigning: signing,
+        ...(context.hasAccessCertificate
+          ? { access: validity(context.accessCertificateNotAfter) }
+          : {}),
+      },
+      // False only when the platform *knows* it cannot sign. An unrecorded validity leaves this
+      // true, because the platform has no evidence either way and inventing a failure would be as
+      // misleading as the silence this replaces.
+      canSignAttestations: signing.expired !== true,
       registrationCertificatePresent: evidence.registrationCertificatePresent,
       metadataSigned: evidence.metadataSigned,
       accessCertificateInSignedMetadata: evidence.accessCertificateInSignedMetadata,

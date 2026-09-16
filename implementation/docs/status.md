@@ -85,10 +85,33 @@ work. **Not yet done.** Note when doing it that the screen cannot settle it on i
 `toUntrustedIssuerReasonOrNull` maps `IssuerNotTrustedException` **and** `MissingSignedMetadata` to
 the same `ACCESS_CERTIFICATE` reason, so gate (a) and gate (b) render identically.
 
-**`wd-1` was never built.** `tools/test-wallet/deviations/` holds only `wd-2.patch` and
-`wd-3.patch`. The deviation that would relax gate (b) — `forVct(<our vct>, TrustPolicy.Action.INFORM)`,
-`milestone-2-issuer-trust.md` — does not exist, so none of the four installed wallets can accept a
-non-qualified EAA from us whatever else is fixed.
+**`wd-1` was never built** — `tools/test-wallet/deviations/` holds only `wd-2.patch` and
+`wd-3.patch` — **and building it would not move this wall.** Established by reading wallet-core
+0.30.2's compiled API rather than by building an APK and finding out:
+
+- `TrustPolicy.Builder.forVct(String, Action)` **does** exist and `Action` is exactly
+  `{ENFORCE, INFORM}`, so the deviation `milestone-2-issuer-trust.md` describes is buildable. That
+  much of the register is right — unlike WD-3, which had to be corrected after the method it named
+  turned out not to exist.
+- But `evaluateIssuerTrust` is referenced by exactly **two** classes in the whole library:
+  `ProcessResponse` and `ProcessDeferredOutcome`. Both run when a **credential response is
+  processed** — after the token request, after `POST /credential` returns. Gate (b) is the last
+  thing that happens, not the first.
+- And `OfferResolver`, which is what `resolveDocumentOffer` uses, holds no trust configuration at
+  all: its fields are the config, the HTTP client factory, an `IssuerMetadataPolicy` and a cache.
+
+So offer resolution applies exactly two things — the **metadata policy**, which `wd-2` relaxes to
+`PreferSigned`, and **`withIssuerRegistration`**, the registration certificate. The wall is in one
+of those two. `wd-1` is still needed eventually, to *store* a collected credential; it is not what
+is blocking now.
+
+**The registration certificate is the stronger suspect, and it may not need a build at all.** The
+app refuses when `walletCoreConfig.isRegistrationCheckEnabled && issuerRegistration.isBlockedForIssuance`
+— a **runtime preference**, *Check Registration Certificates*, which `wd-2` does not touch at this
+point in the flow (`wd-2`'s effect on that check is in `IssuerCreator`, which runs later). V0
+publishes no registration certificate (B3). If that preference is on, W4 refuses here whatever the
+build carries. Its position was never recorded for W4, and the wallet's DataStore is Tink-encrypted
+so it cannot be read over `adb`. **Next action: check that toggle on the phone, then re-send.**
 
 ---
 

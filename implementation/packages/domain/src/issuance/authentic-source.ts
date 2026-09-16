@@ -39,6 +39,13 @@ export interface AuthenticSourceConnector {
    */
   readonly sampleSubjectReferences?: readonly string[];
   fetch(input: {
+    /**
+     * The tenant the issuance runs under. A connector that reads anything tenant-scoped **must**
+     * scope by it: `subjectReference` is supplied by the business client, so without this a
+     * connector that resolved references to platform records would let one tenant name
+     * another's. The fixture ignores it; `verified-presentation` depends on it.
+     */
+    readonly tenantId: string;
     readonly subjectReference: string;
     /** Exactly the claim paths the credential type declares. Minimisation at the source. */
     readonly requestedClaimPaths: readonly string[];

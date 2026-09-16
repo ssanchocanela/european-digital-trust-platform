@@ -220,6 +220,7 @@ export class IssuanceService {
     const sourceAttributes = await this.fetchFromSource(
       connector,
       plan,
+      command.tenantId,
       command.subjectReference,
       version,
     );
@@ -570,12 +571,14 @@ export class IssuanceService {
   private async fetchFromSource(
     connector: AuthenticSourceConnector,
     plan: IssuancePlan,
+    tenantId: string,
     subjectReference: string,
     version: {
       readonly authenticSource: { readonly parameters: Readonly<Record<string, unknown>> };
     },
   ): Promise<SourceAttributes> {
     const raw = await connector.fetch({
+      tenantId,
       subjectReference,
       requestedClaimPaths: plan.claimPathsToFetch,
       parameters: version.authenticSource.parameters,

@@ -31,6 +31,7 @@ import {
   MinimumAgeEligibilityEvaluator,
 } from "./modules/issuances/fixture-connector.js";
 import { IssuanceService } from "./modules/issuances/issuance.service.js";
+import { VerifiedPresentationConnector } from "./modules/issuances/verified-presentation-connector.js";
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
@@ -167,7 +168,14 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
 
   // Registered by name at startup, so a policy naming an unknown one is refused at publication.
   const connectors = new Map<string, AuthenticSourceConnector>();
-  for (const c of [new FixtureAuthenticSourceConnector()]) connectors.set(c.name, c);
+  for (const c of [
+    new FixtureAuthenticSourceConnector(),
+    // Issues from a presentation this platform has just verified. Tenant-scoped, and a FIXTURE:
+    // the representation it attests comes from policy configuration, not from a register.
+    new VerifiedPresentationConnector(repositories.transactions, clock),
+  ]) {
+    connectors.set(c.name, c);
+  }
   const evaluators = new Map<string, EligibilityEvaluator>();
   for (const e of [new MinimumAgeEligibilityEvaluator(), new AlwaysEligibleEvaluator()]) {
     evaluators.set(e.name, e);

@@ -8,6 +8,15 @@ linked rather than repeated.
 
 ---
 
+## 16 September 2026, night — **the end-to-end demonstration works**
+
+Present a PID, be identified, be issued a representative credential built from it, and hold it in the
+wallet. Four steps, one wallet, one tenant: [`reference-wallet-testing.md`](reference-wallet-testing.md)
+§8.1g, and every limit from §8.1f still applies. The representation is fictitious by construction.
+
+**Next, agreed:** put steps 2 and 3 in the console — today the issuance is requested through the API
+with a presentation id, and the connector's `fixedClaims` cannot be set from the builder.
+
 ## 16 September 2026, evening — **a wallet collected an attestation from this platform**
 
 The first time since the issuance side existed. A modified wallet (W4) collected *Employee badge*

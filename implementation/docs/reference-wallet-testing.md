@@ -523,6 +523,34 @@ real phone, and the platform records and can revoke what was issued.
 - **No registration certificate** (B3), and *Check Registration Certificates* in its default, off.
   Not tested in the on position.
 
+### 8.1g Seventh wallet run — **the end-to-end demonstration: identified by PID, issued a representative credential**
+
+16 September 2026, same W4 build and gateway settings as §8.1f. One person, one wallet, two steps.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · Obtain a PID | Already held, from the EUDI reference issuer's own form | `PID (SD-JWT VC)` in the wallet |
+| 2 · Present it | Policy *Identify with PID* asks for `family_name` and `given_name` only | presentation **`VERIFIED`**, result holds exactly those two claims; the wallet's PID count went from 30/30 to **29/30** |
+| 3 · Request the representative credential from it | `POST /v1/issuances` with the **presentation id** as `subjectReference`, through the `verified-presentation` source | accepted; warnings returned: no registration certificate, and FIXTURE source |
+| 4 · Obtain it | offer → metadata → AS → challenge → token → nonce → **`/vci/credential` 200** | *Company representative* in the wallet, four fields, the two names from the PID; platform `ISSUED` |
+
+Values were checked **for presence only** — the names are PID attributes and are not written here.
+
+**What it establishes.** A platform-operated chain in which a verified presentation becomes the source
+of an issued attestation, in one tenant, refused across tenants, with the presentation id as the
+provenance of every attestation issued from it.
+
+**What it does not.** Everything in §8.1f still holds — a modified wallet, gate (a) bypassed, two
+responses rewritten by the gateway, a dev wallet-provider list, no registration certificate. And the
+representation itself is **fictitious**: the organisation and the capacity to act for it come from
+policy configuration, which is why the source is a FIXTURE and the warning is returned. A real
+representative credential needs a company register behind it.
+
+**Setup for this run, beyond §8.1f.** The issuing tenant also needs a verification service whose
+instance holds the **development-CA** access certificate (`import-access-certificate.sh`), an intended
+use registered on it, and a presentation policy; the tenant's other provisioned service signed with a
+certificate the wallet does not trust.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

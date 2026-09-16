@@ -14,8 +14,9 @@ Present a PID, be identified, be issued a representative credential built from i
 wallet. Four steps, one wallet, one tenant: [`reference-wallet-testing.md`](reference-wallet-testing.md)
 §8.1g, and every limit from §8.1f still applies. The representation is fictitious by construction.
 
-**Next, agreed:** put steps 2 and 3 in the console — today the issuance is requested through the API
-with a presentation id, and the connector's `fixedClaims` cannot be set from the builder.
+**Steps 2 and 3 are in the console, and were run from it** (§8.1h): a verified presentation page
+offers issuance from it, and the builder sets fixed values and the maximum presentation age. Step 1 —
+obtaining the PID — is still the EUDI reference issuer's own form, not this platform.
 
 ## 16 September 2026, evening — **a wallet collected an attestation from this platform**
 

@@ -551,6 +551,21 @@ instance holds the **development-CA** access certificate (`import-access-certifi
 use registered on it, and a presentation policy; the tenant's other provisioned service signed with a
 certificate the wallet does not trust.
 
+### 8.1h Eighth wallet run — **the same demonstration, driven from the operator console**
+
+16 September 2026, same build, gateway and policies as §8.1g. No API call by hand: the operator
+started *Identify with PID* from the console's Verification page, the wallet presented the PID, the
+presentation page turned **`VERIFIED`** and offered *Issue from this presentation*; pressing **Issue**
+on *Company representative (from a verified PID)* produced the offer QR, the wallet collected it, and
+the platform recorded the issuance **`ISSUED`** with a new `VALID`, status-confirmed register entry.
+About four minutes from presentation to credential. Values checked for presence only.
+
+One thing to know when watching it: the issuance **list** shows the status last stored, and the status
+is refreshed from the engine when the issuance itself is read, so the list can say
+`AWAITING_WALLET` for an issuance that is already `ISSUED` until its page is opened.
+
+Every limit of §8.1f and §8.1g still applies.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

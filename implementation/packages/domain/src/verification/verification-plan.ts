@@ -297,6 +297,7 @@ export interface EligibilityPresentation {
   readonly credentialRequirement: PlanCredentialRequirement;
   readonly requestedClaims: readonly RequestedClaim[];
   readonly statusCheckMode: TrustPolicy["statusCheckMode"];
+  readonly anchorSources: TrustPolicy["anchorSources"];
 }
 
 /**
@@ -327,5 +328,6 @@ export const compileEligibilityPresentation = (input: {
     ),
     requestedClaims: dedupeRequestedClaims(policyVersion.requestedClaims),
     statusCheckMode: policyVersion.trustPolicy.statusCheckMode,
+    anchorSources: policyVersion.trustPolicy.anchorSources,
   };
 };

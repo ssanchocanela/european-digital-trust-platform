@@ -145,10 +145,13 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
   // client resolves per-tenant credentials on demand (ADR 0002 Decision 3).
   const adapter = options.verifier
     ? undefined
-    : new EudiploVerifierAdapter(engineClient as EngineClient);
+    : new EudiploVerifierAdapter(engineClient as EngineClient, {
+        issuerTrustLists: config.ENGINE_ISSUER_TRUST_LISTS,
+      });
   const issuerAdapter = options.issuer
     ? undefined
     : new EudiploIssuerAdapter(engineClient as EngineClient, {
+        issuerTrustLists: config.ENGINE_ISSUER_TRUST_LISTS,
         ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
           ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
           : {}),

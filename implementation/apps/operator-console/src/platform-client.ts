@@ -334,6 +334,11 @@ export class PlatformClient {
     readonly acceptedFormats: readonly string[];
     readonly requestedClaims: readonly (readonly (string | number | null)[])[];
     readonly resultPolicy: Record<string, unknown>;
+    readonly anchorSources: readonly {
+      readonly kind: string;
+      readonly domain: string;
+      readonly ref: string;
+    }[];
   }): Promise<{ readonly policyId: string }> {
     const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
     const base = `/v1/tenants/${encodeURIComponent(tenantId)}/presentation-policies`;
@@ -352,10 +357,21 @@ export class PlatformClient {
       ],
       requestedClaims: input.requestedClaims.map((path) => ({ path })),
       resultPolicy: input.resultPolicy,
+      trustPolicy: { anchorSources: input.anchorSources },
       publish: true,
     });
 
     return { policyId: created.policyId };
+  }
+
+  /** The lists of trusted attestation issuers this deployment has loaded, by published URL. */
+  async issuerTrustSources(): Promise<readonly string[]> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const capabilities = await this.call<{ issuerTrustSources: readonly { ref: string }[] }>(
+      "GET",
+      `/v1/tenants/${encodeURIComponent(tenantId)}/verification-capabilities`,
+    );
+    return capabilities.issuerTrustSources.map((source) => source.ref);
   }
 
   /**

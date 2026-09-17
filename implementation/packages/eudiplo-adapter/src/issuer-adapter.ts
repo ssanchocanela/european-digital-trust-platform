@@ -12,7 +12,10 @@ import type {
 import { asId, PlatformError } from "@edtp/shared";
 import type { EngineClient } from "./client.js";
 import { normaliseIssuanceOutcome } from "./issuance-outcome-mapping.js";
-import { buildPresentationConfigBody } from "./presentation-config.js";
+import {
+  assertIssuerTrustListsLoaded,
+  buildPresentationConfigBody,
+} from "./presentation-config.js";
 import {
   engineCredentialIssuerMetadataSchema,
   engineIssuerOfferResponseSchema,
@@ -63,7 +66,11 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
      * by this adapter (A20): a setting made directly on the engine is reverted by the next
      * provisioning. It was, once, on 16 September 2026. `interop-findings.md` A28.
      */
-    private readonly options: { readonly walletProviderTrustListId?: string } = {},
+    private readonly options: {
+      readonly walletProviderTrustListId?: string;
+      /** As on the verifier adapter: anchor source `ref` → engine-held list id. */
+      readonly issuerTrustLists?: Readonly<Record<string, string>>;
+    } = {},
   ) {}
 
   async createCredentialOffer(
@@ -232,21 +239,20 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       // Signed with the provider's access certificate, not the Relying Party's: reusing a
       // verification policy means reusing its *content*, not the other party's credentials.
       const configId = presentationConfigIdFor(eligibility.policyId, eligibility.policyVersion);
-      await this.client.request(
-        engineTenantRef,
-        "POST",
-        "/verifier/config",
-        buildPresentationConfigBody({
-          configId,
-          policyId: eligibility.policyId,
-          policyVersion: eligibility.policyVersion,
-          credentialRequirement: eligibility.credentialRequirement,
-          requestedClaims: eligibility.requestedClaims,
-          statusCheckMode: eligibility.statusCheckMode,
-          // The provider's own, guaranteed present by the check above.
-          accessKeyChainId: context.accessKeyBindingRef as string,
-        }),
-      );
+      const eligibilityConfig = buildPresentationConfigBody({
+        configId,
+        policyId: eligibility.policyId,
+        policyVersion: eligibility.policyVersion,
+        credentialRequirement: eligibility.credentialRequirement,
+        requestedClaims: eligibility.requestedClaims,
+        statusCheckMode: eligibility.statusCheckMode,
+        anchorSources: eligibility.anchorSources,
+        issuerTrustLists: this.options.issuerTrustLists ?? {},
+        // The provider's own, guaranteed present by the check above.
+        accessKeyChainId: context.accessKeyBindingRef as string,
+      });
+      await assertIssuerTrustListsLoaded(this.client, engineTenantRef, eligibilityConfig);
+      await this.client.request(engineTenantRef, "POST", "/verifier/config", eligibilityConfig);
 
       authorizationServers.push({
         type: "oid4vp",

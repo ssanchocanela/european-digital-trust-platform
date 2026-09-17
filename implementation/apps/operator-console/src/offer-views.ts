@@ -133,9 +133,12 @@ export const newOfferView = (options: {
   readonly services: readonly ServiceOption[];
   readonly selectedServiceId?: string;
   readonly intendedUses: readonly IntendedUseOption[];
+  /** Published URLs of the issuer trust lists this deployment has loaded. */
+  readonly trustSources?: readonly string[];
   readonly error?: string;
 }): SafeHtml => {
   const service = options.selectedServiceId;
+  const trustSources = options.trustSources ?? [];
 
   return html`
     <h1>Define a verification offer</h1>
@@ -177,9 +180,10 @@ export const newOfferView = (options: {
             <form method="post" action="/offers">
               <input type="hidden" name="serviceId" value="${service}">
               ${options.intendedUses.map((use) => renderIntendedUse(use))}
+              ${renderTrustSources(trustSources)}
 
               <fieldset>
-                <legend>3 · What the holder is told, and what you keep</legend>
+                <legend>4 · What the holder is told, and what you keep</legend>
                 <label>
                   <span>Offer name — how it appears in your list</span>
                   <input type="text" name="name" required maxlength="200"
@@ -211,6 +215,40 @@ export const newOfferView = (options: {
     }
   `;
 };
+
+const renderTrustSources = (sources: readonly string[]): SafeHtml => html`
+  <fieldset>
+    <legend>3 · Whose credentials you accept</legend>
+    ${
+      sources.length === 0
+        ? html`<p class="notice error">
+            No list of trusted issuers is loaded in this deployment, so no offer can be published. A
+            presentation checked against no list would accept a credential signed by anyone.
+          </p>`
+        : sources.map(
+            (ref, index) => html`
+              <label class="inline-check">
+                <input type="checkbox" name="trustSource" value="${ref}" ${index === 0 ? "checked" : ""}>
+                <code>${ref}</code>
+              </label>
+            `,
+          )
+    }
+    <label>
+      <span>What the issuers on these lists are</span>
+      <select name="trustDomain">
+        <option value="PID_PROVIDER">PID Providers</option>
+        <option value="EAA_PROVIDER">Providers of (non-qualified) attestations</option>
+        <option value="PUB_EAA_PROVIDER">Public-body attestation providers</option>
+        <option value="QEAA_PROVIDER">Qualified attestation providers</option>
+      </select>
+    </label>
+    <p class="hint">
+      The presented credential's signer must chain to an issuer on one of the ticked lists, or the
+      presentation fails. Keep lists of different kinds of issuer in different offers.
+    </p>
+  </fieldset>
+`;
 
 const renderIntendedUse = (use: IntendedUseOption): SafeHtml => html`
   <fieldset>

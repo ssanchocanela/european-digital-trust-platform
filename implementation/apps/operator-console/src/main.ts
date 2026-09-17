@@ -89,6 +89,11 @@ const defineOfferForm = z
     name: z.string().min(1).max(200),
     purpose: z.string().min(1).max(300),
     resultKind: z.enum(["VERIFIED_CLAIMS", "AGE_OVER_18"]),
+    trustSource: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v])),
+    trustDomain: z.enum(["PID_PROVIDER", "EAA_PROVIDER", "PUB_EAA_PROVIDER", "QEAA_PROVIDER"]),
   })
   .strict();
 
@@ -834,12 +839,14 @@ const main = async (): Promise<void> => {
       // Only after a Service is chosen: an intended use belongs to one, and asking for all of them
       // would offer claims registered by a party this offer is not operated under.
       const intendedUses = serviceId ? await platform.listIntendedUses(serviceId) : [];
+      const trustSources = serviceId ? await platform.issuerTrustSources() : [];
       render(
         response,
         "Define an offer",
         newOfferView({
           services,
           intendedUses,
+          trustSources,
           ...(serviceId ? { selectedServiceId: serviceId } : {}),
         }),
         true,
@@ -897,6 +904,12 @@ const main = async (): Promise<void> => {
       if (claims.length === 0) {
         throw new Error("Choose at least one attribute to ask for.");
       }
+      if (form.trustSource.length === 0) {
+        throw new Error(
+          "Choose at least one list of trusted issuers. Without one, a credential signed by anyone " +
+            "would be accepted, so the platform refuses the presentation instead.",
+        );
+      }
 
       const credentialType =
         credential.vctValues?.[0] ?? credential.doctype ?? credential.format;
@@ -926,6 +939,11 @@ const main = async (): Promise<void> => {
         acceptedFormats: [credential.format],
         requestedClaims: claims,
         resultPolicy,
+        anchorSources: form.trustSource.map((ref) => ({
+          kind: "ETSI_TS_119_602_LOTE",
+          domain: form.trustDomain,
+          ref,
+        })),
       });
       logger.info("offer defined", { policyId });
       response.redirect(303, `/offers/${encodeURIComponent(policyId)}`);
@@ -933,12 +951,14 @@ const main = async (): Promise<void> => {
       response.status(400);
       const services = await platform.listServices().catch(() => []);
       const intendedUses = await platform.listIntendedUses(form.serviceId).catch(() => []);
+      const trustSources = await platform.issuerTrustSources().catch(() => []);
       render(
         response,
         "Define an offer",
         newOfferView({
           services,
           intendedUses,
+          trustSources,
           selectedServiceId: form.serviceId,
           error: messageOf(error),
         }),

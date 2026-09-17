@@ -13,6 +13,7 @@ import {
   issuancePolicyView,
   newIssuanceView,
 } from "@edtp/operator-console/issuance-views.js";
+import { newOfferView } from "@edtp/operator-console/offer-views.js";
 import {
   errorCodeOf,
   errorMessageOf,
@@ -606,5 +607,35 @@ describe("issuing from a verified presentation, in the console", () => {
     );
     expect(out).toContain('name="claimFixed0"');
     expect(out).toContain('name="maxAgeMinutes"');
+  });
+});
+
+describe("offer builder — whose credentials the offer accepts", () => {
+  const use = {
+    id: "11111111-1111-4111-8111-111111111111",
+    identifier: "identify",
+    registeredCredentials: [
+      { format: "dc+sd-jwt", vctValues: ["urn:eudi:pid:1"], claims: [["family_name"]] },
+    ],
+  } as unknown as Parameters<typeof newOfferView>[0]["intendedUses"][number];
+  const base = {
+    services: [],
+    selectedServiceId: "22222222-2222-4222-8222-222222222222",
+    intendedUses: [use],
+  };
+
+  it("offers each loaded issuer list, the first ticked", () => {
+    const out = toHtmlString(
+      newOfferView({ ...base, trustSources: ["https://lists.example/PIDProviders.jwt"] }),
+    );
+    expect(out).toContain(
+      'name="trustSource" value="https://lists.example/PIDProviders.jwt" checked',
+    );
+    expect(out).toContain('name="trustDomain"');
+  });
+
+  it("says plainly that nothing can be published when no list is loaded", () => {
+    const out = toHtmlString(newOfferView({ ...base, trustSources: [] }));
+    expect(out).toContain("No list of trusted issuers is loaded");
   });
 });

@@ -10,6 +10,18 @@ import { systemClock } from "@edtp/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
+ * The issuer trust list the plans name. The adapter refuses a policy whose list is not loaded on
+ * the engine tenant (interop-findings A30), so the suite needs one: scripts/load-issuer-trust-list.mjs.
+ */
+const CONTRACT_PID_SOURCE = {
+  kind: "ETSI_TS_119_602_LOTE",
+  domain: "PID_PROVIDER",
+  ref: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt",
+} as const;
+const CONTRACT_PID_TRUST_LIST_ID =
+  process.env.CONTRACT_PID_TRUST_LIST_ID ?? "eudi-dev-pid-providers";
+
+/**
  * The half of the engine contract `engine-contract.test.ts` never reached: actually
  * **obtaining an interaction URI**.
  *
@@ -95,7 +107,7 @@ const devPlan = (): VerificationPlan => ({
   // The PID date of birth, which is what the V0 flagship policy requests. `age_over_18` does
   // not exist in the PID — PID Rulebook v1.1 removed it.
   requestedClaims: [{ path: ["birthdate"] }],
-  trustConstraints: defaultTrustPolicy(),
+  trustConstraints: { ...defaultTrustPolicy(), anchorSources: [CONTRACT_PID_SOURCE] },
   resultTransformation: {
     kind: "DERIVED_CLAIMS",
     derivations: [
@@ -143,7 +155,9 @@ beforeAll(async () => {
   reachable = await client.health();
   if (!reachable) return;
 
-  adapter = new EudiploVerifierAdapter(client);
+  adapter = new EudiploVerifierAdapter(client, {
+    issuerTrustLists: { [CONTRACT_PID_SOURCE.ref]: CONTRACT_PID_TRUST_LIST_ID },
+  });
 
   const { privateKeyJwk, certificatePem } = generateDevAccessCertificate();
   const imported = await adapter.importAccessCertificate({

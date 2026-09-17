@@ -61,6 +61,16 @@ const baseUrl = process.env.ENGINE_BASE_URL;
 const ELIGIBILITY_POLICY_ID = "00000000-0000-4000-8000-00000000a20a";
 
 /**
+ * The issuer trust list the eligibility presentation names. The adapter refuses to write a
+ * presentation configuration whose list is not loaded on the engine tenant (A30), so the suite
+ * needs one loaded — `scripts/load-issuer-trust-list.mjs`, with the id below.
+ */
+const CONTRACT_PID_LIST = {
+  ref: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt",
+  id: process.env.CONTRACT_PID_TRUST_LIST_ID ?? "eudi-dev-pid-providers",
+};
+
+/**
  * The eligibility presentation the issuer will write on its **own** engine tenant.
  *
  * Content only — a credential requirement, claims, a status-check mode. No Relying Party context,
@@ -76,6 +86,9 @@ const eligibilityFor = (policyId: string): EligibilityPresentation => ({
   },
   requestedClaims: [{ path: ["birthdate"] }],
   statusCheckMode: "STRICT",
+  anchorSources: [
+    { kind: "ETSI_TS_119_602_LOTE", domain: "PID_PROVIDER", ref: CONTRACT_PID_LIST.ref },
+  ],
 });
 const credentialsRaw = process.env.ENGINE_TENANT_CREDENTIALS;
 
@@ -208,7 +221,9 @@ beforeAll(async () => {
   });
   reachable = await client.health();
   if (!reachable) return;
-  adapter = new EudiploIssuerAdapter(client);
+  adapter = new EudiploIssuerAdapter(client, {
+    issuerTrustLists: { [CONTRACT_PID_LIST.ref]: CONTRACT_PID_LIST.id },
+  });
 
   // The attestation-signing key. `usageType: "signing"`, not `"access"` — this signs attestations,
   // not presentation requests, and using the wrong usage type would put the key in the wrong role.

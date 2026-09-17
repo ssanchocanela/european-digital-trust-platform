@@ -38,6 +38,32 @@ const schema = z.object({
   ENGINE_TENANT_CREDENTIALS: z.string().min(1),
   /** Engine trust list of wallet providers. Unset: no wallet attestation at the token endpoint. */
   ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: z.string().min(1).optional(),
+  /**
+   * Issuer trust lists loaded into the engine, as `<trust anchor source ref>=<engine list id>`
+   * pairs separated by commas. The ref is the list's published URL, as a policy names it; the id is
+   * what `scripts/load-issuer-trust-list.mjs` created. A policy naming a source not listed here is
+   * refused — never verified without issuer trust (`docs/interop-findings.md` A30).
+   */
+  ENGINE_ISSUER_TRUST_LISTS: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const map: Record<string, string> = {};
+      for (const pair of value
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const at = pair.lastIndexOf("=");
+        const ref = pair.slice(0, at);
+        const id = pair.slice(at + 1);
+        if (at <= 0 || !id || !/^https:\/\//.test(ref)) {
+          ctx.addIssue({ code: "custom", message: `not an https-ref=id pair: ${pair}` });
+          return z.NEVER;
+        }
+        map[ref] = id;
+      }
+      return map;
+    }),
 
   /** Public base URL of this API, used for same-device return URLs. */
   PLATFORM_PUBLIC_URL: z.string().url(),

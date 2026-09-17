@@ -13,13 +13,24 @@ import type {
 import { asId, PlatformError } from "@edtp/shared";
 import type { EngineClient } from "./client.js";
 import { normaliseOutcome } from "./outcome-mapping.js";
-import { buildPresentationConfigBody } from "./presentation-config.js";
+import {
+  assertIssuerTrustListsLoaded,
+  buildPresentationConfigBody,
+} from "./presentation-config.js";
 import {
   type EngineSessionResponse,
   engineOfferResponseSchema,
   engineSessionSchema,
   keyChainIdSchema,
 } from "./schemas.js";
+
+export interface EudiploVerifierAdapterOptions {
+  /**
+   * Trust anchor source `ref` → id of the engine-held list built from it. A policy naming a source
+   * missing here is refused, never verified without issuer trust (`interop-findings.md` A30).
+   */
+  readonly issuerTrustLists?: Readonly<Record<string, string>>;
+}
 
 /**
  * The verifier adapter: the anti-corruption layer around the protocol engine.
@@ -35,6 +46,7 @@ import {
  * DELETE /api/session/:id         cancel, and purge the engine-side session
  * PUT    /api/session-config      apply retention settings (provisioning)
  * POST   /api/key-chain/import    import an access certificate (provisioning)
+ * GET    /api/trust-list          confirm the issuer trust lists a policy names are loaded
  * GET    /health                  protocol API, deliberately unprefixed
  * ```
  *
@@ -50,7 +62,10 @@ import {
  * nothing.
  */
 export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierProvisioningPort {
-  constructor(private readonly client: EngineClient) {}
+  constructor(
+    private readonly client: EngineClient,
+    private readonly options: EudiploVerifierAdapterOptions = {},
+  ) {}
 
   async createPresentationRequest(
     input: CreatePresentationRequestInput,
@@ -183,12 +198,15 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
       credentialRequirement: plan.credentialRequirement,
       requestedClaims: plan.requestedClaims,
       statusCheckMode: plan.trustConstraints.statusCheckMode,
+      anchorSources: plan.trustConstraints.anchorSources,
+      issuerTrustLists: this.options.issuerTrustLists ?? {},
       accessKeyChainId: plan.relyingPartyContext.accessKeyBindingRef,
       ...(plan.relyingPartyContext.registrationCertificateJwt
         ? { registrationCertificateJwt: plan.relyingPartyContext.registrationCertificateJwt }
         : {}),
     });
 
+    await assertIssuerTrustListsLoaded(this.client, engineTenantRef, body);
     await this.client.request(engineTenantRef, "POST", "/verifier/config", body);
   }
 

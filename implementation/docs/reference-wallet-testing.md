@@ -540,7 +540,7 @@ Values were checked **for presence only** — the names are PID attributes and a
 of an issued attestation, in one tenant, refused across tenants, with the presentation id as the
 provenance of every attestation issued from it.
 
-**What it does not.** Everything in §8.1f still holds — a modified wallet, gate (a) bypassed, two
+**What it does not — and one thing found the next day.** The identification in step 2 was verified **without any issuer trust check**: the engine skips it when a policy names no trust list, and the platform never passed one (`interop-findings.md` A30, fixed 17 September). The PID was the reference issuer's and would have passed the check, but the run does not show that it did. Everything in §8.1f still holds — a modified wallet, gate (a) bypassed, two
 responses rewritten by the gateway, a dev wallet-provider list, no registration certificate. And the
 representation itself is **fictitious**: the organisation and the capacity to act for it come from
 policy configuration, which is why the source is a FIXTURE and the warning is returned. A real

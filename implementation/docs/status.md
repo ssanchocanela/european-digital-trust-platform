@@ -8,6 +8,26 @@ linked rather than repeated.
 
 ---
 
+## 17 September 2026 — **presentations now check who signed what was presented**
+
+Found while starting a test PID issuer: the engine reports a presentation verified **without any issuer
+trust check** when the policy names no trust list, and the platform never passed one
+([`interop-findings.md`](interop-findings.md) A30). Fixed, failing closed — a policy with no loaded list
+is refused. The notified dev PID list is loaded on `rpi-1` and *Identify with PID* is at **v2**, naming
+it. Also A31 (`VP_REMOVE_TA`) and security limitation K3a.
+
+**To reproduce on a fresh engine database:** `node scripts/load-issuer-trust-list.mjs --tenant rpi-1
+--lote https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt --signer-sha256
+2IMmoFLUHyrtG60cldjIwVrvsEonpHlw9NhOqlfYUSo --id eudi-dev-pid-providers`, then the printed pair into
+`ENGINE_ISSUER_TRUST_LISTS`. The console's offer builder now requires choosing a list.
+
+**Not yet shown with a wallet:** that a reference-issued PID still verifies under the check. That is
+the first phone step of the next session.
+
+**Next, agreed:** a test PID issuer with a form — a development PID CA, a TEST PID list (notified
+anchors plus ours) loaded into the engine and published for the wallet, deviation WD-4 (`pidProviders`
+pointing at that list), the PID credential type, a form-backed source and its console page.
+
 ## 16 September 2026, night — **the end-to-end demonstration works**
 
 Present a PID, be identified, be issued a representative credential built from it, and hold it in the

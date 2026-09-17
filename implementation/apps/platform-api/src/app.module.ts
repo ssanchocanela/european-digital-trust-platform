@@ -6,6 +6,7 @@ import {
   PolicyController,
   PresentationController,
   TenantController,
+  VerificationCapabilitiesController,
 } from "./http/controllers.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
 import {
@@ -58,6 +59,7 @@ export class AppModule {
         PresentationController,
         IssuanceConfigurationController,
         IssuanceController,
+        VerificationCapabilitiesController,
         IdentityController,
         TenantListingController,
         TransactionListingController,

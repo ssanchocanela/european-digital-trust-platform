@@ -1,10 +1,12 @@
 import type { VerificationPlan } from "@edtp/domain";
 import { defaultRetentionPolicy, defaultTrustPolicy } from "@edtp/domain";
 import {
-  buildDcqlQuery,
+  buildDcqlQuery as buildDcqlQueryWithTrust,
   dcqlCredentialId,
+  issuerTrustedAuthorities,
   toEngineStatusCheckMode,
 } from "@edtp/eudiplo-adapter";
+import { PlatformError } from "@edtp/shared";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -25,7 +27,7 @@ const plan = (overrides: Partial<VerificationPlan> = {}): VerificationPlan => ({
     vctValues: ["urn:eudi:pid:1"],
   },
   requestedClaims: [{ path: ["birthdate"] }],
-  trustConstraints: defaultTrustPolicy(),
+  trustConstraints: { ...defaultTrustPolicy(), anchorSources: [PID_SOURCE] },
   resultTransformation: { kind: "VERIFIED_CLAIMS", allowedClaims: [["birthdate"]] },
   retentionInstructions: defaultRetentionPolicy(),
   relyingPartyContext: {
@@ -38,6 +40,21 @@ const plan = (overrides: Partial<VerificationPlan> = {}): VerificationPlan => ({
   },
   ...overrides,
 });
+
+const PID_LIST = "https://lists.example/PIDProviders.jwt";
+const PID_SOURCE = {
+  kind: "ETSI_TS_119_602_LOTE",
+  domain: "PID_PROVIDER",
+  ref: PID_LIST,
+} as const;
+
+/** The builder with the plan's own trust constraints and one loaded list, as a deployment has. */
+const buildDcqlQuery = (p: VerificationPlan) =>
+  buildDcqlQueryWithTrust({
+    ...p,
+    anchorSources: p.trustConstraints.anchorSources,
+    issuerTrustLists: { [PID_LIST]: "eudi-dev-pid-providers" },
+  });
 
 describe("buildDcqlQuery", () => {
   it("builds an SD-JWT VC query with vct_values", () => {
@@ -151,5 +168,59 @@ describe("toEngineStatusCheckMode", () => {
     expect(toEngineStatusCheckMode("STRICT")).toBe("strict");
     expect(toEngineStatusCheckMode("BEST_EFFORT")).toBe("best_effort");
     expect(toEngineStatusCheckMode("DISABLED")).toBe("disabled");
+  });
+});
+
+describe("issuer trust in the query — fail closed (interop-findings A30)", () => {
+  const code = (fn: () => unknown): string | undefined => {
+    try {
+      fn();
+    } catch (error) {
+      return error instanceof PlatformError ? error.code : "not-a-platform-error";
+    }
+    return undefined;
+  };
+
+  it("names the engine-held list on every credential entry", () => {
+    const query = buildDcqlQuery(
+      plan({
+        credentialRequirement: {
+          credentialType: "urn:eudi:pid:1",
+          acceptedFormats: ["dc+sd-jwt", "mso_mdoc"],
+          vctValues: ["urn:eudi:pid:1"],
+          doctype: "eu.europa.ec.eudi.pid.1",
+        },
+      }),
+    );
+    expect(query.credentials).toHaveLength(2);
+    for (const credential of query.credentials) {
+      expect(credential.trusted_authorities).toEqual([
+        { type: "etsi_tl", values: [{ trustListId: "eudi-dev-pid-providers" }] },
+      ]);
+    }
+  });
+
+  it("refuses a policy with no issuer anchor source, because the engine would skip issuer trust", () => {
+    expect(code(() => issuerTrustedAuthorities([], {}))).toBe("trust_anchor_sources_missing");
+  });
+
+  it("does not count access- or registration-certificate anchors as issuer trust", () => {
+    const access = { ...PID_SOURCE, domain: "ACCESS_CERTIFICATE_PROVIDER" } as const;
+    expect(code(() => issuerTrustedAuthorities([access], { [PID_LIST]: "x" }))).toBe(
+      "trust_anchor_sources_missing",
+    );
+  });
+
+  it("refuses a source this deployment has not loaded", () => {
+    expect(code(() => issuerTrustedAuthorities([PID_SOURCE], {}))).toBe(
+      "trust_anchor_source_not_provisioned",
+    );
+  });
+
+  it("refuses a trusted-list source kind it cannot compile", () => {
+    const tl = { ...PID_SOURCE, kind: "ETSI_TS_119_612_TRUSTED_LIST" } as const;
+    expect(code(() => issuerTrustedAuthorities([tl], { [PID_LIST]: "x" }))).toBe(
+      "trust_anchor_source_kind_unsupported",
+    );
   });
 });

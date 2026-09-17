@@ -62,6 +62,15 @@ services:
       # Drives every wallet-facing URL. For a physical phone this must be the public HTTPS
       # origin of the tunnel or test host, not localhost — see docs/reference-wallet-testing.md.
       PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:3000}
+      # The engine reads the trust lists it holds over HTTP from its own origin. Without this it
+      # uses PUBLIC_URL, which during a phone session is the tunnel — where the gateway rightly
+      # refuses trust-list paths — so issuer trust would fail as "trust list unavailable".
+      INTERNAL_URL: http://localhost:3000
+      # Strip trusted_authorities from the request sent to the wallet; the engine still verifies
+      # against them. The engine rewrites them to `aki` values taken from the *list signer's*
+      # certificate, which is not in any credential's chain, so a wallet honouring them would
+      # find no matching credential. docs/interop-findings.md A31.
+      VP_REMOVE_TA: "true"
       MASTER_SECRET: ${ENGINE_MASTER_SECRET:?set ENGINE_MASTER_SECRET in .env}
       AUTH_CLIENT_ID: ${ENGINE_CLIENT_ID:-root}
       AUTH_CLIENT_SECRET: ${ENGINE_CLIENT_SECRET:?set ENGINE_CLIENT_SECRET in .env}
@@ -155,6 +164,7 @@ services:
       ENGINE_BASE_URL: http://eudiplo:3000
       ENGINE_TENANT_CREDENTIALS: ${ENGINE_TENANT_CREDENTIALS:?set ENGINE_TENANT_CREDENTIALS in .env}
       ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: ${ENGINE_WALLET_PROVIDER_TRUST_LIST_ID:-}
+      ENGINE_ISSUER_TRUST_LISTS: ${ENGINE_ISSUER_TRUST_LISTS:-}
       JOB_INTERVAL_MS: "15000"
     ports:
       - "127.0.0.1:3100:3100"

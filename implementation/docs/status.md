@@ -21,8 +21,9 @@ it. Also A31 (`VP_REMOVE_TA`) and security limitation K3a.
 2IMmoFLUHyrtG60cldjIwVrvsEonpHlw9NhOqlfYUSo --id eudi-dev-pid-providers`, then the printed pair into
 `ENGINE_ISSUER_TRUST_LISTS`. The console's offer builder now requires choosing a list.
 
-**Not yet shown with a wallet:** that a reference-issued PID still verifies under the check. That is
-the first phone step of the next session.
+**Shown with a wallet, 18 September:** the same reference-issued PID verifies under the check (policy
+v2) and is refused as `trust_chain_not_trusted` against a list holding the wrong anchor (v3, a negative
+control since removed). §8.1i. *Identify with PID* is now at **v4**, naming the notified dev PID list.
 
 **Next, agreed:** a test PID issuer with a form — a development PID CA, a TEST PID list (notified
 anchors plus ours) loaded into the engine and published for the wallet, deviation WD-4 (`pidProviders`

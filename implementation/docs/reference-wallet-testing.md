@@ -566,6 +566,26 @@ is refreshed from the engine when the issuance itself is read, so the list can s
 
 Every limit of §8.1f and §8.1g still applies.
 
+### 8.1i Ninth and tenth wallet runs — **issuer trust, proved in both directions**
+
+18 September 2026, W4 as before, a fresh tunnel and gateway after a host restart. Two presentations
+of the same reference-issued PID against the same policy, differing only in the trust list the policy
+names — the check introduced that day (`interop-findings.md` A30).
+
+| Policy version | Trust anchor source it names | Outcome |
+|---|---|---|
+| v2 | The notified EUDI **development** `PIDProviders` list, loaded into the engine | **`VERIFIED`**, result as before |
+| v3 | A negative control: a list holding one anchor, this platform's development **Access** CA, which signs no attestation | **`TRUST_ERROR`**, `trust_chain_not_trusted`, **no result** |
+
+The PID was the same legitimate credential in both runs, so the difference is the check and nothing
+else. Together with the platform-side refusal of a policy naming no source at all
+(`trust_anchor_sources_missing`, exercised over the API), that is the whole behaviour: refused when
+nothing says whom to trust, refused when the signer is not among them, verified when it is.
+
+The negative control was removed afterwards and the policy republished at v4, naming the notified
+list. What this does **not** establish: anything about a notified production list, or about an
+official wallet build — §8.1f's limits all still apply.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

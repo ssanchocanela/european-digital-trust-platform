@@ -586,6 +586,50 @@ The negative control was removed afterwards and the policy republished at v4, na
 list. What this does **not** establish: anything about a notified production list, or about an
 official wallet build — §8.1f's limits all still apply.
 
+### 8.1j Eleventh wallet run — **a test PID, then the three Power of X attestations, selectively disclosed**
+
+23 September 2026, **W5** (`eu.europa.ec.euidi.edtptest5`, debug, `wd-2,wd-3,wd-4`, APK SHA-256
+`5c830bdc…5ea0`) — a **modified wallet**, not the Reference Wallet — on a Pixel 9a, through the gateway
+with `GATEWAY_PINNED_WALLET_COMPAT=true`. The gateway's negative checks passed before the phone was
+used: every `/api/*` probe, `POST /api/key-chain/import` included, answered `404` and was logged as
+denied. Synthetic data throughout.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · A test PID | `operator-form` issuance on `pid-1`, synthetic values, offer sent to W5 by `adb` | platform `ISSUED`; W5 stored it |
+| 2 · Identify | *Identify with PID, for a Power of X credential* (`c4e31d3f…` v1, TEST PID list), `SAME_DEVICE` | **`VERIFIED`**; the result holds exactly the five requested claims |
+| 3 · Power of Representation | `verified-presentation` source, presentation id as `subjectReference` | platform `ISSUED`; W5 stored it |
+| 4 · Power of Attorney | the same | platform `ISSUED`; W5 stored it |
+| 5 · Power of Employee | the same | platform `ISSUED`; W5 stored it |
+
+**The tokens, decoded.** W5 is a debug build, so its document store was read with `run-as`, the three
+SD-JWTs parsed for their structure only, and the copy deleted:
+
+| Attestation | Disclosures | `_sd` digests | Claims in the clear |
+|---|---|---|---|
+| `urn:edtp:pox:power-of-representation:2` | 19 | 19 | none |
+| `urn:edtp:pox:power-of-attorney:2` | 9 — the list of powers is **one** | 9 | none |
+| `urn:edtp:pox:power-of-employee:2` | 18 | 18 | none |
+
+**The first attestations this platform has issued with selective disclosure** (A32), and the first
+issued on the Power of X model. What it does **not** show: the test PID's own disclosures — W5 used
+its single PID credential for the presentation and deleted it, so there was no token left to read;
+anything about an official wallet build; a registration certificate (none, B3; *Check Registration
+Certificates* in its default, off, and not tested in the on position). The representation is
+fictitious and the source a FIXTURE.
+
+**Two defects found on the way, both ours:**
+
+1. **Every issuance on `rpi-1` failed** with `trust_anchor_sources_missing`. The issuer configuration
+   gathered the eligibility gates of every *published version*, including those of **retired**
+   policies — versions stay published when their policy is retired — and two retired A22 test
+   policies were gated on a presentation policy with no trust anchors, which A30 refuses. So from 17
+   September no issuance on the provider could have succeeded. Fixed in
+   `issuerConfigurationInputs`, with an integration test that fails without the fix.
+2. **The tunnel answered every request with a bare `404`.** cloudflared reads
+   `~/.cloudflared/config.yml` even for a quick tunnel, and a named tunnel's ingress there — another
+   project's — ends in `http_status:404`. `test-session-tunnel.sh` now passes an empty `--config`.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

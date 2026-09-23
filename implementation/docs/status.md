@@ -39,7 +39,7 @@ The agreed next step from the 17th, everything except the phone run:
 form, then present it to *Identify with PID* v5. Then the demonstration's first step no longer needs
 the reference issuer.
 
-## 23 September 2026, later — **the representative credential on the Power of X model; not yet run**
+## 23 September 2026, night — **the three Power of X attestations issued to a wallet, selectively disclosed**
 
 The representative credential moved to the Power of X model, all three types: structured credential
 types (`integer`, `object[]`, an enforced `payloadSchema` — `bfbf7c9`), a fix to the
@@ -47,9 +47,19 @@ verified-presentation source that had only ever worked for one-segment paths (sa
 `scripts/register-pox-issuance.mjs`, which reads the out-of-repository definitions and fictitious test
 data. [`credential-catalogue.md`](credential-catalogue.md) *Issuing Power of X*.
 
-**Not yet run against the stack.** Next: migration `0010`, rebuild the platform API, run the script
-with the Attestation Provider and *Identify with PID*, present a PID **that carries a country of
-birth** (the test PID from the console form does), issue each type, and decode the tokens.
+**Run end to end with W5** ([`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1j): a test
+PID from the operator form, identified against *Identify with PID, for a Power of X credential*
+(`c4e31d3f…`), then Power of Representation, Attorney and Employee issued from that presentation and
+stored. The tokens, read from the debug wallet: **19, 9 and 18 disclosures, nothing in the clear** —
+the first attestations from this platform with selective disclosure. The test PID's own token was
+consumed by the presentation, so its disclosures are still unseen.
+
+Two of our own defects fixed on the way: retired issuance policies' gates were still compiled, which
+since A30 blocked **every** issuance on `rpi-1`; and the tunnel script now ignores
+`~/.cloudflared/config.yml`, whose catch-all `404` (another project's) swallowed every request.
+
+**Next:** see the test PID's disclosures on a token (issue a second one and read it before presenting
+it), and a presentation policy for the `:2` types, which needs an intended use registering them.
 
 ## 17 September 2026 — **presentations now check who signed what was presented**
 

@@ -61,7 +61,14 @@ start_tunnel() {
   while [ "$attempt" -le 3 ]; do
     local log="$RUN_DIR/$label.log"
     : > "$log"
-    "$CLOUDFLARED" tunnel --no-autoupdate --url "http://127.0.0.1:$port" > "$log" 2>&1 &
+    # `--config` names an empty file on purpose. Without it cloudflared reads
+    # ~/.cloudflared/config.yml, and a named tunnel's ingress there — another project's, on
+    # 23 September 2026 — ends in `http_status:404`, which then answers every request to this quick
+    # tunnel with a bare 404 from the edge. The tunnel registers, the name resolves, nothing reaches
+    # the gateway, and nothing in the logs says why.
+    : > "$RUN_DIR/cloudflared-empty.yml"
+    "$CLOUDFLARED" tunnel --config "$RUN_DIR/cloudflared-empty.yml" --no-autoupdate \
+      --url "http://127.0.0.1:$port" > "$log" 2>&1 &
     echo $! > "$RUN_DIR/$label.pid"
 
     # cloudflared prints the assigned hostname once the tunnel is registered. Polling the log is the

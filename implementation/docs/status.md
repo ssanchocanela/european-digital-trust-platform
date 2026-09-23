@@ -11,16 +11,33 @@ linked rather than repeated.
 ## 24 September 2026, night — **a representation credential from the wallet's own list, issued as CORPME after identifying with the PID**
 
 W6, now listing two issuers (WD-5 with `pid-1,rpi-1`), requested *Poder de representación* — and then
-*Poder notarial*, the same way — from
+*Poder notarial* and *Autorización de empleado*, the same way — from
 *CORPME (demo)*. The hosted form (CORPME look) had the person present their PID from the same wallet
 **mid-issuance**, came back through the platform, showed what the attestation would say, and issued it:
 presentation `VERIFIED`, issuance `ISSUED`. Personal data from the PID; organisation, position and powers
 fixed and fictitious. PoX types at **v2** with Spanish names; `rpi-1` advertises only them. Record:
 [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1m; gate and return: `test-session-gateway.md` §1e.
 
+**Next action (agreed 24 September, for 25 September): remove the one-use limitation.** The user
+observed that a PID we issue behaves as **single-use** — one credential, one presentation, and more
+uses need more issuance. The goal is that the credentials this platform issues are **not** limited to
+one use. Not yet investigated; where to look, in order:
+
+1. **What the wallet asked for and got.** The wallet declares reuse policies per issuer in
+   `WalletCoreConfigImpl` (`withSupportedCredentialReusePolicies`: `RotatingBatch`, `OnceOnly`,
+   `LimitedTime`), and chooses among them from what the issuer offers. Find which one it applied to our
+   documents, and why — likely from the issuer metadata's batch capability (`batch_credential_issuance`)
+   and the credential configuration, which the adapter builds (`buildIssuerMetadataCredentialConfig`).
+2. **What the engine issues per request.** One credential or a batch; whether the engine and our
+   issuer configuration can advertise and serve a batch, or a multi-use policy.
+3. **Decide with the baseline in mind.** ARF §6.6.3 and the unlinkability HLRs favour once-only or
+   batch issuance for PID *precisely* to prevent tracking across presentations. So a multi-use PID has
+   a privacy cost that must be recorded (`knowledge-alignment.md` or `interop-findings.md`), not
+   silently accepted. A batch of several one-use credentials may give "more uses" without that cost.
+   Check the exact HLR identifiers in the register before citing any.
+
 **Always open a form session with `GATEWAY_PINNED_WALLET_COMPAT=true`** — without it the list fails
-(A29 item 3); the script now refuses. *Autorización de empleado* goes through the same path and was not
-yet run on the phone.
+(A29 item 3); the script now refuses.
 
 ## 24 September 2026 — **a PID requested from the wallet's own list, for an FNMT demonstration**
 

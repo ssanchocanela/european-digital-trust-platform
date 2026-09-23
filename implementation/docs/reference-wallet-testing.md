@@ -703,7 +703,7 @@ gate on for `pid-1,rpi-1`. Negative checks passed (19 probes, all `404`) before 
 | 3 · Identify | the form started a `SAME_DEVICE` presentation; **the wallet presented its PID mid-issuance** and returned through the platform into the form | presentation **`VERIFIED`**; return destination fixed by the platform, not the request |
 | 4 · Request | the form showed the PID claims and the fixed test data; *Solicitar* | submission with the presentation id as subject reference; `303` back to the engine with the pass |
 | 5 · Collect | the wallet collected the attestation | platform **`ISSUED`**, *Poder de representación* policy **v2**, warnings: no registration certificate, FIXTURE source |
-| 6 · Again | *Poder notarial* by the same path, a fresh PID presentation | presentation `VERIFIED`, issuance **`ISSUED`** (policy v2) |
+| 6 · Again | *Poder notarial*, then *Autorización de empleado*, by the same path, each with a fresh PID presentation | presentations `VERIFIED`, issuances **`ISSUED`** (policy v2 each) — all three PoX types |
 
 The risk carried into this run — a wallet presenting while it is itself in the middle of an issuance —
 did not materialise: one wallet, one pass. What this does **not** show: anything about an unmodified

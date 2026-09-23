@@ -20,6 +20,14 @@ It contains **eight** trust anchors:
 `lote/edtp-dev-access-ca.crt` and `lote/edtp-lote-signer.crt` are the two certificates, published
 separately so that anyone can check what the list actually asserts without decoding the JWS.
 
+`lote/PIDProviders.jwt` — a list of **PID Providers**, in the same form, built the same way: the
+**seven** anchors carried forward byte for byte from
+`https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt`, plus **one** of ours,
+`EDTP Development PID Provider CA - TEST ONLY` (`lote/edtp-dev-pid-ca.crt`). A PID signed under
+that CA is **test data issued by a development platform**, not a PID: no Member State has notified
+it, and only a wallet we modified ourselves (deviation WD-4) consults this list. It is signed by the
+same `edtp-lote-signer.crt`.
+
 ## Why it exists
 
 Under Regulation (EU) No 910/2014 as amended, and ARF 3.0.0, a Wallet Unit accepts access

@@ -39,6 +39,18 @@ The agreed next step from the 17th, everything except the phone run:
 form, then present it to *Identify with PID* v5. Then the demonstration's first step no longer needs
 the reference issuer.
 
+## 23 September 2026, later — **the representative credential on the Power of X model; not yet run**
+
+The representative credential moved to the Power of X model, all three types: structured credential
+types (`integer`, `object[]`, an enforced `payloadSchema` — `bfbf7c9`), a fix to the
+verified-presentation source that had only ever worked for one-segment paths (same commit), and
+`scripts/register-pox-issuance.mjs`, which reads the out-of-repository definitions and fictitious test
+data. [`credential-catalogue.md`](credential-catalogue.md) *Issuing Power of X*.
+
+**Not yet run against the stack.** Next: migration `0010`, rebuild the platform API, run the script
+with the Attestation Provider and *Identify with PID*, present a PID **that carries a country of
+birth** (the test PID from the console form does), issue each type, and decode the tokens.
+
 ## 17 September 2026 — **presentations now check who signed what was presented**
 
 Found while starting a test PID issuer: the engine reports a presentation verified **without any issuer

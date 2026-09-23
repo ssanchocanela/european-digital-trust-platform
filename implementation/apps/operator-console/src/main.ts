@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -30,6 +31,7 @@ import {
   issuancePolicyView,
   issuedCredentialsView,
   newIssuanceView,
+  readOperatorForm,
 } from "./issuance-views.js";
 import { CONSOLE_CSS, CONTENT_SECURITY_POLICY, notice, page } from "./layout.js";
 import { Logger } from "./logger.js";
@@ -684,6 +686,10 @@ const main = async (): Promise<void> => {
     // platform, not hard-coded: the console has no privileged view, and a deployment with a real
     // authentic source returns none — a real source's subject references are not ours to list.
     const source = await platform.issuancePolicySource(policyId).catch(() => undefined);
+    const form =
+      source === "operator-form"
+        ? await platform.operatorFormFields(policyId).catch(() => undefined)
+        : undefined;
     const knownSubjects = await platform
       .issuanceCapabilities()
       .then((c) =>
@@ -703,6 +709,7 @@ const main = async (): Promise<void> => {
         issuances,
         ...(knownSubjects.length > 0 ? { knownSubjects } : {}),
         ...(source ? { source } : {}),
+        ...(form ? { form } : {}),
         ...(gate ? { gate } : {}),
         ...(extra.offer ? { offer: extra.offer } : {}),
         ...(extra.offer
@@ -750,8 +757,13 @@ const main = async (): Promise<void> => {
 
   app.post("/issuance/:policyId/offer", async (request, response) => {
     const policyId = request.params.policyId ?? "";
-    const subjectReference =
-      typeof request.body?.subjectReference === "string"
+    // An operator-form policy issues from what was typed, so the subject reference is a random
+    // label for the transaction rather than a lookup key anybody chose.
+    const form = await platform.operatorFormFields(policyId).catch(() => undefined);
+    const subjectAttributes = form ? readOperatorForm(form, request.body ?? {}) : undefined;
+    const subjectReference = form
+      ? `operator-form-${randomUUID().slice(0, 8)}`
+      : typeof request.body?.subjectReference === "string"
         ? request.body.subjectReference.trim()
         : "";
     if (!subjectReference) {
@@ -767,6 +779,8 @@ const main = async (): Promise<void> => {
         policyId,
         subjectReference,
         businessReference: `console-${new Date().toISOString().slice(0, 19).replace(/[:T-]/g, "")}`,
+        // Never logged: the line below names the transaction, not what it carries.
+        ...(subjectAttributes ? { subjectAttributes } : {}),
       });
       logger.info("credential offer created", {
         issuanceId: created.issuanceId,

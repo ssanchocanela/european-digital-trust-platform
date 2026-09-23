@@ -5,6 +5,8 @@ import type {
   IssuanceOption,
   IssuanceSummary,
   IssuedCredentialSummary,
+  OperatorForm,
+  OperatorFormField,
   ProviderAuthentication,
 } from "./platform-client.js";
 
@@ -253,6 +255,87 @@ const policyTable = (
 
 // --- 2. one policy: offer it, and watch what happened -------------------------------------------
 
+/**
+ * The attributes of an `operator-form` policy, as inputs.
+ *
+ * The warning comes first and is not dismissible, because this is the one screen in the console
+ * where a person's details could be typed into a credential: what is typed here is signed as
+ * asserted by nobody, and must be invented. Values are never pre-filled from a previous request —
+ * the console does not keep them to pre-fill with.
+ */
+export const operatorFormFields = (form: OperatorForm): SafeHtml => html`
+  <p class="notice warn">
+    <strong>Synthetic test data only.</strong> Whatever is typed here is signed into a credential
+    under a development CA that no Member State notified, as asserted by nobody. Never enter a real
+    person's details.
+  </p>
+  ${form.fields.map(operatorFormInput)}
+  ${
+    form.fixed.length > 0
+      ? html`<p class="hint">Set by the issuance policy:
+          ${form.fixed.map((f) => html`${f.label} <code>${f.value}</code> `)}</p>`
+      : ""
+  }
+`;
+
+const operatorFormInput = (field: OperatorFormField): SafeHtml => {
+  const name = `attr:${field.path}`;
+  const required = field.mandatory ? "required" : "";
+  const label = html`<span>${field.label}${field.mandatory ? "" : html` <span class="dim">(optional)</span>`}</span>`;
+  switch (field.valueType) {
+    case "date":
+      return html`<label>${label}<input type="date" name="${name}" ${required}></label>`;
+    case "number":
+      return html`<label>${label}<input type="number" name="${name}" ${required}></label>`;
+    case "boolean":
+      return html`<label>${label}<input type="checkbox" name="${name}" value="true"></label>`;
+    case "string[]":
+      return html`<label>${label}<input type="text" name="${name}" ${required} maxlength="200"
+          autocomplete="off" placeholder="comma-separated"></label>`;
+    default:
+      return html`<label>${label}<input type="text" name="${name}" ${required} maxlength="200"
+          autocomplete="off"></label>`;
+  }
+};
+
+/**
+ * The typed values of an operator form, as `subjectAttributes`.
+ *
+ * Content: built, sent, and out of scope with the request. Empty boxes are omitted rather than sent
+ * empty, so an optional attribute left blank is absent from the credential. A `string[]` box takes a
+ * comma- or space-separated list; country codes are the case it exists for, so each item is
+ * upper-cased. Type checking beyond that is the platform's — it refuses a wrong shape by path.
+ */
+export const readOperatorForm = (
+  form: OperatorForm,
+  body: Readonly<Record<string, unknown>>,
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const field of form.fields) {
+    const raw = body[`attr:${field.path}`];
+    const text = typeof raw === "string" ? raw.trim() : "";
+    switch (field.valueType) {
+      case "boolean":
+        if (raw === "true") out[field.path] = true;
+        break;
+      case "number":
+        if (text !== "" && Number.isFinite(Number(text))) out[field.path] = Number(text);
+        break;
+      case "string[]": {
+        const items = text
+          .split(/[\s,]+/)
+          .filter((item) => item.length > 0)
+          .map((item) => item.toUpperCase());
+        if (items.length > 0) out[field.path] = items;
+        break;
+      }
+      default:
+        if (text !== "") out[field.path] = text;
+    }
+  }
+  return out;
+};
+
 export const issuancePolicyView = (options: {
   readonly policy: IssuanceOption;
   readonly issuances: readonly IssuanceSummary[];
@@ -275,6 +358,8 @@ export const issuancePolicyView = (options: {
   readonly knownSubjects?: readonly string[];
   /** The policy's authentic source. `verified-presentation` changes what the subject is. */
   readonly source?: string;
+  /** Present for an `operator-form` policy: the attributes the operator types. */
+  readonly form?: OperatorForm;
   readonly error?: string;
 }): SafeHtml => html`
   <p class="crumb"><a href="/issuance">Issuance</a></p>
@@ -325,8 +410,10 @@ export const issuancePolicyView = (options: {
     }
     <form method="post" action="/issuance/${options.policy.id}/offer">
       ${
-        options.source === "verified-presentation"
-          ? html`
+        options.form
+          ? operatorFormFields(options.form)
+          : options.source === "verified-presentation"
+            ? html`
             <label>
               <span>Presentation id — a presentation this tenant verified moments ago</span>
               <input type="text" name="subjectReference" required maxlength="200"
@@ -338,7 +425,7 @@ export const issuancePolicyView = (options: {
               <strong>Issue</strong> there, which fills this in for you.
             </p>
           `
-          : html`
+            : html`
             <label>
               <span>Who is this for — your own reference for the subject at the authentic source</span>
               <input type="text" name="subjectReference" required maxlength="200"

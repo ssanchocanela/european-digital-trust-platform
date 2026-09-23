@@ -95,6 +95,22 @@ export interface PresentationSummary {
 }
 
 /** An issuance policy in a list: what it issues, and whether it can. */
+export type ClaimValueType = "string" | "number" | "boolean" | "date" | "string[]";
+
+export interface OperatorFormField {
+  /** Dotted, as the API's `subjectAttributes` accepts it. */
+  readonly path: string;
+  readonly label: string;
+  readonly valueType: ClaimValueType;
+  readonly mandatory: boolean;
+}
+
+export interface OperatorForm {
+  readonly fields: readonly OperatorFormField[];
+  /** Set by the policy, shown so the operator knows what the credential will say. */
+  readonly fixed: readonly { readonly label: string; readonly value: string }[];
+}
+
 export interface IssuanceOption {
   readonly id: string;
   readonly name: string;
@@ -445,6 +461,8 @@ export class PlatformClient {
     readonly policyId: string;
     readonly subjectReference: string;
     readonly businessReference: string;
+    /** Only for an `operator-form` policy. Content: sent once, never kept or logged here. */
+    readonly subjectAttributes?: Readonly<Record<string, unknown>>;
   }): Promise<{
     readonly issuanceId: string;
     readonly status: string;
@@ -617,6 +635,59 @@ export class PlatformClient {
    * issue the same credential type from different sources, and only one of them can be issued from a
    * presentation.
    */
+  /**
+   * The attributes an operator types for an `operator-form` policy, or `undefined` for any other.
+   *
+   * Built from the credential type rather than written per credential, so the test PID's form is
+   * whatever its type declares. Claims the policy fixes are returned separately and shown read-only:
+   * the API refuses a supplied value for one, so offering the box would only produce an error.
+   */
+  async operatorFormFields(policyId: string): Promise<OperatorForm | undefined> {
+    const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
+    const base = `/v1/tenants/${encodeURIComponent(tenantId)}`;
+    const detail = await this.call<{
+      versions?: readonly {
+        readonly version: number;
+        readonly status: string;
+        readonly credentialTypeId: string;
+        readonly authenticSource?: {
+          readonly connector?: string;
+          readonly parameters?: { readonly fixedClaims?: Readonly<Record<string, unknown>> };
+        };
+      }[];
+    }>("GET", `${base}/issuance-policies/${encodeURIComponent(policyId)}`);
+    const published = (detail.versions ?? [])
+      .filter((v) => v.status === "PUBLISHED")
+      .sort((a, b) => b.version - a.version)[0];
+    if (published?.authenticSource?.connector !== "operator-form") return undefined;
+
+    const type = await this.call<{
+      readonly claims: readonly {
+        readonly path: readonly string[];
+        readonly display: readonly { readonly lang: string; readonly value: string }[];
+        readonly mandatory: boolean;
+        readonly valueType: ClaimValueType;
+      }[];
+    }>("GET", `${base}/credential-types/${encodeURIComponent(published.credentialTypeId)}`);
+
+    const fixedClaims = published.authenticSource.parameters?.fixedClaims ?? {};
+    const all = type.claims.map((c) => ({
+      path: c.path.join("."),
+      label:
+        c.display.find((d) => d.lang === "en")?.value ??
+        c.display[0]?.value ??
+        c.path.join("."),
+      valueType: c.valueType,
+      mandatory: c.mandatory,
+    }));
+    return {
+      fields: all.filter((f) => !(f.path in fixedClaims)),
+      fixed: all
+        .filter((f) => f.path in fixedClaims)
+        .map((f) => ({ label: f.label, value: String(fixedClaims[f.path]) })),
+    };
+  }
+
   async issuancePolicySource(policyId: string): Promise<string | undefined> {
     const { tenantId } = await this.call<{ tenantId: string }>("GET", "/v1/me");
     const detail = await this.call<{

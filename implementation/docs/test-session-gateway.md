@@ -142,6 +142,33 @@ the credential offer and request URIs, so changing it afterwards breaks sessions
 The same applies to `PLATFORM_PUBLIC_URL` for the same-device return URL. So the order is: start the
 tunnel, learn the hostnames, set both variables, **then** `docker compose up`, then create sessions.
 
+### The named tunnel, and why it replaced quick tunnels (23 September 2026)
+
+**The hostname has to outlive the session, not only the session's start.** The engine writes its public
+URL into every attestation it issues — the Token Status List URI — so an attestation issued through a
+quick tunnel pointed its status at a hostname that ceased to exist when the session closed. The first
+Power of X verification, in the next session, failed on exactly that: *Failed to fetch status list …
+530*. No attestation issued through a quick tunnel can have its status checked afterwards.
+
+So sessions now run on a **named tunnel, `edtp-dev`**, with fixed hostnames on `murcata.es` —
+`edtp-engine`, `edtp-platform`, `edtp-start`. `scripts/test-session-tunnel.sh` uses it whenever
+`~/.edtp/named-tunnel.env` exists; its ingress is `~/.edtp/edtp-dev-tunnel.yml`. The engine's hostname
+routes to the **gateway** (3010), never to the engine's port, so the allow-list in §1 still does the
+filtering and the negative checks still run before any wallet interaction. The tunnel process still
+runs only during a session; between sessions the hostnames answer Cloudflare's 1033.
+
+**Two traps, both met on the day:**
+
+- **`~/.cloudflared/config.yml` wins over the tunnel name you type.** On this host it belongs to
+  another project's named tunnel. Every `cloudflared tunnel …` command reads it, so
+  `tunnel route dns edtp-dev <host>` silently routed the hostnames to *that* tunnel, and
+  `tunnel info edtp-dev` printed the other tunnel. Always pass `--config ~/.edtp/edtp-dev-tunnel.yml`;
+  the script does. The same file had already been answering every quick tunnel with a bare 404.
+- **A new hostname can be cached as nonexistent for half an hour.** Resolving it before its record
+  exists leaves an NXDOMAIN in the router's and public resolvers' caches for the zone's negative TTL
+  (1800 s on `murcata.es`). The negative checks then see nothing at all — which the script now reports
+  as "could not run", closing the tunnels, rather than as something exposed.
+
 A sketch of the ingress, to be written properly when a session is actually prepared:
 
 ```yaml

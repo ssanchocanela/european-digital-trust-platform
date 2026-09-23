@@ -27,6 +27,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${EDTP_SESSION_DIR:-${TMPDIR:-/tmp}/edtp-test-session}"
 CLOUDFLARED="${CLOUDFLARED:-cloudflared}"
 
+# A named tunnel with stable hostnames, when one is configured. Quick tunnels get a new hostname every
+# session, and the engine writes its public URL into every attestation it issues — the status list
+# URI — so an attestation issued in one session could not be verified in the next: the verifier's
+# status fetch hit a hostname that no longer existed (530), and on 23 September 2026 that failed the
+# first Power of X verification. A named tunnel keeps the hostnames, so a status list stays reachable
+# whenever a session is open. The tunnel still runs only during a session; between sessions its
+# hostnames answer Cloudflare's 1033 and expose nothing.
+NAMED_ENV="${EDTP_NAMED_TUNNEL_ENV:-$HOME/.edtp/named-tunnel.env}"
+if [ -f "$NAMED_ENV" ]; then
+  # shellcheck disable=SC1090
+  set -a; . "$NAMED_ENV"; set +a
+fi
+
 die() { echo "test-session: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 
@@ -97,7 +110,7 @@ start_tunnel() {
       sleep "${TUNNEL_DNS_DELAY:-25}"
       local probe_waited=0 code="000"
       while [ "$probe_waited" -lt 60 ]; do
-        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$host/" || echo 000)"
+        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$host/" || true)"
         [ "$code" != "000" ] && break
         sleep 5
         probe_waited=$((probe_waited + 5))
@@ -145,7 +158,7 @@ start_tunnel() {
 await_tunnel() {
   local host="$1" label="$2"
   for _ in $(seq 1 30); do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$host/" || echo 000)"
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$host/" || true)"
     case "$code" in
       000|502|503|504|530) sleep 2 ;;
       *) return 0 ;;
@@ -169,10 +182,10 @@ negative_checks() {
   # endpoint gets waved through.
   probe() {
     local url="$1" code
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
     if [ "$code" = "000" ]; then
       sleep 2
-      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || echo 000)"
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
     fi
     printf '%s' "$code"
   }
@@ -203,19 +216,44 @@ case "${1:-up}" in
     fi
     grep -q "listening" "$RUN_DIR/gateway.log" 2>/dev/null && echo "    gateway up" || true
 
-    step "Opening tunnels"
-    start_tunnel engine "${GATEWAY_ENGINE_PORT:-3010}" || die "engine tunnel failed"
-    start_tunnel platform "${GATEWAY_PLATFORM_PORT:-3011}" || die "platform tunnel failed"
-    start_tunnel start "${TEST_START_PORT:-3201}" || die "start-page tunnel failed"
+    if [ -n "${EDTP_NAMED_TUNNEL:-}" ]; then
+      step "Opening the named tunnel $EDTP_NAMED_TUNNEL"
+      [ -f "${EDTP_NAMED_TUNNEL_CONFIG:-}" ] || die "EDTP_NAMED_TUNNEL_CONFIG does not name a file."
+      # The ingress — which hostname reaches which local port — lives in that config, and the engine's
+      # hostname must reach the gateway, never the engine's own port. The negative checks below are
+      # what prove it does.
+      "$CLOUDFLARED" tunnel --config "$EDTP_NAMED_TUNNEL_CONFIG" --no-autoupdate \
+        run "$EDTP_NAMED_TUNNEL" > "$RUN_DIR/named.log" 2>&1 &
+      echo $! > "$RUN_DIR/named.pid"
+      echo "$EDTP_ENGINE_HOST" > "$RUN_DIR/engine.host"
+      echo "$EDTP_PLATFORM_HOST" > "$RUN_DIR/platform.host"
+      echo "$EDTP_START_HOST" > "$RUN_DIR/start.host"
+      echo "    engine → $EDTP_ENGINE_HOST, platform → $EDTP_PLATFORM_HOST, start → $EDTP_START_HOST"
+    else
+      step "Opening tunnels"
+      start_tunnel engine "${GATEWAY_ENGINE_PORT:-3010}" || die "engine tunnel failed"
+      start_tunnel platform "${GATEWAY_PLATFORM_PORT:-3011}" || die "platform tunnel failed"
+      start_tunnel start "${TEST_START_PORT:-3201}" || die "start-page tunnel failed"
+    fi
 
     ENGINE_HOST="$(cat "$RUN_DIR/engine.host")"
     PLATFORM_HOST="$(cat "$RUN_DIR/platform.host")"
     START_HOST="$(cat "$RUN_DIR/start.host")"
 
     step "Negative checks — every one must be 404"
-    if ! negative_checks "$ENGINE_HOST" "$PLATFORM_HOST"; then
-      die "NEGATIVE CHECKS FAILED. Something is reachable that must not be. Do not start a wallet test;
-    run '$0 down' and fix the allow-list in apps/test-gateway/src/allow-list.ts."
+    if ! negative_checks "$ENGINE_HOST" "$PLATFORM_HOST" | tee "$RUN_DIR/negative-checks.log"; then
+      # Close first, explain second. A failed check can mean something is published that must not be,
+      # and until 23 September 2026 this path exited with the tunnels still up.
+      for name in engine platform start named; do
+        [ -f "$RUN_DIR/$name.pid" ] && kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true
+        rm -f "$RUN_DIR/$name.pid"
+      done
+      if ! grep -qvE '^\s+000 ' "$RUN_DIR/negative-checks.log"; then
+        die "NEGATIVE CHECKS COULD NOT RUN: nothing answered (000). Tunnels closed. Usually DNS — a
+    new hostname can be cached as nonexistent for the zone's negative TTL. Nothing was found exposed."
+      fi
+      die "NEGATIVE CHECKS FAILED. Something is reachable that must not be. Tunnels closed. Do not start
+    a wallet test; fix the allow-list in apps/test-gateway/src/allow-list.ts."
     fi
     echo "    all refused"
 
@@ -258,7 +296,7 @@ EOF
 
   down)
     step "Closing the session"
-    for name in engine platform start gateway; do
+    for name in engine platform start named gateway; do
       if [ -f "$RUN_DIR/$name.pid" ]; then
         kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null && echo "    stopped $name" || true
         rm -f "$RUN_DIR/$name.pid" "$RUN_DIR/$name.host"
@@ -280,7 +318,13 @@ EOF
     step "Tunnels closed. Two things before the next run"
     echo "    - Reset ENGINE_PUBLIC_URL, PLATFORM_PUBLIC_URL and TEST_START_PUBLIC_URL before starting"
     echo "      the stack locally again, or the engine keeps emitting a hostname that no longer resolves."
-    echo "    - A closed quick tunnel's hostname is gone for good; the next session gets new ones."
+    if [ -n "${EDTP_NAMED_TUNNEL:-}" ]; then
+      echo "    - The named tunnel keeps its hostnames; attestations issued through it stay verifiable"
+      echo "      in the next session."
+    else
+      echo "    - A closed quick tunnel's hostname is gone for good; the next session gets new ones, and"
+      echo "      attestations issued in this one can no longer have their status checked."
+    fi
     ;;
 
   *)

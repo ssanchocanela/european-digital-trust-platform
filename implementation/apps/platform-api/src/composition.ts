@@ -31,6 +31,7 @@ import {
   MinimumAgeEligibilityEvaluator,
 } from "./modules/issuances/fixture-connector.js";
 import { IssuanceService } from "./modules/issuances/issuance.service.js";
+import { OperatorFormConnector } from "./modules/issuances/operator-form-connector.js";
 import { VerifiedPresentationConnector } from "./modules/issuances/verified-presentation-connector.js";
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
@@ -176,6 +177,9 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     // Issues from a presentation this platform has just verified. Tenant-scoped, and a FIXTURE:
     // the representation it attests comes from policy configuration, not from a register.
     new VerifiedPresentationConnector(repositories.transactions, clock),
+    // The test PID issuer's form. The one source that takes attribute values from the caller, so
+    // the service accepts it only under a TEST provider; FIXTURE for the same reason.
+    new OperatorFormConnector(),
   ]) {
     connectors.set(c.name, c);
   }

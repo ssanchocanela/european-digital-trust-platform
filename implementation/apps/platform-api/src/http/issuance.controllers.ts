@@ -524,6 +524,7 @@ export class IssuanceController {
       tenantId: ctx.tenantId,
       policyId: input.policyId,
       subjectReference: input.subjectReference,
+      ...(input.subjectAttributes ? { suppliedAttributes: input.subjectAttributes } : {}),
       ...(input.businessReference ? { businessReference: input.businessReference } : {}),
       ...(input.callbackUrl ? { callbackUrl: input.callbackUrl } : {}),
     });

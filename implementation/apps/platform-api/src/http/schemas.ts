@@ -348,7 +348,7 @@ export const createCredentialTypeSchema = z
           path: z.array(z.string().min(1)).min(1),
           display: z.array(localisedTextSchema).min(1),
           mandatory: z.boolean().default(true),
-          valueType: z.enum(["string", "number", "boolean", "date"]),
+          valueType: z.enum(["string", "number", "boolean", "date", "string[]"]),
         }),
       )
       .min(1),
@@ -407,6 +407,15 @@ export const createIssuanceSchema = z
      * issuing claims nobody authoritative asserted.
      */
     subjectReference: z.string().min(1).max(200),
+    /**
+     * Attribute values — the **one exception** to the rule above, accepted only when the policy's
+     * authentic source is `operator-form`, a `FIXTURE` for issuing synthetic test data in `TEST`.
+     * Refused for every other source. Content: never persisted, never logged, never returned.
+     */
+    subjectAttributes: z
+      .record(z.string().min(1).max(200), z.unknown())
+      .refine((value) => Object.keys(value).length <= 64, "At most 64 attributes.")
+      .optional(),
     businessReference: z.string().min(1).max(200).optional(),
     callbackUrl: z.string().url().optional(),
   })

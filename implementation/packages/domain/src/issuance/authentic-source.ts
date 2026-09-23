@@ -38,6 +38,18 @@ export interface AuthenticSourceConnector {
    * part of the test data, and a console that shows them is telling the truth about what it is.
    */
   readonly sampleSubjectReferences?: readonly string[];
+  /**
+   * Whether this connector takes attribute values from the caller — the **one** exception to the
+   * rule stated above, and a deliberate one.
+   *
+   * Only a `FIXTURE` may set it, and the issuance service refuses supplied values for any connector
+   * that does not, and refuses a connector that does outside `TEST`. It exists for the test PID
+   * issuer, whose "authentic source" is an operator typing synthetic values into a form: the values
+   * are asserted by nobody, which is exactly what `FIXTURE` already says, and every attestation
+   * issued through it carries the fixture warning. It makes the platform an attestation laundry for
+   * test data only, and says so.
+   */
+  readonly acceptsSuppliedAttributes?: boolean;
   fetch(input: {
     /**
      * The tenant the issuance runs under. A connector that reads anything tenant-scoped **must**
@@ -50,6 +62,12 @@ export interface AuthenticSourceConnector {
     /** Exactly the claim paths the credential type declares. Minimisation at the source. */
     readonly requestedClaimPaths: readonly string[];
     readonly parameters: Readonly<Record<string, unknown>>;
+    /**
+     * Values from the caller, present only for a connector with `acceptsSuppliedAttributes`.
+     * **Content**, with the same discipline as `SourceAttributes`: never assigned, persisted or
+     * logged.
+     */
+    readonly suppliedAttributes?: SourceAttributes;
   }): Promise<SourceAttributes | undefined>;
 }
 
@@ -104,6 +122,13 @@ const matchesType = (
       // ISO 8601 date or date-time. Strict enough to catch a source returning a locale format,
       // which is the realistic failure, without reimplementing a date parser.
       return typeof value === "string" && /^\d{4}-\d{2}-\d{2}(T|$)/.test(value);
+    case "string[]":
+      // Non-empty: an empty `nationalities` is not "none" — the PID Rulebook spells that `QS`.
+      return (
+        Array.isArray(value) &&
+        value.length > 0 &&
+        value.every((item) => typeof item === "string" && item.length > 0)
+      );
   }
 };
 

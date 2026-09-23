@@ -33,6 +33,12 @@ export interface CreateIssuanceCommand {
   readonly tenantId: TenantId;
   readonly policyId: string;
   readonly subjectReference: string;
+  /**
+   * Attribute values from the caller. Accepted only by a connector that declares
+   * `acceptsSuppliedAttributes`, and only in `TEST` — see `assertSuppliedAttributesAllowed`.
+   * Content: passed down to the source and out of scope when `create` returns.
+   */
+  readonly suppliedAttributes?: Readonly<Record<string, unknown>>;
   readonly businessReference?: string;
   readonly callbackUrl?: string;
 }
@@ -190,6 +196,12 @@ export class IssuanceService {
     }
 
     const connector = this.resolveConnector(version.authenticSource.connector);
+    // Before the transaction exists, so a refused request leaves nothing behind.
+    assertSuppliedAttributesAllowed(
+      connector,
+      command.suppliedAttributes,
+      context.attestationProvider.trustEnvironment,
+    );
     const lifetime = version.retentionPolicy.transactionLifetimeSeconds;
     const issuanceId = randomUUID();
     const expiresAt = new Date(now.getTime() + lifetime * 1000);
@@ -223,6 +235,7 @@ export class IssuanceService {
       command.tenantId,
       command.subjectReference,
       version,
+      command.suppliedAttributes,
     );
 
     // The eligibility gate, for every flow.
@@ -576,12 +589,14 @@ export class IssuanceService {
     version: {
       readonly authenticSource: { readonly parameters: Readonly<Record<string, unknown>> };
     },
+    suppliedAttributes?: Readonly<Record<string, unknown>>,
   ): Promise<SourceAttributes> {
     const raw = await connector.fetch({
       tenantId,
       subjectReference,
       requestedClaimPaths: plan.claimPathsToFetch,
       parameters: version.authenticSource.parameters,
+      ...(suppliedAttributes ? { suppliedAttributes } : {}),
     });
     if (!raw) throw PlatformError.notFound("Subject at the authentic source");
     return raw;
@@ -886,3 +901,43 @@ export class IssuanceService {
     ];
   }
 }
+
+/**
+ * The guard on the one exception to "a subject reference, never attribute values".
+ *
+ * Refuses in both directions: values sent to a source that does not take them would be silently
+ * ignored — a caller would believe it had set something it had not — and a source that takes them
+ * with none supplied has nothing to issue from. And refuses outside `TEST` structurally, because a
+ * caller-asserted attestation is test data by construction and `PRODUCTION` must never issue one.
+ */
+export const assertSuppliedAttributesAllowed = (
+  connector: Pick<AuthenticSourceConnector, "name" | "kind" | "acceptsSuppliedAttributes">,
+  suppliedAttributes: Readonly<Record<string, unknown>> | undefined,
+  trustEnvironment: "TEST" | "PRODUCTION",
+): void => {
+  const accepts = connector.acceptsSuppliedAttributes === true;
+  if (!accepts) {
+    if (suppliedAttributes !== undefined) {
+      throw PlatformError.validation(
+        "subject_attributes_not_accepted",
+        `The authentic source '${connector.name}' takes a subject reference, not attribute values. ` +
+          "Only the operator-form test source accepts subjectAttributes.",
+      );
+    }
+    return;
+  }
+  if (connector.kind !== "FIXTURE" || trustEnvironment !== "TEST") {
+    throw PlatformError.conflict(
+      "supplied_attributes_test_only",
+      "Attribute values supplied by the caller are test data by construction, and are accepted " +
+        "only from a FIXTURE source under a TEST Attestation Provider.",
+    );
+  }
+  if (suppliedAttributes === undefined || Object.keys(suppliedAttributes).length === 0) {
+    throw PlatformError.validation(
+      "subject_attributes_required",
+      `The authentic source '${connector.name}' issues from the values in subjectAttributes, and ` +
+        "none were supplied.",
+    );
+  }
+};

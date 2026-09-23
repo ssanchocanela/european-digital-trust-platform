@@ -46,6 +46,9 @@ export interface AttestationRulebookRef {
   readonly anchorSource: "RULEBOOK_ONLY" | "RULEBOOK_AND_PUBLISHED_LIST";
 }
 
+export const CLAIM_VALUE_TYPES = ["string", "number", "boolean", "date", "string[]"] as const;
+export type ClaimValueType = (typeof CLAIM_VALUE_TYPES)[number];
+
 /** One claim the credential type carries. */
 export interface CredentialClaimDefinition {
   /**
@@ -56,8 +59,14 @@ export interface CredentialClaimDefinition {
   readonly path: readonly string[];
   readonly display: readonly LocalisedText[];
   readonly mandatory: boolean;
-  /** Shape only, never a value. Used to validate what the authentic source returns. */
-  readonly valueType: "string" | "number" | "boolean" | "date";
+  /**
+   * Shape only, never a value. Used to validate what the authentic source returns.
+   *
+   * `string[]` is a non-empty array of strings — the PID's `nationalities` (PID Rulebook §4.1) is
+   * the case that needed it. A nested object is not a value type: it is expressed by claim paths,
+   * `["place_of_birth", "country"]`, which the platform already rebuilds into structure.
+   */
+  readonly valueType: ClaimValueType;
 }
 
 export const STATUS_MECHANISMS = ["TOKEN_STATUS_LIST", "NONE"] as const;

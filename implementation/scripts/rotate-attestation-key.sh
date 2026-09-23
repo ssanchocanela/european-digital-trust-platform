@@ -3,6 +3,12 @@
 #
 #   PLATFORM_TENANT_API_KEY=… ./scripts/rotate-attestation-key.sh <attestationProviderId>
 #   PLATFORM_TENANT_API_KEY=… CERT_DAYS=365 ./scripts/rotate-attestation-key.sh <id>
+#   SIGNING_CA_DIR=~/.edtp/dev-pid-ca PLATFORM_TENANT_API_KEY=… ./scripts/rotate-attestation-key.sh <id>
+#
+# `SIGNING_CA_DIR` issues the signing certificate under the CA in that directory (`ca.crt`, `ca.key`)
+# instead of self-signing it, and sends the chain leaf-first with the CA. Required for a PID: a
+# wallet validates a PID's `x5c` against its `pidProviders` anchors, so a self-signed leaf is
+# refused however it is configured. `scripts/make-dev-pid-ca.sh` creates that CA.
 #
 # ## Why this exists
 #
@@ -37,6 +43,11 @@ KEY="${PLATFORM_TENANT_API_KEY:?set PLATFORM_TENANT_API_KEY; it is a secret and 
 PROVIDER_ID="${1:-}"
 CERT_DAYS="${CERT_DAYS:-90}"
 SUBJECT="${CERT_SUBJECT:-/CN=EDTP Attestation Provider/O=Development only/C=EU}"
+SIGNING_CA_DIR="${SIGNING_CA_DIR:-}"
+if [ -n "$SIGNING_CA_DIR" ] && { [ ! -f "$SIGNING_CA_DIR/ca.crt" ] || [ ! -f "$SIGNING_CA_DIR/ca.key" ]; }; then
+  echo "SIGNING_CA_DIR=$SIGNING_CA_DIR holds no ca.crt and ca.key." >&2
+  exit 1
+fi
 ACCESS_CA_DIR="${EDTP_DEV_CA_DIR:-$HOME/.edtp/dev-access-ca}"
 
 if [ -z "$PROVIDER_ID" ]; then
@@ -98,15 +109,35 @@ trap 'rm -rf "$WORK"' EXIT
 
 openssl ecparam -name prime256v1 -genkey -noout -out "$WORK/key.pem" 2>/dev/null
 openssl pkcs8 -topk8 -nocrypt -in "$WORK/key.pem" -out "$WORK/key8.pem" 2>/dev/null
-openssl req -new -x509 -key "$WORK/key.pem" -out "$WORK/cert.pem" -days "$CERT_DAYS" \
-  -subj "$SUBJECT" 2>/dev/null
+if [ -n "$SIGNING_CA_DIR" ]; then
+  openssl req -new -key "$WORK/key.pem" -out "$WORK/cert.csr" -subj "$SUBJECT" 2>/dev/null
+  cat > "$WORK/leaf.ext" <<EXT
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+EXT
+  # -CAcreateserial writes the serial file next to the CA, outside the repository.
+  openssl x509 -req -in "$WORK/cert.csr" -CA "$SIGNING_CA_DIR/ca.crt" -CAkey "$SIGNING_CA_DIR/ca.key" \
+    -CAcreateserial -out "$WORK/cert.pem" -days "$CERT_DAYS" -sha256 -extfile "$WORK/leaf.ext" 2>/dev/null
+  cp "$SIGNING_CA_DIR/ca.crt" "$WORK/ca.pem"
+  CHAIN_FILES=("$WORK/cert.pem" "$WORK/ca.pem")
+else
+  openssl req -new -x509 -key "$WORK/key.pem" -out "$WORK/cert.pem" -days "$CERT_DAYS" \
+    -subj "$SUBJECT" 2>/dev/null
+  CHAIN_FILES=("$WORK/cert.pem")
+fi
 chmod 600 "$WORK"/*.pem
 
 echo
 echo "==> New attestation-signing certificate"
 echo "    valid until $(openssl x509 -in "$WORK/cert.pem" -noout -enddate | cut -d= -f2)"
-echo "    Self-signed, and that is not what blocks issuance: gate (b) of ARF §6.3.2.4 takes its"
-echo "    anchors from the Rulebook, not from this chain."
+if [ -n "$SIGNING_CA_DIR" ]; then
+  echo "    issued by $(openssl x509 -in "$WORK/cert.pem" -noout -issuer | sed 's/^issuer=//')"
+else
+  echo "    Self-signed, and that is not what blocks issuance: gate (b) of ARF §6.3.2.4 takes its"
+  echo "    anchors from the Rulebook, not from this chain."
+fi
 
 jwk() {
   node -e 'const{readFileSync}=require("node:fs");const{createPrivateKey}=require("node:crypto");
@@ -121,7 +152,7 @@ ENGINE_TENANT_REF="${ENGINE_TENANT_REF:-rpi-1}"
 BODY="$(jq -n \
   --arg ref "$ENGINE_TENANT_REF" \
   --argjson sjwk "$(jwk "$WORK/key8.pem")" \
-  --argjson schain "$(pems "$WORK/cert.pem")" \
+  --argjson schain "$(pems "${CHAIN_FILES[@]}")" \
   '{engineTenantRef:$ref, signingCertificate:{privateKeyJwk:$sjwk, certificateChain:$schain}}')"
 
 if [ "$HAS_ACCESS" = "yes" ]; then

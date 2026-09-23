@@ -1,12 +1,27 @@
 #!/usr/bin/env node
 /**
- * Builds and signs the EDTP **TEST** list of Wallet-Relying Party Access Certificate providers,
- * per ETSI TS 119 602, as the JWS a Wallet Unit consults.
+ * Builds and signs an EDTP **TEST** list of Wallet-Relying Party Access Certificate providers
+ * (`--kind wrpac`, the default) or of PID Providers (`--kind pid`), per ETSI TS 119 602, as the JWS
+ * a Wallet Unit consults.
  *
  *   node scripts/make-test-lote.mjs \
  *     --ca ~/.edtp/dev-access-ca/ca.crt \
  *     --url https://ssanchocanela.github.io/european-digital-trust-platform/lote/WRPACProviders.jwt \
  *     --out docs/public/lote/WRPACProviders.jwt
+ *
+ *   node scripts/make-test-lote.mjs --kind pid \
+ *     --ca ~/.edtp/dev-pid-ca/ca.crt \
+ *     --url https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt \
+ *     --out docs/public/lote/PIDProviders.jwt
+ *
+ * ## The PID list (`--kind pid`)
+ *
+ * The same construction for a different trust domain: the notified `PIDProviders` anchors plus our
+ * development PID Provider CA (`scripts/make-dev-pid-ca.sh`). It serves two readers — the engine, which
+ * loads it with `scripts/load-issuer-trust-list.mjs` so a presentation of our test PID verifies, and a
+ * wallet built with deviation **WD-4**, whose `pidProviders` is, like `wrpacProviders`, a single `Uri`
+ * and so is replaced rather than extended. Both kinds share one signer: the signer vouches for the
+ * list's integrity, not for either domain, and the domains stay apart because the lists do.
  *
  * ## This is not a notified list, and it says so in every field that is displayed
  *
@@ -45,16 +60,41 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const NOTIFIED_LIST =
-  "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt";
-
 const args = process.argv.slice(2);
 const arg = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 
-const caPath = arg("ca", join(homedir(), ".edtp", "dev-access-ca", "ca.crt"));
+const KINDS = {
+  wrpac: {
+    notifiedList: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt",
+    serviceType: "http://uri.etsi.org/19602/SvcType/WRPAC",
+    serviceName: "EDTP Development Access CA - TEST ONLY",
+    schemeSubject: "WRPAC providers",
+    caDir: "dev-access-ca",
+    deviation: "wd-3",
+    buildFlag: "--wrpac-lote",
+  },
+  pid: {
+    notifiedList: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt",
+    serviceType: "http://uri.etsi.org/19602/SvcType/PID",
+    serviceName: "EDTP Development PID Provider CA - TEST ONLY",
+    schemeSubject: "PID providers",
+    caDir: "dev-pid-ca",
+    deviation: "wd-4",
+    buildFlag: "--pid-lote",
+  },
+};
+const kindName = arg("kind", "wrpac");
+const kind = KINDS[kindName];
+if (!kind) {
+  console.error(`--kind must be one of: ${Object.keys(KINDS).join(", ")}`);
+  process.exit(1);
+}
+const NOTIFIED_LIST = kind.notifiedList;
+
+const caPath = arg("ca", join(homedir(), ".edtp", kind.caDir, "ca.crt"));
 const publishedUrl = arg("url");
 const outPath = arg("out");
 const validityDays = Number(arg("validity-days", "90"));
@@ -172,14 +212,8 @@ const ourEntity = {
   TrustedEntityServices: [
     // Issuance and Revocation, as the notified list carries for every anchor. The same certificate
     // appears in both, which is why anything counting anchors must filter on the type.
-    ourService(
-      "EDTP Development Access CA - TEST ONLY",
-      "http://uri.etsi.org/19602/SvcType/WRPAC/Issuance",
-    ),
-    ourService(
-      "EDTP Development Access CA - TEST ONLY Revocation",
-      "http://uri.etsi.org/19602/SvcType/WRPAC/Revocation",
-    ),
+    ourService(kind.serviceName, `${kind.serviceType}/Issuance`),
+    ourService(`${kind.serviceName} Revocation`, `${kind.serviceType}/Revocation`),
   ],
 };
 
@@ -207,7 +241,7 @@ const lote = {
         {
           lang: "en",
           value:
-            "EDTP TEST list of WRPAC providers — NOT NOTIFIED, NOT the EU list, " +
+            `EDTP TEST list of ${kind.schemeSubject} — NOT NOTIFIED, NOT the EU list, ` +
             "for development testing only",
         },
       ],
@@ -290,9 +324,9 @@ console.log(`
     signer         ${signerCertPath}
 
 This list is NOT notified. It must be served only at the URL above, only over HTTPS, and only to
-a wallet built with WD-3. Point a build at it with:
+a wallet built with ${kind.deviation.toUpperCase()}. Point a build at it with:
 
-    tools/test-wallet/build.sh --deviations wd-3 --wrpac-lote ${publishedUrl}
+    tools/test-wallet/build.sh --deviations ${kind.deviation} ${kind.buildFlag} ${publishedUrl}
 
 Regenerate it when the notified anchors roll over — they last did on 10-11 September 2026 — or the
 seven anchors copied here will drift out of date while the list still looks valid.

@@ -215,6 +215,34 @@ real PID Provider, or an unmodified wallet — which would refuse it, correctly:
 come from a Member State notification (`EW-PIO-01-024`, `OIA_12`), and ours has none. The PID is
 **test data**, whatever it contains.
 
+## WD-5 — the wallet's issuer list offers our issuer only
+
+For **wallet-initiated PID issuance** from the app's own *Add document → From list*, built for an FNMT
+demonstration. Upstream builds that list from the Credential Issuer metadata of the issuers hard-coded
+in `issuersConfig` — the EUDI reference issuer and its backend; there is no remote list. WD-5 leaves
+exactly one, ours (`--issuer`, e.g. `https://edtp-engine.murcata.es/issuers/pid-1`), with every other
+setting of the entry as upstream has it: attestation-based client authentication as `eudiw-abca`, the
+same authorization redirect deep link, PAR if supported, DPoP, the same reuse policies.
+
+**Applied by anchoring on the two exact upstream URLs.** `build.sh` removes the second `VciConfig`
+block whole, points the first at `--issuer`, and refuses if either URL is not there exactly once, if
+an EUDI issuer remains, or if more than one issuer is left. Verified with `--prepare-only` and built as
+**W6** (`.edtptest6`, debug, `wd-2,wd-3,wd-4,wd-5`) on 24 September 2026.
+
+**Offers are unaffected.** A credential offer from any issuer still works, because upstream uses the
+first configured issuer's settings for an issuer it does not know.
+
+**One thing to know on the phone.** Every EDTP test build keeps upstream's authorization redirect,
+`eu.europa.ec.euidi://authorization`. With several builds installed, Android may ask which app should
+open it when the browser hands back; choose the build the flow started in.
+
+### What a run with this build may and may not say
+
+That this platform can issue a PID into a wallet that *discovers* it as its issuer, with the
+authorization step on a web form of ours. Nothing about which issuers an unmodified wallet offers —
+it offers the EUDI reference issuers, and its list is not something a Relying Party or an issuer
+controls. The PID is test data, and the FNMT branding is a demonstration, not an FNMT service.
+
 ---
 
 ## What a test run must record

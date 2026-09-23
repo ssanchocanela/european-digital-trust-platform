@@ -23,6 +23,7 @@
 #
 #   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
 #   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
+#   --issuer <url>          required by wd-5. The ONLY issuer "Add document > From list" offers.
 #
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
@@ -59,6 +60,7 @@ DIAGNOSTICS=no
 SKIP_BUILD="no"
 WRPAC_LOTE=""
 PID_LOTE=""
+ISSUER_URL=""
 APP_ID_SUFFIX=""
 APP_NAME=""
 BUILD_TYPE="release"
@@ -69,6 +71,7 @@ while [ $# -gt 0 ]; do
     --diagnostics) DIAGNOSTICS=yes; shift 1 ;;
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
+    --issuer) ISSUER_URL="${2:-}"; shift 2 ;;
     --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
     --build-type) BUILD_TYPE="${2:-}"; shift 2 ;;
@@ -93,6 +96,7 @@ step() { printf '\n==> %s\n' "$*"; }
 WANT_WD2=no
 WANT_WD3=no
 WANT_WD4=no
+WANT_WD5=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
   for d in $DEVIATIONS; do
@@ -127,6 +131,18 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-4.kt" ] || die "deviations/wd-4.kt is missing."
         WANT_WD4=yes
         ;;
+      wd-5)
+        # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
+        # deviation while offering them, and one listing a guessed URL would offer nothing that works.
+        [ -n "$ISSUER_URL" ] ||
+          die "--deviations wd-5 requires --issuer <url>: the Credential Issuer the wallet's list is to
+    offer, as its metadata names it (e.g. https://edtp-engine.murcata.es/issuers/pid-1)."
+        case "$ISSUER_URL" in
+          https://*) ;;
+          *) die "--issuer must be https. The wallet will not fetch issuer metadata over cleartext." ;;
+        esac
+        WANT_WD5=yes
+        ;;
       wd-1)
         die "wd-1 is recorded in deviations.md and is not built. It needs an ETSI TS 119 602 list
     of **issuer** anchors published and reachable, which does not exist — scripts/make-test-lote.mjs
@@ -134,7 +150,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2, wd-3, wd-4, or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2, wd-3, wd-4, wd-5, or a comma-separated set of them."
         ;;
     esac
   done
@@ -334,6 +350,33 @@ if [ "$WANT_WD4" = "yes" ]; then
   echo "    this build trusts PIDs signed under our development CA. Every result says 'modified wallet'."
 fi
 
+if [ "$WANT_WD5" = "yes" ]; then
+  step "Applying WD-5 (the wallet's issuer list -> our issuer only)"
+  # "Add document > From list" is built from the Credential Issuer metadata of the issuers in
+  # `issuersConfig`, not from any remote list. Upstream carries two, the EUDI reference issuer and its
+  # backend; this build carries one, ours, with every other setting kept as upstream has it. Anchored
+  # on the two exact upstream URLs, and refused if either is not there exactly once.
+  WD5_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  WD5_FIRST='issuerUrl = "https://issuer.eudiw.dev",'
+  WD5_SECOND='issuerUrl = "https://issuer-backend.eudiw.dev",'
+  [ "$(grep -cF "$WD5_FIRST" "$WD5_FILE")" = "1" ] && [ "$(grep -cF "$WD5_SECOND" "$WD5_FILE")" = "1" ] ||
+    die "the upstream issuer URLs are not in $WD5_FILE exactly once each; WD-5 must be regenerated."
+  # Drop the second VciConfig block whole (from its `VciConfig(` to its closing `)`), then point the
+  # first at our issuer.
+  awk -v marker="$WD5_SECOND" '
+    /^ *VciConfig\($/ { buf = $0 "\n"; inblock = 1; next }
+    inblock { buf = buf $0 "\n"; if ($0 ~ /^ {12}\),?$/) { inblock = 0; if (index(buf, marker) == 0) printf "%s", buf; buf = "" } ; next }
+    { print }
+  ' "$WD5_FILE" > "$WD5_FILE.new" && mv "$WD5_FILE.new" "$WD5_FILE"
+  sed -i.bak "s|$WD5_FIRST|issuerUrl = \"$ISSUER_URL\",|" "$WD5_FILE" && rm -f "$WD5_FILE.bak"
+  grep -qF "eudiw.dev\"," "$WD5_FILE" && grep -qE 'issuerUrl = "https://issuer(-backend)?\.eudiw\.dev"' "$WD5_FILE" &&
+    die "WD-5 left an EUDI issuer in the list."
+  [ "$(grep -c 'issuerUrl = ' "$WD5_FILE")" = "1" ] || die "WD-5 did not leave exactly one issuer."
+  grep -qF "issuerUrl = \"$ISSUER_URL\"," "$WD5_FILE" || die "substituting the WD-5 issuer did not take effect."
+  echo "    issuersConfig -> $ISSUER_URL (only)"
+  echo "    this build offers our issuer and nothing else. Every result says 'modified wallet'."
+fi
+
 # --- 5. Build stamp ----------------------------------------------------------------------------
 #
 # version.properties is how upstream's build reads the version, and the patch reads the deviation
@@ -352,6 +395,7 @@ EDTP_APP_ID_SUFFIX=$EFFECTIVE_APP_ID_SUFFIX
 EDTP_APP_NAME=$EFFECTIVE_APP_NAME
 EDTP_WRPAC_LOTE=$WRPAC_LOTE
 EDTP_PID_LOTE=$PID_LOTE
+EDTP_ISSUER_URL=$ISSUER_URL
 EOF
 [ -f local.properties ] || echo "sdk.dir=$SDK" > local.properties
 cat version.properties | sed 's/^/    /'

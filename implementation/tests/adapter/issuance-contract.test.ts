@@ -15,7 +15,7 @@ import {
   presentationConfigId,
 } from "@edtp/eudiplo-adapter";
 import { asId, systemClock } from "@edtp/shared";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { selfSignedCertificate } from "../support/self-signed.js";
 
 /**
@@ -199,6 +199,17 @@ const planFor = (
     at,
   });
 };
+
+// The suite provisions into a real engine tenant, and a wallet reading that issuer's metadata lists
+// every configuration it finds. Leave nothing behind for one to list.
+afterAll(async () => {
+  if (!adapter || !reachable) return;
+  await adapter.withdrawCredentialConfigurations({
+    engineTenantRef,
+    policyId: "issuance-contract-policy",
+    versions: [1],
+  });
+});
 
 beforeAll(async () => {
   if (!baseUrl || !credentialsRaw) return;

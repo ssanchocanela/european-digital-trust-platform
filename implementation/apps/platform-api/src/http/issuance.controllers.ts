@@ -76,6 +76,24 @@ export class IssuanceConfigurationController {
     return await this.issuances.provisionPolicy(id, policyId);
   }
 
+  /**
+   * Withdraws every version of a policy from the issuer's metadata. The policy itself is untouched;
+   * provisioning, or the next offer, writes its current version back.
+   */
+  @Delete(":tenantId/issuance-policies/:policyId/provision")
+  @ApiOperation({
+    summary: "Withdraw an issuance policy from the issuer's metadata (TEST)",
+  })
+  async withdrawPolicy(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("policyId") policyId: string,
+  ) {
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("policyId", policyId);
+    return await this.issuances.withdrawPolicy(id, policyId);
+  }
+
   @Post(":tenantId/attestation-providers")
   @ApiOperation({ summary: "Register an Organisation as an Attestation Provider (TEST)" })
   async createAttestationProvider(

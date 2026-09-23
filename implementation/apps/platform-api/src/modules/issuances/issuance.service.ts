@@ -566,6 +566,46 @@ export class IssuanceService {
     return { policyVersion: version.version, withdrawn: superseded };
   }
 
+  /**
+   * Withdraws every version of a policy from the protocol engine, so a wallet reading the issuer's
+   * metadata no longer lists it. Nothing on the platform changes: the policy keeps its versions and
+   * its status, attestations already issued keep their status entries, and an offer under it would
+   * provision it again. Works on a retired policy too — retirement never touched the engine.
+   */
+  async withdrawPolicy(
+    tenantId: TenantId,
+    policyId: string,
+  ): Promise<{ readonly withdrawn: readonly number[] }> {
+    const policy = await this.issuance.findPolicy(tenantId, policyId);
+    if (!policy) throw PlatformError.notFound("Issuance policy");
+    const versions = await this.issuance.listVersions(tenantId, policy.id);
+    // Versions may name different credential types; each is withdrawn from its own provider's tenant.
+    const byEngineTenant = new Map<string, number[]>();
+    for (const v of versions) {
+      const context = await this.issuance.loadIssuanceContext(tenantId, v.credentialTypeId);
+      const ref = context.attestationProvider.engineTenantRef;
+      if (!ref) continue;
+      byEngineTenant.set(ref, [...(byEngineTenant.get(ref) ?? []), v.version]);
+    }
+    for (const [engineTenantRef, list] of byEngineTenant) {
+      await this.provisioning.withdrawCredentialConfigurations({
+        engineTenantRef,
+        policyId: policy.id,
+        versions: list,
+      });
+    }
+    const withdrawn = [...byEngineTenant.values()].flat();
+    await this.audit.record({
+      tenantId,
+      actor: "platform",
+      action: "issuance_policy.withdrawn",
+      subjectType: "issuance_policy",
+      subjectId: policy.id,
+      detail: { withdrawnVersions: withdrawn },
+    });
+    return { withdrawn };
+  }
+
   /** Reads an issuance, polling the engine and advancing the transaction as needed. */
   async get(tenantId: TenantId, issuanceId: string): Promise<IssuanceView> {
     const record = await this.issuance.findTransaction(tenantId, issuanceId);

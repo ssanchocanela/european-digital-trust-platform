@@ -12,7 +12,7 @@ authorised anything.** `TEST` environment only.
 |---|---|---|---|---|
 | PID | `dc+sd-jwt` | `urn:eudi:pid:1` | the live reference issuer's own metadata | **exact** |
 | mDL | `mso_mdoc` | `org.iso.18013.5.1.mDL` | the same | **exact** |
-| Power of Representation | `dc+sd-jwt` | `urn:edtp:pox:power-of-representation:1` | a consortium Rulebook draft (v0.2) | attribute names exact, **structure and identifier interpreted** |
+| Power of Representation | `dc+sd-jwt` | `urn:edtp:pox:power-of-representation:1` | a consortium Rulebook draft (v0.1) | attribute names exact, **structure and identifier interpreted** |
 | Power of Attorney | `dc+sd-jwt` | `urn:edtp:pox:power-of-attorney:1` | the same | as above |
 | Power of Employee | `dc+sd-jwt` | `urn:edtp:pox:power-of-employee:1` | the same | as above |
 

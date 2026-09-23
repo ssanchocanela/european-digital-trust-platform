@@ -1,12 +1,40 @@
 # Where the work stands
 
-Written 12 September 2026, updated 16 September. **The one page to read after `CLAUDE.md` when picking the work up.**
+Written 12 September 2026, updated 23 September. **The one page to read after `CLAUDE.md` when picking the work up.**
 
 Everything here is state that the code and the git history do not make obvious: what is in flight,
 what is blocked and why, and what the next action is. Findings live in their own documents and are
 linked rather than repeated.
 
 ---
+
+## 23 September 2026 — **a test PID issuer, built; not yet shown with a wallet**
+
+The agreed next step from the 17th, everything except the phone run:
+
+| Piece | Where | State |
+|---|---|---|
+| Development PID Provider CA | `scripts/make-dev-pid-ca.sh`, `~/.edtp/dev-pid-ca` | Created. SHA-256 `34:92:7A:65:…:C5:8A:1B` |
+| TEST PID list, notified 7 + ours | `https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt`, `make-test-lote.mjs --kind pid` | Published, `NextUpdate` 22 December 2026. Loaded on `rpi-1` as `edtp-test-pid-providers`, mapped in `ENGINE_ISSUER_TRUST_LISTS` |
+| *Identify with PID* | policy `b022662f…` | **v5**, naming the TEST list. Still accepts a reference-issued PID, because the list carries the notified anchors |
+| Deviation **WD-4** (`pidProviders` → TEST list) | `tools/test-wallet/build.sh --deviations wd-2,wd-3,wd-4 --pid-lote …` | Verified with `--prepare-only`. **No APK built yet** |
+| Test PID Attestation Provider | engine tenant **`pid-1`** (`scripts/create-engine-tenant.sh`), `scripts/setup-test-pid-issuer.sh`, ids in `~/.edtp/test-pid-issuer.json` | Provisioned, signing under the PID CA; wallet-provider trust loaded on `pid-1` |
+| PID credential type | SD-JWT VC `urn:eudi:pid:1`, PID Rulebook §4.1 mandatory set | Published. Claims gained a `string[]` value type for `nationalities` |
+| `operator-form` source + console form | `/issuance/<policy>` in the console | Offer + QR created from the console; typed values found in no log and nowhere in the platform database |
+
+**Before recording any result from it, two things:**
+
+1. **No selective disclosure.** The adapter sends no `disclosable` flag, so the engine signs every
+   claim in the clear — the test PID included, and every credential issued so far. Found by another
+   session, which is fixing it on its own branch. Until then a presentation of this PID discloses all
+   of it whatever the policy asks, and no result may say otherwise.
+2. The PID Rulebook at the pinned catalogue commit `36f8adc` carries a change log to **v1.7**, while
+   `CLAUDE.md` pins "document version 1.1". Not changed here; worth checking which is meant.
+
+**Next:** build the APK (`wd-2,wd-3,wd-4`, both `--wrpac-lote` and `--pid-lote`, a new
+`--app-id-suffix` so W4 survives), bring up the test session, issue a test PID from the console
+form, then present it to *Identify with PID* v5. Then the demonstration's first step no longer needs
+the reference issuer.
 
 ## 17 September 2026 — **presentations now check who signed what was presented**
 

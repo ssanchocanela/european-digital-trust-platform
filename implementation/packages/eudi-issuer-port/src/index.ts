@@ -181,6 +181,26 @@ export interface EudiIssuerPort {
    * such reference.
    */
   resolveAuthorizationRequest(session: CredentialOfferHandle): Promise<string | undefined>;
+
+  /**
+   * The other direction: which policy version a wallet's pending authorization request asks for.
+   *
+   * A wallet that lists several credentials from one issuer tells the issuer which it wants only in
+   * the pushed authorization request. A hosted form sees the request's opaque reference and must know
+   * what to offer. `undefined` when no pending request carries that reference.
+   */
+  findWalletAuthorizationRequest(input: {
+    readonly engineTenantRef: string;
+    readonly requestUri: string;
+  }): Promise<
+    | {
+        readonly requested: readonly {
+          readonly policyId: string;
+          readonly policyVersion: number;
+        }[];
+      }
+    | undefined
+  >;
 }
 
 /** Provisioning, separated so the business layer never touches it. */

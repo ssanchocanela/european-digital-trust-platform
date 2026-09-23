@@ -28,6 +28,7 @@ import {
   CLOCK_TOKEN,
   CONFIG_TOKEN,
   FEATURE_PID_DURING_ISSUANCE,
+  HOSTED_FORM_RETURNS,
   ISSUANCE_REPOSITORY,
   ISSUANCE_SERVICE,
   ISSUER_PORT,
@@ -94,6 +95,7 @@ export class AppModule {
         { provide: ISSUER_PORT, useValue: deps.issuer },
         { provide: ISSUER_PROVISIONING_PORT, useValue: deps.issuerProvisioning },
         { provide: ISSUANCE_SERVICE, useValue: deps.services.issuances },
+        { provide: HOSTED_FORM_RETURNS, useValue: deps.hostedFormReturns },
         // Names only. Policy validation refuses an unknown evaluator or connector at publication,
         // so a typo fails while a reviewer is present rather than while a User is waiting.
         { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },

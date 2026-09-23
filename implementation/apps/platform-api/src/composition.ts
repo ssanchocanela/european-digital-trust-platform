@@ -30,6 +30,7 @@ import {
   FixtureAuthenticSourceConnector,
   MinimumAgeEligibilityEvaluator,
 } from "./modules/issuances/fixture-connector.js";
+import { HostedFormReturns } from "./modules/issuances/hosted-form-returns.js";
 import { IssuanceService } from "./modules/issuances/issuance.service.js";
 import { OperatorFormConnector } from "./modules/issuances/operator-form-connector.js";
 import { VerifiedPresentationConnector } from "./modules/issuances/verified-presentation-connector.js";
@@ -86,6 +87,8 @@ export interface Dependencies {
     readonly issuances: IssuanceService;
   };
   readonly jobs: BackgroundJobs;
+  /** Where a browser goes after presenting, for presentations the hosted form started. */
+  readonly hostedFormReturns: HostedFormReturns;
 }
 
 export interface BuildOptions {
@@ -276,6 +279,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     registry: { connectors, evaluators },
     services: { audit, registration, policies, presentations, webhooks, issuances },
     jobs,
+    hostedFormReturns: new HostedFormReturns(() => clock.now()),
   };
 };
 

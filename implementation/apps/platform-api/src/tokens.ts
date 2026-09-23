@@ -40,3 +40,5 @@ export const REGISTERED_CONNECTORS = Symbol("RegisteredConnectors");
 export const WEBHOOK_ENDPOINT_REPOSITORY = Symbol("WebhookEndpointRepository");
 /** Feature flag: PID-during-issuance. Off until a wallet test passes. */
 export const FEATURE_PID_DURING_ISSUANCE = Symbol("FeaturePidDuringIssuance");
+
+export const HOSTED_FORM_RETURNS = Symbol("HostedFormReturns");

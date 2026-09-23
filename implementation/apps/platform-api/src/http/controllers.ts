@@ -1,13 +1,16 @@
 import type { EudiVerifierProvisioningPort } from "@edtp/eudi-verifier-port";
 import { asId, PlatformError } from "@edtp/shared";
-import { Body, Controller, Get, HttpCode, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Res } from "@nestjs/common";
 import { ApiExcludeEndpoint, ApiOperation, ApiTags } from "@nestjs/swagger";
+import type { Response } from "express";
 import type { PlatformConfig } from "../config.js";
+import type { HostedFormReturns } from "../modules/issuances/hosted-form-returns.js";
 import type { PolicyService } from "../modules/policies/policy.service.js";
 import type { PresentationService } from "../modules/presentations/presentation.service.js";
 import type { RegistrationService } from "../modules/registration/registration.service.js";
 import {
   CONFIG_TOKEN,
+  HOSTED_FORM_RETURNS,
   POLICY_SERVICE,
   PRESENTATION_SERVICE,
   REGISTRATION_SERVICE,
@@ -430,6 +433,7 @@ export class PolicyController {
 export class PresentationController {
   constructor(
     @Inject(PRESENTATION_SERVICE) private readonly presentations: PresentationService,
+    @Inject(HOSTED_FORM_RETURNS) private readonly hostedFormReturns: HostedFormReturns,
   ) {}
 
   @Post()
@@ -500,10 +504,20 @@ export class PresentationController {
   @Get(":presentationId/return")
   @Public()
   @ApiExcludeEndpoint()
-  async walletReturn(@Param("presentationId") presentationId: string) {
+  async walletReturn(
+    @Param("presentationId") presentationId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
     // Unauthenticated and reached by a browser, so the least validated surface of the three — and the
     // one most likely to be poked at.
     assertUuidPathParam("presentationId", presentationId);
+    // A presentation the hosted form started leads back into the form. The destination was built by
+    // the platform when the presentation was created; nothing in this request chooses it.
+    const destination = this.hostedFormReturns.destination(presentationId);
+    if (destination) {
+      response.redirect(303, destination);
+      return;
+    }
     return {
       presentationId,
       message: "The wallet interaction is complete. Return to the application to continue.",

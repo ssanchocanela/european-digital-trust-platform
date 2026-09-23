@@ -105,6 +105,11 @@ const schema = z.object({
   ENGINE_ATTRIBUTE_PROVIDER_BASE_URL: unsetIfEmpty(z.string().url().optional()),
   /** The key the engine presents on that call. A secret, shared with nothing else. */
   ENGINE_ATTRIBUTE_PROVIDER_KEY: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * The hosted form's public origin. Where a browser is sent back after presenting to the form's
+   * identification step — built by the platform, never taken from a request.
+   */
+  HOSTED_FORM_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
   /** The secret the hosted form presents when it submits. */
   HOSTED_FORM_SECRET: unsetIfEmpty(z.string().min(32).optional()),
   /**
@@ -115,23 +120,28 @@ const schema = z.object({
   HOSTED_FORM_AUTHORIZE_SECRET: unsetIfEmpty(z.string().min(32).optional()),
   /**
    * The issuance policies a hosted form may submit to, as `tenantId:policyId` entries separated by
-   * commas. A policy not listed here is refused: the form holds one secret, not a tenant's key.
+   * commas. A policy not listed here is refused: the form holds one secret, not a tenant's key. A third
+   * field, `:identifyPresentationPolicyId`, makes the form identify the person with a presentation
+   * first, and issue from it — the representation flow.
    */
   HOSTED_FORM_POLICIES: z
     .string()
     .default("")
     .transform((value, ctx) => {
-      const out: { tenantId: string; policyId: string }[] = [];
+      const out: { tenantId: string; policyId: string; identifyPolicyId?: string }[] = [];
       for (const entry of value
         .split(",")
         .map((e) => e.trim())
         .filter(Boolean)) {
-        const [tenantId, policyId, extra] = entry.split(":");
-        if (!tenantId || !policyId || extra !== undefined) {
-          ctx.addIssue({ code: "custom", message: `not a tenantId:policyId pair: ${entry}` });
+        const [tenantId, policyId, identifyPolicyId, extra] = entry.split(":");
+        if (!tenantId || !policyId || identifyPolicyId === "" || extra !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            message: `not a tenantId:policyId[:identifyPresentationPolicyId] entry: ${entry}`,
+          });
           return z.NEVER;
         }
-        out.push({ tenantId, policyId });
+        out.push({ tenantId, policyId, ...(identifyPolicyId ? { identifyPolicyId } : {}) });
       }
       return out;
     }),

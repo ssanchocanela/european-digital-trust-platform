@@ -132,6 +132,38 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     return typeof requestUri === "string" && requestUri.length > 0 ? requestUri : undefined;
   }
 
+  async findWalletAuthorizationRequest(input: {
+    readonly engineTenantRef: string;
+    readonly requestUri: string;
+  }): Promise<
+    | {
+        readonly requested: readonly {
+          readonly policyId: string;
+          readonly policyVersion: number;
+        }[];
+      }
+    | undefined
+  > {
+    // The engine's session list carries no request reference, so the most recent issuance sessions
+    // are read one by one. A pending request is seconds to minutes old, so it is near the top.
+    const page = (await this.client.request(
+      input.engineTenantRef,
+      "GET",
+      "/session?type=issuance&sortBy=createdAt&sortOrder=desc&pageSize=25",
+    )) as { readonly items?: readonly { readonly id?: string }[] } | undefined;
+    for (const item of page?.items ?? []) {
+      if (!item.id) continue;
+      const session = (await this.client.request(
+        input.engineTenantRef,
+        "GET",
+        `/session/${encodeURIComponent(item.id)}`,
+      )) as { readonly request_uri?: unknown; readonly auth_queries?: unknown } | undefined;
+      if (session?.request_uri !== input.requestUri) continue;
+      return { requested: requestedConfigurations(session.auth_queries) };
+    }
+    return undefined;
+  }
+
   async createCredentialOffer(
     input: CreateCredentialOfferInput,
   ): Promise<CreateCredentialOfferOutput> {
@@ -772,6 +804,41 @@ const toEngineStatus = (status: CredentialStatus): number => {
       );
     }
   }
+};
+
+/**
+ * The policy versions a pushed authorization request names, read from its `authorization_details`
+ * (the wallet's way) or `scope`. The engine keeps the request as it arrived: a JSON string, or already
+ * parsed. Configuration ids are this adapter's `c-{policyId}-v{version}`; anything else is ignored.
+ */
+const requestedConfigurations = (
+  authQueries: unknown,
+): { readonly policyId: string; readonly policyVersion: number }[] => {
+  const parse = (value: unknown): unknown => {
+    if (typeof value !== "string") return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+  const queries = parse(authQueries) as Record<string, unknown> | undefined;
+  const details = parse(queries?.["authorization_details"]);
+  const ids: string[] = [];
+  if (Array.isArray(details)) {
+    for (const d of details) {
+      const id = (d as { credential_configuration_id?: unknown })?.credential_configuration_id;
+      if (typeof id === "string") ids.push(id);
+    }
+  }
+  const scope = queries?.["scope"];
+  if (typeof scope === "string") ids.push(...scope.split(" "));
+  const out: { policyId: string; policyVersion: number }[] = [];
+  for (const id of ids) {
+    const m = /^c-(.+)-v(\d+)$/.exec(id);
+    if (m) out.push({ policyId: m[1] as string, policyVersion: Number(m[2]) });
+  }
+  return out;
 };
 
 /** The platform's attribute provider, as the engine knows it, and the header carrying its key. */

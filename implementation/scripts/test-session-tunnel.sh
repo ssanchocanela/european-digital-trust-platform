@@ -176,6 +176,8 @@ negative_checks() {
   # Every one of these MUST be 404. A 401 is not reassurance: it proves the endpoint is reachable.
   local engine_paths=(/api/docs-json /api/tenant /api/key-chain /api/verifier/config /api/oauth2/token /health /storage/x /docs /docs-json /)
   local platform_paths=(/v1/tenants /v1/presentations /health /openapi)
+  # The hosted form serves itself and two images; nothing of the platform or the engine behind it.
+  local form_paths=(/v1/hosted-forms /v1/tenants /internal/engine/pid-1/attributes /api/tenant /health)
 
   # Each path is retried once on a transport-level failure, and only on that: a 200 or a 401 is an
   # answer and is a failure on the first try. Retrying a real answer would be how a reachable
@@ -200,6 +202,16 @@ negative_checks() {
     printf '    %s  %s%s\n' "$code" "platform" "$path"
     [ "$code" = "404" ] || failures=$((failures + 1))
   done
+  if [ -f "$RUN_DIR/form.host" ]; then
+    local form
+    form="$(cat "$RUN_DIR/form.host")"
+    await_tunnel "$form" "form host" || return 1
+    for path in "${form_paths[@]}"; do
+      code="$(probe "$form$path")"
+      printf '    %s  %s%s\n' "$code" "form" "$path"
+      [ "$code" = "404" ] || failures=$((failures + 1))
+    done
+  fi
   return "$failures"
 }
 
@@ -210,6 +222,17 @@ case "${1:-up}" in
 
     step "Starting the filtering gateway"
     if ! curl -s -o /dev/null --max-time 3 "http://127.0.0.1:${GATEWAY_ENGINE_PORT:-3010}/" ; then
+      # The hosted-form gate, when a form host is configured. The pass secret is read from .env and
+      # handed to the gateway alone; it never reaches the form process.
+      if [ -n "${EDTP_FORM_HOST:-}" ] && [ -f "$HERE/.env" ]; then
+        GATEWAY_HOSTED_FORM_AUTHORIZE_SECRET="$(sed -n 's/^HOSTED_FORM_AUTHORIZE_SECRET=//p' "$HERE/.env" | tail -1)"
+        if [ -n "$GATEWAY_HOSTED_FORM_AUTHORIZE_SECRET" ]; then
+          export GATEWAY_HOSTED_FORM_AUTHORIZE_SECRET
+          export GATEWAY_HOSTED_FORM_URL="$EDTP_FORM_HOST/"
+          export GATEWAY_HOSTED_FORM_TENANTS="${EDTP_FORM_TENANTS:-}"
+          echo "    hosted-form gate on for: ${EDTP_FORM_TENANTS:-<none>}"
+        fi
+      fi
       node "$HERE/apps/test-gateway/dist/main.js" > "$RUN_DIR/gateway.log" 2>&1 &
       echo $! > "$RUN_DIR/gateway.pid"
       sleep 2
@@ -228,6 +251,7 @@ case "${1:-up}" in
       echo "$EDTP_ENGINE_HOST" > "$RUN_DIR/engine.host"
       echo "$EDTP_PLATFORM_HOST" > "$RUN_DIR/platform.host"
       echo "$EDTP_START_HOST" > "$RUN_DIR/start.host"
+      [ -n "${EDTP_FORM_HOST:-}" ] && echo "$EDTP_FORM_HOST" > "$RUN_DIR/form.host"
       echo "    engine → $EDTP_ENGINE_HOST, platform → $EDTP_PLATFORM_HOST, start → $EDTP_START_HOST"
     else
       step "Opening tunnels"
@@ -296,11 +320,12 @@ EOF
 
   down)
     step "Closing the session"
-    for name in engine platform start named gateway; do
+    for name in engine platform start form named gateway; do
       if [ -f "$RUN_DIR/$name.pid" ]; then
         kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null && echo "    stopped $name" || true
         rm -f "$RUN_DIR/$name.pid" "$RUN_DIR/$name.host"
       fi
+      rm -f "$RUN_DIR/$name.host"
     done
     rm -f "$RUN_DIR/session.env"
 

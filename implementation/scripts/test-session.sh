@@ -69,7 +69,12 @@ case "${1:-}" in
     # Before `docker compose up`, never after: the engine bakes these into every wallet-facing URL
     # it emits, so a session created under the old value is unreachable for the rest of its life.
     set -a; . "$RUN_DIR/session.env"; set +a
-    docker compose up -d --force-recreate eudiplo platform-api operator-console test-start >/dev/null
+    SERVICES="eudiplo platform-api operator-console test-start"
+    # The hosted PID form, when this deployment is configured for it. Recreated with the same
+    # ENGINE_PUBLIC_URL, because it sends the browser back to the engine's public origin.
+    grep -q '^PID_FORM_POLICY_ID=.' .env 2>/dev/null && SERVICES="$SERVICES pid-form"
+    # shellcheck disable=SC2086
+    docker compose up -d --force-recreate $SERVICES >/dev/null
     sleep 10
 
     local_public="$(docker compose logs eudiplo --tail=40 2>/dev/null |
@@ -202,6 +207,8 @@ case "${1:-}" in
     # Without this the engine keeps emitting a hostname that no longer resolves, and the next
     # local test fails for a reason that has nothing to do with what is being tested.
     docker compose up -d --force-recreate eudiplo platform-api operator-console test-start >/dev/null
+    # The hosted form is a public process: up only while a session is.
+    docker compose stop pid-form >/dev/null 2>&1 || true
     sleep 8
     echo "    engine is emitting: $(docker compose logs eudiplo --tail=40 2>/dev/null |
       sed -n 's/.*Public URL: *//p' | tail -1 | tr -d '\r')"

@@ -71,6 +71,12 @@ services:
       # certificate, which is not in any credential's chain, so a wallet honouring them would
       # find no matching credential. docs/interop-findings.md A31.
       VP_REMOVE_TA: "true"
+      # Outbound calls the engine makes to webhooks and attribute providers: to the platform API on
+      # the internal network, and nowhere else. The allow-list is what confines them; the two flags
+      # only permit the internal hop (cleartext, private address) that the allow-list names.
+      OUTBOUND_URL_ALLOW_HTTP: "true"
+      OUTBOUND_URL_ALLOW_PRIVATE_NETWORK: "true"
+      OUTBOUND_URL_ALLOWED_HOSTS: platform-api
       MASTER_SECRET: ${ENGINE_MASTER_SECRET:?set ENGINE_MASTER_SECRET in .env}
       AUTH_CLIENT_ID: ${ENGINE_CLIENT_ID:-root}
       AUTH_CLIENT_SECRET: ${ENGINE_CLIENT_SECRET:?set ENGINE_CLIENT_SECRET in .env}
@@ -165,6 +171,14 @@ services:
       ENGINE_TENANT_CREDENTIALS: ${ENGINE_TENANT_CREDENTIALS:?set ENGINE_TENANT_CREDENTIALS in .env}
       ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: ${ENGINE_WALLET_PROVIDER_TRUST_LIST_ID:-}
       ENGINE_ISSUER_TRUST_LISTS: ${ENGINE_ISSUER_TRUST_LISTS:-}
+      # Wallet-initiated issuance through the hosted form (apps/pid-form). All empty = off.
+      # The engine reaches this API on the internal network to fetch held claims.
+      ENGINE_ATTRIBUTE_PROVIDER_BASE_URL: ${ENGINE_ATTRIBUTE_PROVIDER_BASE_URL:-}
+      ENGINE_ATTRIBUTE_PROVIDER_KEY: ${ENGINE_ATTRIBUTE_PROVIDER_KEY:-}
+      HOSTED_FORM_SECRET: ${HOSTED_FORM_SECRET:-}
+      HOSTED_FORM_AUTHORIZE_SECRET: ${HOSTED_FORM_AUTHORIZE_SECRET:-}
+      HOSTED_FORM_POLICIES: ${HOSTED_FORM_POLICIES:-}
+      ENGINE_ISSUER_BRANDING: ${ENGINE_ISSUER_BRANDING:-}
       JOB_INTERVAL_MS: "15000"
     ports:
       - "127.0.0.1:3100:3100"
@@ -255,6 +269,26 @@ services:
     # publish this without the allow-list and its negative checks.
     ports:
       - "3201:3201"
+
+  # The hosted PID form (wallet-initiated issuance). Public during a test session, like the start page,
+  # and holding one narrow secret: the platform accepts it only for HOSTED_FORM_POLICIES. Start it
+  # explicitly, with the session's ENGINE_PUBLIC_URL: `docker compose up -d pid-form`.
+  pid-form:
+    image: edtp-v0-platform-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "apps/pid-form/dist/main.js"]
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      PID_FORM_PORT: "3202"
+      PLATFORM_API_BASE_URL: http://platform-api:3100
+      HOSTED_FORM_SECRET: ${HOSTED_FORM_SECRET:-}
+      PID_FORM_POLICY_ID: ${PID_FORM_POLICY_ID:-}
+      ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:3000}
+    ports:
+      - "127.0.0.1:3202:3202"
 
 volumes:
   platform-db-data:

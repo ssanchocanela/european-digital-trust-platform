@@ -36,6 +36,9 @@
     },
     {
       "path": "./apps/test-gateway"
+    },
+    {
+      "path": "./apps/pid-form"
     }
   ]
 }

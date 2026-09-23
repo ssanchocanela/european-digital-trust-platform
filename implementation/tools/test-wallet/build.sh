@@ -23,7 +23,8 @@
 #
 #   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
 #   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
-#   --issuer <url>          required by wd-5. The ONLY issuer "Add document > From list" offers.
+#   --issuer <url>[,<url>]  required by wd-5. The ONLY issuers "Add document > From list" offers:
+#                           one, or two in list order (upstream has two slots, and WD-5 reuses them).
 #   --pid-label <text>      optional with wd-5. Replaces upstream's "PID Combined" row label.
 #
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
@@ -140,10 +141,14 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -n "$ISSUER_URL" ] ||
           die "--deviations wd-5 requires --issuer <url>: the Credential Issuer the wallet's list is to
     offer, as its metadata names it (e.g. https://edtp-engine.murcata.es/issuers/pid-1)."
-        case "$ISSUER_URL" in
-          https://*) ;;
-          *) die "--issuer must be https. The wallet will not fetch issuer metadata over cleartext." ;;
-        esac
+        for u in $(printf '%s' "$ISSUER_URL" | tr ',' ' '); do
+          case "$u" in
+            https://*) ;;
+            *) die "--issuer must be https. The wallet will not fetch issuer metadata over cleartext." ;;
+          esac
+        done
+        [ "$(printf '%s' "$ISSUER_URL" | tr ',' '\n' | grep -c .)" -le 2 ] ||
+          die "--issuer takes at most two URLs: WD-5 reuses upstream's two issuer slots and adds none."
         WANT_WD5=yes
         ;;
       wd-1)
@@ -354,28 +359,41 @@ if [ "$WANT_WD4" = "yes" ]; then
 fi
 
 if [ "$WANT_WD5" = "yes" ]; then
-  step "Applying WD-5 (the wallet's issuer list -> our issuer only)"
+  step "Applying WD-5 (the wallet's issuer list -> our issuers only)"
   # "Add document > From list" is built from the Credential Issuer metadata of the issuers in
   # `issuersConfig`, not from any remote list. Upstream carries two, the EUDI reference issuer and its
-  # backend; this build carries one, ours, with every other setting kept as upstream has it. Anchored
-  # on the two exact upstream URLs, and refused if either is not there exactly once.
+  # backend; this build carries ours — one or two — in those same slots, with every other setting kept
+  # as upstream has it. Anchored on the two exact upstream URLs, and refused if either is not there
+  # exactly once.
   WD5_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
   WD5_FIRST='issuerUrl = "https://issuer.eudiw.dev",'
   WD5_SECOND='issuerUrl = "https://issuer-backend.eudiw.dev",'
   [ "$(grep -cF "$WD5_FIRST" "$WD5_FILE")" = "1" ] && [ "$(grep -cF "$WD5_SECOND" "$WD5_FILE")" = "1" ] ||
     die "the upstream issuer URLs are not in $WD5_FILE exactly once each; WD-5 must be regenerated."
-  # Drop the second VciConfig block whole (from its `VciConfig(` to its closing `)`), then point the
-  # first at our issuer.
+  WD5_URL1="${ISSUER_URL%%,*}"
+  WD5_URL2=""
+  case "$ISSUER_URL" in *,*) WD5_URL2="${ISSUER_URL#*,}" ;; esac
+  WD5_COUNT=1
+  if [ -n "$WD5_URL2" ]; then
+    # Two issuers: the second slot, pointed at the second URL. Same settings as the first.
+    sed -i.bak "s|$WD5_SECOND|issuerUrl = \"$WD5_URL2\",|" "$WD5_FILE" && rm -f "$WD5_FILE.bak"
+    WD5_COUNT=2
+  else
+  # One issuer: drop the second VciConfig block whole (from its `VciConfig(` to its closing `)`).
   awk -v marker="$WD5_SECOND" '
     /^ *VciConfig\($/ { buf = $0 "\n"; inblock = 1; next }
     inblock { buf = buf $0 "\n"; if ($0 ~ /^ {12}\),?$/) { inblock = 0; if (index(buf, marker) == 0) printf "%s", buf; buf = "" } ; next }
     { print }
   ' "$WD5_FILE" > "$WD5_FILE.new" && mv "$WD5_FILE.new" "$WD5_FILE"
-  sed -i.bak "s|$WD5_FIRST|issuerUrl = \"$ISSUER_URL\",|" "$WD5_FILE" && rm -f "$WD5_FILE.bak"
+  fi
+  sed -i.bak "s|$WD5_FIRST|issuerUrl = \"$WD5_URL1\",|" "$WD5_FILE" && rm -f "$WD5_FILE.bak"
   grep -qF "eudiw.dev\"," "$WD5_FILE" && grep -qE 'issuerUrl = "https://issuer(-backend)?\.eudiw\.dev"' "$WD5_FILE" &&
     die "WD-5 left an EUDI issuer in the list."
-  [ "$(grep -c 'issuerUrl = ' "$WD5_FILE")" = "1" ] || die "WD-5 did not leave exactly one issuer."
-  grep -qF "issuerUrl = \"$ISSUER_URL\"," "$WD5_FILE" || die "substituting the WD-5 issuer did not take effect."
+  [ "$(grep -c 'issuerUrl = ' "$WD5_FILE")" = "$WD5_COUNT" ] ||
+    die "WD-5 did not leave exactly $WD5_COUNT issuer(s)."
+  grep -qF "issuerUrl = \"$WD5_URL1\"," "$WD5_FILE" || die "substituting the WD-5 issuer did not take effect."
+  [ -z "$WD5_URL2" ] || grep -qF "issuerUrl = \"$WD5_URL2\"," "$WD5_FILE" ||
+    die "substituting the second WD-5 issuer did not take effect."
   if [ -n "$PID_LABEL" ]; then
     # Upstream labels an issuer's merged PID row with a fixed "PID Combined". A flavour resource
     # overrides that one string and nothing else; the XML-special characters are escaped.
@@ -391,7 +409,7 @@ XML
     echo "    PID row label -> $PID_LABEL"
   fi
   echo "    issuersConfig -> $ISSUER_URL (only)"
-  echo "    this build offers our issuer and nothing else. Every result says 'modified wallet'."
+  echo "    this build offers our issuers and nothing else. Every result says 'modified wallet'."
 fi
 
 # --- 5. Build stamp ----------------------------------------------------------------------------

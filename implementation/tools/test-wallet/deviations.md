@@ -18,7 +18,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-2** | Signed-issuer-metadata requirement relaxed | (a), ARF §6.6.2.2 | **Security relaxation** | Not built |
 | **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | **Built** (W3, W4) — Path A failed |
 | **WD-4** | `pidProviders` trust list pointing at our TEST PID LoTE, which carries the notified anchors **plus** our development PID Provider CA | (b), for a PID | Configuration of an ARF-intended mechanism | **Built** (W5, W6) |
-| **WD-5** | The wallet's issuer list (*From list*) offers our issuer only; optional relabel of the merged PID row | — | Configuration (which issuers the app offers) | **Built** (W6), 24 September 2026 |
+| **WD-5** | The wallet's issuer list (*From list*) offers our issuers only (one or two); optional relabel of the merged PID row | — | Configuration (which issuers the app offers) | **Built** (W6), 24 September 2026; two issuers the same day |
 
 ---
 
@@ -216,7 +216,7 @@ real PID Provider, or an unmodified wallet — which would refuse it, correctly:
 come from a Member State notification (`EW-PIO-01-024`, `OIA_12`), and ours has none. The PID is
 **test data**, whatever it contains.
 
-## WD-5 — the wallet's issuer list offers our issuer only
+## WD-5 — the wallet's issuer list offers our issuers only
 
 For **wallet-initiated PID issuance** from the app's own *Add document → From list*, built for an FNMT
 demonstration. Upstream builds that list from the Credential Issuer metadata of the issuers hard-coded
@@ -229,6 +229,11 @@ same authorization redirect deep link, PAR if supported, DPoP, the same reuse po
 block whole, points the first at `--issuer`, and refuses if either URL is not there exactly once, if
 an EUDI issuer remains, or if more than one issuer is left. Verified with `--prepare-only` and built as
 **W6** (`.edtptest6`, debug, `wd-2,wd-3,wd-4,wd-5`) on 24 September 2026.
+
+**Two issuers**, `--issuer <url>,<url>`, for the CORPME demonstration: the PID from `pid-1` and the
+representation credentials from `rpi-1`. The two go into upstream's own two slots, the second pointed
+at the second URL with the same settings; nothing is added. More than two is refused. W6 was rebuilt
+this way on 24 September 2026, with the same suffix, so it updates in place and keeps its documents.
 
 **Offers are unaffected.** A credential offer from any issuer still works, because upstream uses the
 first configured issuer's settings for an issuer it does not know.
@@ -243,9 +248,11 @@ open it when the browser hands back; choose the build the flow started in.
 ### What a run with this build may and may not say
 
 That this platform can issue a PID into a wallet that *discovers* it as its issuer, with the
-authorization step on a web form of ours. Nothing about which issuers an unmodified wallet offers —
+authorization step on a web form of ours — and, with two issuers, that a representation credential
+can be requested the same way, the person identifying mid-issuance by presenting that PID. Nothing about which issuers an unmodified wallet offers —
 it offers the EUDI reference issuers, and its list is not something a Relying Party or an issuer
-controls. The PID is test data, and the FNMT branding is a demonstration, not an FNMT service.
+controls. The PID and the representation data are test data, and the FNMT and CORPME branding is a
+demonstration, not a service of either.
 
 ---
 

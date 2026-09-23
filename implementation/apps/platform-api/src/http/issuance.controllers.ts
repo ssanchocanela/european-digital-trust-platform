@@ -9,6 +9,7 @@ import { asId, newOpaqueToken, newWebhookEndpointId, PlatformError } from "@edtp
 import { Body, Controller, Delete, Get, Inject, Param, Post } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { IssuanceService } from "../modules/issuances/issuance.service.js";
+import { compilePayloadSchema } from "../modules/issuances/payload-schema.js";
 import {
   FEATURE_PID_DURING_ISSUANCE,
   ISSUANCE_REPOSITORY,
@@ -360,7 +361,9 @@ export class IssuanceConfigurationController {
       display: input.display,
       validitySeconds: input.validitySeconds,
       statusMechanism: input.statusMechanism,
+      ...(input.payloadSchema ? { payloadSchema: input.payloadSchema } : {}),
     });
+    if (input.payloadSchema) compilePayloadSchema(input.payloadSchema);
 
     const created = await this.issuance.createCredentialType({
       tenantId: id,
@@ -376,6 +379,7 @@ export class IssuanceConfigurationController {
         validitySeconds: input.validitySeconds,
         statusMechanism: input.statusMechanism,
         requiresKeyBinding: input.requiresKeyBinding,
+        ...(input.payloadSchema ? { payloadSchema: input.payloadSchema } : {}),
       },
       at: new Date(),
     });

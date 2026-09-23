@@ -1,3 +1,4 @@
+import { CLAIM_VALUE_TYPES } from "@edtp/domain";
 import { z } from "zod";
 
 /**
@@ -348,7 +349,7 @@ export const createCredentialTypeSchema = z
           path: z.array(z.string().min(1)).min(1),
           display: z.array(localisedTextSchema).min(1),
           mandatory: z.boolean().default(true),
-          valueType: z.enum(["string", "number", "boolean", "date", "string[]"]),
+          valueType: z.enum(CLAIM_VALUE_TYPES),
         }),
       )
       .min(1),
@@ -356,6 +357,12 @@ export const createCredentialTypeSchema = z
     validitySeconds: z.number().int().positive(),
     statusMechanism: z.enum(["TOKEN_STATUS_LIST", "NONE"]).default("TOKEN_STATUS_LIST"),
     requiresKeyBinding: z.boolean().default(true),
+    /**
+     * JSON Schema (2020-12) the assembled claims must satisfy, checked against `{ vct, ...claims }`
+     * before issuance. Compiled when the type is created, so a schema that cannot be compiled is
+     * refused here rather than at the first issuance.
+     */
+    payloadSchema: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 

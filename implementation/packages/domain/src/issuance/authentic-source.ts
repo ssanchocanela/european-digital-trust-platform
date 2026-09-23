@@ -116,6 +116,8 @@ const matchesType = (
       return typeof value === "string";
     case "number":
       return typeof value === "number" && Number.isFinite(value);
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value);
     case "boolean":
       return typeof value === "boolean";
     case "date":
@@ -128,6 +130,13 @@ const matchesType = (
         Array.isArray(value) &&
         value.length > 0 &&
         value.every((item) => typeof item === "string" && item.length > 0)
+      );
+    case "object[]":
+      // Shape only; what each element must contain is the type's `payloadSchema`.
+      return (
+        Array.isArray(value) &&
+        value.length > 0 &&
+        value.every((item) => typeof item === "object" && item !== null && !Array.isArray(item))
       );
   }
 };

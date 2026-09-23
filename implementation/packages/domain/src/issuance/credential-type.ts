@@ -46,7 +46,15 @@ export interface AttestationRulebookRef {
   readonly anchorSource: "RULEBOOK_ONLY" | "RULEBOOK_AND_PUBLISHED_LIST";
 }
 
-export const CLAIM_VALUE_TYPES = ["string", "number", "boolean", "date", "string[]"] as const;
+export const CLAIM_VALUE_TYPES = [
+  "string",
+  "number",
+  "integer",
+  "boolean",
+  "date",
+  "string[]",
+  "object[]",
+] as const;
 export type ClaimValueType = (typeof CLAIM_VALUE_TYPES)[number];
 
 /** One claim the credential type carries. */
@@ -65,6 +73,12 @@ export interface CredentialClaimDefinition {
    * `string[]` is a non-empty array of strings — the PID's `nationalities` (PID Rulebook §4.1) is
    * the case that needed it. A nested object is not a value type: it is expressed by claim paths,
    * `["place_of_birth", "country"]`, which the platform already rebuilds into structure.
+   *
+   * `integer` is for code lists, which a Rulebook encodes as integers and a source must not answer
+   * with `1.5`. `object[]` is a non-empty array of objects — a repeated group, such as a list of
+   * powers each with its own fields. It is **one** claim: the engine cannot make the elements of an
+   * array individually disclosable (`interop-findings.md` A32), so the array is disclosed whole,
+   * and its inner shape is checked by the type's `payloadSchema`, not by more claim paths.
    */
   readonly valueType: ClaimValueType;
 }
@@ -99,6 +113,17 @@ export interface CredentialType {
    * is a deliberate and unusual choice, so it is explicit rather than defaulted.
    */
   readonly requiresKeyBinding: boolean;
+  /**
+   * A JSON Schema (2020-12) the assembled claims must satisfy before anything is issued, checked
+   * against `{ vct, ...claims }`.
+   *
+   * The claim list says which attributes exist and their shape one by one. A Rulebook also says how
+   * they relate — one of two blocks and never both, a list of constraints present only when a
+   * limitation is declared, a code list — and those rules have no home in a claim definition.
+   * Optional, because a flat type has no such rules; when present it is enforced, never advisory.
+   * Definitions only, never values.
+   */
+  readonly payloadSchema?: Readonly<Record<string, unknown>>;
   readonly createdAt: Date;
 }
 
@@ -117,6 +142,7 @@ export const validateCredentialType = (input: {
   readonly display: readonly LocalisedText[];
   readonly validitySeconds: number;
   readonly statusMechanism: StatusMechanism;
+  readonly payloadSchema?: Readonly<Record<string, unknown>>;
 }): void => {
   const details: { path: string; code: string; message: string }[] = [];
 
@@ -209,6 +235,37 @@ export const validateCredentialType = (input: {
       code: "claim_path_duplicated",
       message: `Claim path '${duplicate}' is defined more than once.`,
     });
+  }
+
+  // A claim is a leaf. A path that is also the prefix of another would ask the platform to put a
+  // value and a structure in the same place.
+  for (const [i, path] of claimPaths.entries()) {
+    const extended = claimPaths.find((other, j) => j !== i && other.startsWith(`${path}.`));
+    if (extended !== undefined) {
+      details.push({
+        path: `claims[${i}].path`,
+        code: "claim_path_prefixes_another",
+        message: `Claim path '${path}' is a prefix of '${extended}'; a claim must be a leaf.`,
+      });
+    }
+  }
+
+  if (input.payloadSchema !== undefined) {
+    const schema = input.payloadSchema;
+    if (typeof schema !== "object" || schema === null || Array.isArray(schema)) {
+      details.push({
+        path: "payloadSchema",
+        code: "payload_schema_invalid",
+        message: "The payload schema must be a JSON Schema object.",
+      });
+    } else if (schema["type"] !== "object") {
+      details.push({
+        path: "payloadSchema",
+        code: "payload_schema_not_object",
+        message:
+          "The payload schema must describe an object: it is checked against the claims.",
+      });
+    }
   }
 
   if (details.length > 0) {

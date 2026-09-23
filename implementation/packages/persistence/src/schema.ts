@@ -684,6 +684,8 @@ export const credentialTypes = pgTable(
     validitySeconds: integer("validity_seconds").notNull(),
     statusMechanism: text("status_mechanism").notNull(),
     requiresKeyBinding: boolean("requires_key_binding").notNull(),
+    /** JSON Schema the assembled claims must satisfy before issuance. Definitions, never values. */
+    payloadSchema: jsonb("payload_schema"),
     createdAt: ts("created_at").notNull(),
   },
   (t) => [

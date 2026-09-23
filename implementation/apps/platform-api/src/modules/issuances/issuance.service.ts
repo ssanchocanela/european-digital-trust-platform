@@ -28,6 +28,7 @@ import {
 import type { Logger } from "../../logging/logger.js";
 import type { WebhookService } from "../../webhook/webhook.service.js";
 import type { AuditService } from "../audit/audit.service.js";
+import { assertPayloadSatisfiesSchema } from "./payload-schema.js";
 
 export interface CreateIssuanceCommand {
   readonly tenantId: TenantId;
@@ -610,7 +611,7 @@ export class IssuanceService {
     },
   ): SourceAttributes {
     // Validates and drops anything the type does not declare. The error carries claim paths only.
-    return narrowToDeclaredClaims(raw, {
+    const narrowed = narrowToDeclaredClaims(raw, {
       id: "",
       tenantId: "",
       attestationProviderId: "",
@@ -630,6 +631,16 @@ export class IssuanceService {
       requiresKeyBinding: plan.holderBinding === "KEY_BOUND",
       createdAt: new Date(0),
     });
+    // Then the rules between claims, on exactly what the engine will receive. After narrowing, so a
+    // schema is never satisfied by an attribute the credential would not carry.
+    if (plan.credential.payloadSchema) {
+      assertPayloadSatisfiesSchema(
+        plan.credential.payloadSchema,
+        plan.credential.vct,
+        narrowed,
+      );
+    }
+    return narrowed;
   }
 
   private async advanceToIssuing(tenantId: TenantId, id: string): Promise<void> {

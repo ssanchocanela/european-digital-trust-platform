@@ -95,7 +95,14 @@ export interface PresentationSummary {
 }
 
 /** An issuance policy in a list: what it issues, and whether it can. */
-export type ClaimValueType = "string" | "number" | "boolean" | "date" | "string[]";
+export type ClaimValueType =
+  | "string"
+  | "number"
+  | "integer"
+  | "boolean"
+  | "date"
+  | "string[]"
+  | "object[]";
 
 export interface OperatorFormField {
   /** Dotted, as the API's `subjectAttributes` accepts it. */

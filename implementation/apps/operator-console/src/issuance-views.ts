@@ -287,6 +287,11 @@ const operatorFormInput = (field: OperatorFormField): SafeHtml => {
       return html`<label>${label}<input type="date" name="${name}" ${required}></label>`;
     case "number":
       return html`<label>${label}<input type="number" name="${name}" ${required}></label>`;
+    case "integer":
+      return html`<label>${label}<input type="number" step="1" name="${name}" ${required}></label>`;
+    case "object[]":
+      // A repeated group has no honest single-box form. Such a claim comes from policy or source.
+      return html`<p class="hint">${field.label}: a repeated group, not enterable in this form.</p>`;
     case "boolean":
       return html`<label>${label}<input type="checkbox" name="${name}" value="true"></label>`;
     case "string[]":
@@ -320,6 +325,11 @@ export const readOperatorForm = (
         break;
       case "number":
         if (text !== "" && Number.isFinite(Number(text))) out[field.path] = Number(text);
+        break;
+      case "integer":
+        if (text !== "" && Number.isInteger(Number(text))) out[field.path] = Number(text);
+        break;
+      case "object[]":
         break;
       case "string[]": {
         const items = text

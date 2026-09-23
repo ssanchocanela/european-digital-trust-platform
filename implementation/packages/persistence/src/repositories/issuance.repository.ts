@@ -209,6 +209,7 @@ export class IssuanceRepository {
       validitySeconds: t.validitySeconds,
       statusMechanism: t.statusMechanism,
       requiresKeyBinding: t.requiresKeyBinding,
+      payloadSchema: t.payloadSchema ?? null,
       createdAt: input.at,
     });
     return { id };
@@ -940,6 +941,9 @@ export class IssuanceRepository {
       statusMechanism:
         row.statusMechanism === "TOKEN_STATUS_LIST" ? "TOKEN_STATUS_LIST" : "NONE",
       requiresKeyBinding: row.requiresKeyBinding,
+      ...(row.payloadSchema
+        ? { payloadSchema: row.payloadSchema as CredentialType["payloadSchema"] }
+        : {}),
       createdAt: row.createdAt,
     };
   }

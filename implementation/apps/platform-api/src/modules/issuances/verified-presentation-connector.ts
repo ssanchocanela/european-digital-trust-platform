@@ -49,6 +49,8 @@ import { asId, type Clock, PlatformError } from "@edtp/shared";
  *
  * A declared claim with no mapping is read from the result under the same path. A result claim path
  * may be dotted (`org.iso.18013.5.1.family_name` is read as nested when the flat key is absent).
+ * A fixed value is any JSON value its claim's type accepts — for an `object[]` claim, the whole
+ * array. Credential claim paths are dotted and the answer is built nested, as the type describes it.
  */
 export class VerifiedPresentationConnector implements AuthenticSourceConnector {
   readonly name = "verified-presentation";
@@ -110,18 +112,28 @@ export class VerifiedPresentationConnector implements AuthenticSourceConnector {
     const fixed = plainRecord(input.parameters["fixedClaims"]);
     const claims = result.claims as Readonly<Record<string, unknown>>;
 
+    // Nested, not keyed by the dotted path: the platform reads a source's answer by walking the
+    // path, so a flat `"a.b"` key reads as absent. Until 23 September 2026 this returned flat keys,
+    // which worked only because every type issued through it had one-segment paths.
     const attributes: Record<string, unknown> = {};
     for (const path of input.requestedClaimPaths) {
-      if (path in fixed) {
-        attributes[path] = fixed[path];
-        continue;
-      }
-      const value = readPath(claims, mapping[path] ?? path);
-      if (value !== undefined) attributes[path] = value;
+      const value = path in fixed ? fixed[path] : readPath(claims, mapping[path] ?? path);
+      if (value !== undefined) writePath(attributes, path, value);
     }
     return attributes;
   }
 }
+
+const writePath = (target: Record<string, unknown>, path: string, value: unknown): void => {
+  const segments = path.split(".");
+  let cursor = target;
+  for (const segment of segments.slice(0, -1)) {
+    const next = cursor[segment];
+    if (typeof next !== "object" || next === null || Array.isArray(next)) cursor[segment] = {};
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  cursor[segments[segments.length - 1] as string] = value;
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

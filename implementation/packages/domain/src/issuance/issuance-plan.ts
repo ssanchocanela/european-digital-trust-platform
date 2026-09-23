@@ -79,6 +79,8 @@ export interface PlanCredentialDefinition {
   readonly anchorSource: "RULEBOOK_ONLY" | "RULEBOOK_AND_PUBLISHED_LIST";
   readonly rulebookIdentifier: string;
   readonly rulebookVersion: string;
+  /** The type's `payloadSchema`, enforced on the assembled claims before the engine sees them. */
+  readonly payloadSchema?: Readonly<Record<string, unknown>>;
 }
 
 export interface IssuancePlan {
@@ -173,6 +175,7 @@ export const compileIssuancePolicy = (input: IssuanceCompilerInput): IssuancePla
     anchorSource: credentialType.rulebook.anchorSource,
     rulebookIdentifier: credentialType.rulebook.identifier,
     rulebookVersion: credentialType.rulebook.version,
+    ...(credentialType.payloadSchema ? { payloadSchema: credentialType.payloadSchema } : {}),
   };
 
   const plan: IssuancePlan = {

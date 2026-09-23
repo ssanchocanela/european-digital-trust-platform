@@ -49,6 +49,7 @@ if [ -n "$SIGNING_CA_DIR" ] && { [ ! -f "$SIGNING_CA_DIR/ca.crt" ] || [ ! -f "$S
   exit 1
 fi
 ACCESS_CA_DIR="${EDTP_DEV_CA_DIR:-$HOME/.edtp/dev-access-ca}"
+ENGINE_TENANT_REF="${ENGINE_TENANT_REF:-rpi-1}"
 
 if [ -z "$PROVIDER_ID" ]; then
   echo "usage: PLATFORM_TENANT_API_KEY=… $0 <attestationProviderId>" >&2
@@ -76,11 +77,17 @@ PROVIDER_PATH="/v1/tenants/$TENANT_ID/attestation-providers/$PROVIDER_ID"
 
 echo "==> What this provider holds now"
 BEFORE="$(api GET "$PROVIDER_PATH/provider-authentication")"
-if [ -n "$(echo "$BEFORE" | jq -r '.error // empty')" ]; then
+BEFORE_ERROR="$(echo "$BEFORE" | jq -r '.error // empty')"
+if [ "$BEFORE_ERROR" = "attestation_provider_not_provisioned" ]; then
+  # The first provisioning rather than a rotation: nothing held, so nothing can be lost.
+  echo "    nothing yet — this is the provider's first provisioning, on $ENGINE_TENANT_REF"
+  BEFORE='{"certificates":{}}'
+elif [ -n "$BEFORE_ERROR" ]; then
   echo "$BEFORE" | jq '{error, message}' >&2
   exit 1
+else
+  echo "$BEFORE" | jq '{canSignAttestations, certificates}'
 fi
-echo "$BEFORE" | jq '{canSignAttestations, certificates}'
 
 # --- the A20 trap, refused rather than sprung -----------------------------------------------------
 HAS_ACCESS="$(echo "$BEFORE" | jq -r 'if .certificates.access then "yes" else "no" end')"
@@ -148,7 +155,7 @@ pems() {
     process.stdout.write(JSON.stringify(process.argv.slice(1).map((p)=>readFileSync(p,"utf8"))))' "$@"
 }
 
-ENGINE_TENANT_REF="${ENGINE_TENANT_REF:-rpi-1}"
+
 BODY="$(jq -n \
   --arg ref "$ENGINE_TENANT_REF" \
   --argjson sjwk "$(jwk "$WORK/key8.pem")" \

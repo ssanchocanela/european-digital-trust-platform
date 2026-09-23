@@ -58,8 +58,16 @@ Two of our own defects fixed on the way: retired issuance policies' gates were s
 since A30 blocked **every** issuance on `rpi-1`; and the tunnel script now ignores
 `~/.cloudflared/config.yml`, whose catch-all `404` (another project's) swallowed every request.
 
-**Next:** see the test PID's disclosures on a token (issue a second one and read it before presenting
-it), and a presentation policy for the `:2` types, which needs an intended use registering them.
+**Verified too, and across sessions** (§8.1k): one presentation policy per `:2` type, an intended use
+registering them, and the **EDTP TEST list of non-qualified EAA providers** as issuer anchor, published on
+GitHub Pages and loaded as `edtp-test-eaa-providers`. All three `VERIFIED`, and a Power of
+Representation issued in one session verified again in the next. Sessions now run on the named tunnel
+`edtp-dev` (`edtp-engine|platform|start.murcata.es`), because an attestation's status list URI is the
+engine's public URL at issue. On the way: A33 — the engine signed the tenant's status list with an
+expired key it had chosen by fallback; the adapter now pins the list to the provider's key.
+
+**Next:** the test PID's own disclosures on a token are still unseen; and requesting credentials from
+the application's dashboard, starting with the PID.
 
 ## 17 September 2026 — **presentations now check who signed what was presented**
 

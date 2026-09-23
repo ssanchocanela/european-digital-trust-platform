@@ -630,6 +630,44 @@ fictitious and the source a FIXTURE.
    `~/.cloudflared/config.yml` even for a quick tunnel, and a named tunnel's ingress there — another
    project's — ends in `http_status:404`. `test-session-tunnel.sh` now passes an empty `--config`.
 
+### 8.1k Twelfth wallet run — **the three Power of X attestations verified, and again in a later session**
+
+23 September 2026, W5 (modified wallet) as in §8.1j, the gateway with `GATEWAY_PINNED_WALLET_COMPAT=true`,
+and — new — the **named tunnel** `edtp-dev` on fixed `murcata.es` hostnames (`test-session-gateway.md`
+§2). Negative checks passed before each session: every `/api/*` probe `404`. Between the two sessions
+the engine hostname answered `530`.
+
+The chain was issued again inside a named-tunnel session, so the attestations' status list URI is
+`https://edtp-engine.murcata.es/…`: test PID → *Identify with PID, for a Power of X credential* →
+Power of Representation, Attorney, Employee, all `ISSUED`. Then:
+
+| Presentation policy (`:2` intended use, TEST EAA list as issuer anchor, status `STRICT`) | Outcome | Result claims |
+|---|---|---|
+| *Verify a Power of Representation* | **`VERIFIED`** | exactly the six requested |
+| *Verify a Power of Attorney* | **`VERIFIED`** | the five common claims and the powers list, whole (two powers) |
+| *Verify an employee authorisation* | **`VERIFIED`** | exactly the seven requested |
+| *Verify a Power of Representation*, **after closing the session and opening a new one** | **`VERIFIED`** | the same six |
+
+The last row is what the named tunnel was for: an attestation issued in one session, verified with
+its status checked in the next. Values were checked for presence only.
+
+**What went wrong first, all recorded:**
+
+1. The first verification attempt, on the attestations of §8.1j, failed fetching their status list
+   from the closed quick tunnel (`530`) — no quick-tunnel attestation can be verified afterwards.
+2. In the named session the status list answered `404`: the engine signed it with an expired
+   smoke-test key it had picked by fallback (`interop-findings.md` A33). Re-pinned through the engine
+   API; the adapter now does it at provisioning.
+3. Two attempts settled `EXPIRED` although the engine session completed without failure: the wallet
+   answered after the platform's transaction lifetime, once because the phone was still resolving the
+   new hostname as nonexistent (a negative DNS cache).
+4. One attempt never reached the platform's transaction: W5 re-opened a stale deep link from an earlier
+   session. Force-stopping the wallet before sending a request avoids it. Two `JWEDecryptionFailed`
+   errors on an engine session belonging to none of the day's presentations are unexplained.
+
+Every limit of §8.1j still applies: a modified wallet, no registration certificate, a fictitious
+representation, TEST lists that are not notified.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

@@ -24,10 +24,13 @@ The agreed next step from the 17th, everything except the phone run:
 
 **Before recording any result from it, two things:**
 
-1. **No selective disclosure.** The adapter sends no `disclosable` flag, so the engine signs every
-   claim in the clear — the test PID included, and every credential issued so far. Found by another
-   session, which is fixing it on its own branch. Until then a presentation of this PID discloses all
-   of it whatever the policy asks, and no result may say otherwise.
+1. **Selective disclosure only from 23 September, evening.** Until then the adapter sent no
+   `disclosable` flag and the engine signed every claim in the clear (`interop-findings.md` A32) — so
+   every credential issued earlier, test PIDs included, discloses everything. Fixed by another session
+   and cherry-picked here (`bfbf7c9`, `83f3c78`); the engine's stored configuration for the test PID
+   now marks all eight fields disclosable. **Not yet shown on an issued token**: the wallet run must
+   decode one and count its disclosures before any result says it is selectively disclosed.
+   W5 (`eu.europa.ec.euidi.edtptest5`, debug, `wd-2,wd-3,wd-4`, APK SHA-256 `5c830bdc…5ea0`) is built.
 2. The PID Rulebook at the pinned catalogue commit `36f8adc` carries a change log to **v1.7**, while
    `CLAUDE.md` pins "document version 1.1". Not changed here; worth checking which is meant.
 

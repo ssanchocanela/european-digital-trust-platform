@@ -116,6 +116,36 @@ An allow-list that lives in a document is a wish. It must be enforced at the edg
 4. **A closing assertion**: before any wallet interaction, run the negative checks in §4 against the
    public hostnames. A tunnel is trusted only after it has been shown to refuse the things it must.
 
+### 1e. The hosted-form gate — wallet-initiated issuance (24 September 2026)
+
+A wallet built with WD-5 starts an issuance from its own list of issuers: it pushes an authorization
+request to the engine and opens the browser at `/issuers/{tenant}/authorize`. **The engine's built-in
+authorization server mints a code for whoever arrives there** — it has no page and no hook — so the
+person's form must stand in front of it, and the gateway is where it can.
+
+For the engine tenants in `GATEWAY_HOSTED_FORM_TENANTS` (`pid-1`):
+
+- a `GET` to that path **without a valid pass** is answered `302` to the hosted form
+  (`edtp-pid.murcata.es`, `apps/pid-form`), carrying `request_uri` and `client_id` only;
+- **with a valid pass** it goes on to the engine, the pass stripped. The pass is an HMAC over the tenant
+  and that `request_uri`, which the platform returns to the form on a valid submission and only the
+  platform and the gateway can compute (`HOSTED_FORM_AUTHORIZE_SECRET`, never given to the form);
+- a request with no `request_uri` is refused.
+
+The form is a **fourth public hostname**, a separate process holding one secret that the platform
+accepts only for the policies configured for it. It serves the form and two images; the negative
+checks probe it too. The values typed reach the engine only through the platform's attribute provider,
+on the internal network, once. `tests/unit/hosted-form-pass.test.ts`.
+
+**What the gate does not do:** make the engine's `/authorize` safe on its own. Without the gateway —
+the engine exposed directly — the form is skipped, and the platform then has no values for that
+session, so nothing is issued. That is the failure mode, not a design.
+
+**Clock skew.** With `GATEWAY_PINNED_WALLET_COMPAT=true` the gateway also holds a `POST` to an issuer's
+`/authorize/par` or `/authorize/token` for `GATEWAY_ATTESTATION_SKEW_DELAY_MS` (3000). The engine checks
+a client attestation's `nbf` with zero tolerance (`interop-findings.md` A29, item 4) and the test phone's
+clock ran 2.2 s fast; PAR was refused until the delay was added. Timing only; nothing is rewritten.
+
 ## 2. How the stack is reached — two options, and this document governs both
 
 **There is now a second option, and it is the recommended one for recorded evidence:** a disposable

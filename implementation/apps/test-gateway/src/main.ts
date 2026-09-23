@@ -87,6 +87,12 @@ const schema = z.object({
         .filter(Boolean),
     ),
   /** Bound to every interface: a tunnel connects to it, and on a laptop that means all of them. */
+  /**
+   * Milliseconds to hold a POST to an issuer's PAR or token endpoint before forwarding it. A demo
+   * workaround for a fast phone clock against the engine's zero-tolerance `nbf` check (A29, item 4).
+   * 0, the default, is off.
+   */
+  GATEWAY_ATTESTATION_SKEW_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(0),
   GATEWAY_BIND_HOST: z.string().min(1).default("127.0.0.1"),
 });
 
@@ -134,13 +140,16 @@ const deny = (
   response.end('{"error":"not_found"}');
 };
 
+/** Endpoints that verify a client attestation: pushed authorization and token. */
+const ATTESTED_ENDPOINT = /^\/issuers\/[A-Za-z0-9._-]+\/authorize\/(par|token)$/;
+
 const createProxy = (
   name: "engine" | "platform",
   rules: readonly Rule[],
   target: string,
   config: GatewayConfig,
 ): http.Server =>
-  http.createServer((request, response) => {
+  http.createServer(async (request, response) => {
     const method = request.method ?? "GET";
     // Parsed against a dummy base so the pathname is separated from the query. Matching the raw URL
     // would let `?x=/allowed/path` influence the decision.
@@ -176,6 +185,21 @@ const createProxy = (
         return;
       }
       if (gate.kind === "pass") forwardUrl = gate.forwardUrl;
+    }
+
+    // A29 (4): the engine checks a client attestation's `nbf` with zero tolerance, so a phone whose
+    // clock runs a couple of seconds fast is refused at PAR and at the token endpoint ("jwt 'nbf' is
+    // in the future"). Holding those two requests briefly lets the engine's clock pass the `nbf`.
+    // Timing only — nothing is rewritten — and only with the demo compatibility switch on.
+    if (
+      name === "engine" &&
+      method === "POST" &&
+      config.GATEWAY_ATTESTATION_SKEW_DELAY_MS > 0 &&
+      ATTESTED_ENDPOINT.test(pathname)
+    ) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, config.GATEWAY_ATTESTATION_SKEW_DELAY_MS),
+      );
     }
 
     const upstream = new URL(forwardUrl, target);

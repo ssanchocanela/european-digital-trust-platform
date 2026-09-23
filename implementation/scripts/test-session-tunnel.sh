@@ -205,7 +205,10 @@ negative_checks() {
   if [ -f "$RUN_DIR/form.host" ]; then
     local form
     form="$(cat "$RUN_DIR/form.host")"
-    await_tunnel "$form" "form host" || return 1
+    if ! await_tunnel "$form" "form host"; then
+      echo "    000  form (not answering: is the pid-form container up?)"
+      return 1
+    fi
     for path in "${form_paths[@]}"; do
       code="$(probe "$form$path")"
       printf '    %s  %s%s\n' "$code" "form" "$path"
@@ -232,6 +235,10 @@ case "${1:-up}" in
           export GATEWAY_HOSTED_FORM_TENANTS="${EDTP_FORM_TENANTS:-}"
           echo "    hosted-form gate on for: ${EDTP_FORM_TENANTS:-<none>}"
         fi
+      fi
+      # With the demo compatibility switch on, also absorb a phone clock a few seconds fast (A29).
+      if [ "${GATEWAY_PINNED_WALLET_COMPAT:-false}" = "true" ]; then
+        export GATEWAY_ATTESTATION_SKEW_DELAY_MS="${GATEWAY_ATTESTATION_SKEW_DELAY_MS:-3000}"
       fi
       node "$HERE/apps/test-gateway/dist/main.js" > "$RUN_DIR/gateway.log" 2>&1 &
       echo $! > "$RUN_DIR/gateway.pid"
@@ -272,9 +279,11 @@ case "${1:-up}" in
         [ -f "$RUN_DIR/$name.pid" ] && kill "$(cat "$RUN_DIR/$name.pid")" 2>/dev/null || true
         rm -f "$RUN_DIR/$name.pid"
       done
-      if ! grep -qvE '^\s+000 ' "$RUN_DIR/negative-checks.log"; then
-        die "NEGATIVE CHECKS COULD NOT RUN: nothing answered (000). Tunnels closed. Usually DNS — a
-    new hostname can be cached as nonexistent for the zone's negative TTL. Nothing was found exposed."
+      # Only an answer other than 404 means exposure. 000 means nothing answered at all.
+      if ! grep -qvE '^\s+(404|000) ' "$RUN_DIR/negative-checks.log"; then
+        die "NEGATIVE CHECKS COULD NOT RUN: something did not answer (000). Tunnels closed. Usually DNS
+    — a new hostname can be cached as nonexistent for the zone's negative TTL — or a stopped container
+    behind a host. Nothing was found exposed."
       fi
       die "NEGATIVE CHECKS FAILED. Something is reachable that must not be. Tunnels closed. Do not start
     a wallet test; fix the allow-list in apps/test-gateway/src/allow-list.ts."

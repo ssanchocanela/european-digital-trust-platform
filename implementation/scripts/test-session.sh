@@ -60,6 +60,13 @@ tenant_key() {
 
 case "${1:-}" in
   up)
+    # The hosted form sits behind its own hostname, and the negative checks probe it, so it has to be
+    # running before the tunnel opens. On a named tunnel the engine's public URL is known up front.
+    if grep -q '^PID_FORM_POLICY_ID=.' .env 2>/dev/null && [ -f "$HOME/.edtp/named-tunnel.env" ]; then
+      FORM_ENGINE_URL="$(sed -n 's/^EDTP_ENGINE_HOST=//p' "$HOME/.edtp/named-tunnel.env" | tail -1)"
+      [ -n "$FORM_ENGINE_URL" ] && ENGINE_PUBLIC_URL="$FORM_ENGINE_URL" docker compose up -d --force-recreate pid-form >/dev/null
+    fi
+
     step "Opening the tunnel"
     ./scripts/test-session-tunnel.sh up
 

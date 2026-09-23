@@ -72,6 +72,44 @@ immutable, so those policies do not silently change: they stay as published, kee
 credential they were written for, and a new version has to be published against the new paths. The
 cost of getting this wrong is republication rather than an edit.
 
+## Issuing Power of X — the `:2` model
+
+Written 23 September 2026. The catalogue above describes what may be **requested**; this is how the
+three attestations are **issued**, and it moved them to a new structure.
+
+**A new model, so new identifiers.** The `:1` catalogue read the Rulebook's attribute names as flat
+paths and had no place for a repeated group — a Power of Attorney's powers are a list, each with its
+own fields — nor for the rules between blocks: a proxy is a person *or* an organisation, never
+both; constraints exist only when a limitation is declared; code lists are integers. The issuance
+model keeps the Rulebook's attribute identifiers as claim paths, carries each repeated group as one
+`object[]` claim, and states the rules as a JSON Schema the platform enforces before issuing. The
+types are `urn:edtp:pox:power-of-representation:2`, `…:power-of-attorney:2` and
+`…:power-of-employee:2`. Still this project's interpretation, still no `vct` from the Rulebook.
+
+**Still outside the repository.** The claim definitions, the schema and the test data are read from
+`~/.edtp/credential-catalogue/` by
+[`scripts/register-pox-issuance.mjs`](../scripts/register-pox-issuance.mjs), which creates the three
+credential types, a published issuance policy for each, and an identification policy that asks the
+PID for what a natural-person proxy must carry — names, date of birth, nationalities, country of
+birth. What the repository holds is generic: the `integer` and `object[]` value types and the
+`payloadSchema` a credential type may carry.
+
+**What an issued one contains.** The proxy's identity comes from a PID presentation the platform has
+just verified. **Everything else is fictitious**: the organisation, the position, the powers, the
+grantor and the evidence exist nowhere, the source is a FIXTURE, and every issuance says so.
+
+**Three things it does not do**, each a Rulebook question recorded with the model:
+
+- **Expiry linked to a position or a power** is not computed per attestation — validity is the
+  Rulebook's standard two years. The test data holds nothing that ends sooner.
+- **The elements of a repeated group are not individually disclosable.** A verifier asking for one
+  power's faculty receives the whole list (`interop-findings.md` A32).
+- **A PID without a country of birth cannot be used**: the Rulebook makes the place of birth
+  mandatory for a natural-person proxy, and the platform refuses rather than inventing one.
+
+A presentation policy on the `:1` catalogue does not match a `:2` attestation. Verifying one needs an
+intended use registering the `:2` identifiers.
+
 ## Adding to the catalogue
 
 Register a new intended use; do not edit an existing one. An intended use records an authorisation,

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Builds and signs an EDTP **TEST** list of Wallet-Relying Party Access Certificate providers
- * (`--kind wrpac`, the default) or of PID Providers (`--kind pid`), per ETSI TS 119 602, as the JWS
- * a Wallet Unit consults.
+ * (`--kind wrpac`, the default), of PID Providers (`--kind pid`) or of non-qualified EAA providers
+ * (`--kind eaa`, read by the engine only — see its entry in `KINDS`), per ETSI TS 119 602, as the
+ * JWS a Wallet Unit consults.
  *
  *   node scripts/make-test-lote.mjs \
  *     --ca ~/.edtp/dev-access-ca/ca.crt \
@@ -85,6 +86,25 @@ const KINDS = {
     deviation: "wd-4",
     buildFlag: "--pid-lote",
   },
+  // Non-qualified EAA providers — the trust domain of ARF §6.3.2.4, where anchors come from the
+  // Rulebook and optionally from a list like this one, which is not a Topic 31 notified list. There
+  // is no notified list to extend, so the public-body EAA list is used as a **structural template
+  // only** and none of its anchors are carried forward: copying them would put PubEAA providers in a
+  // list that says it is about something else. Read by the engine, not by a wallet, so it has no
+  // wallet deviation.
+  //
+  // The service and list type URIs are ours. ETSI TS 119 602's identifier for non-qualified EAA
+  // providers was not verified, and a guessed `uri.etsi.org` value would look authoritative.
+  eaa: {
+    notifiedList:
+      "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PubEAAProviders.jwt",
+    carryForward: false,
+    serviceType: "urn:edtp:test:lote:SvcType:EAA",
+    loteType: "urn:edtp:test:lote:LoTEType:EAAProvidersList",
+    serviceName: "EDTP Development Attestation Provider - TEST ONLY",
+    schemeSubject: "non-qualified EAA providers",
+    caDir: "eaa-provider",
+  },
 };
 const kindName = arg("kind", "wrpac");
 const kind = KINDS[kindName];
@@ -150,8 +170,15 @@ const anchorCount = notified.TrustedEntitiesList.flatMap(
 ).filter((service) =>
   String(service.ServiceInformation?.ServiceTypeIdentifier ?? "").endsWith("/Issuance"),
 ).length;
-console.log(`    carrying forward ${anchorCount} notified anchor(s)`);
-if (anchorCount === 0) throw new Error("the notified list carried no issuance anchors");
+const carryForward = kind.carryForward !== false;
+if (carryForward) {
+  console.log(`    carrying forward ${anchorCount} notified anchor(s)`);
+  if (anchorCount === 0) throw new Error("the notified list carried no issuance anchors");
+} else {
+  console.log(
+    "    used as a structural template only; none of its anchors are carried forward",
+  );
+}
 
 // --- 2. our anchor, as an additional trusted entity ---------------------------------------
 // A separate entity rather than another service of theirs: the anchor is ours, operated by us,
@@ -247,8 +274,11 @@ const lote = {
       ],
       SchemeInformationURI: [{ lang: "en", uriValue: publishedUrl }],
       SchemeTerritory: "ES",
+      ...(kind.loteType ? { LoTEType: kind.loteType } : {}),
     },
-    TrustedEntitiesList: [...notified.TrustedEntitiesList, ourEntity],
+    TrustedEntitiesList: carryForward
+      ? [...notified.TrustedEntitiesList, ourEntity]
+      : [ourEntity],
   },
 };
 
@@ -314,6 +344,22 @@ const totalAnchors = lote.LoTE.TrustedEntitiesList.flatMap(
 ).filter((service) =>
   String(service.ServiceInformation?.ServiceTypeIdentifier ?? "").endsWith("/Issuance"),
 ).length;
+
+if (!kind.deviation) {
+  console.log(`
+==> Written ${outPath}
+    anchors        ${totalAnchors} (ours only)
+    issued         ${iso(now)}
+    next update    ${iso(nextUpdate)}
+    published at   ${publishedUrl}
+    signer         ${signerCertPath}
+
+This list is NOT notified, and it is read by the engine rather than by a wallet. Load it with
+scripts/load-issuer-trust-list.mjs, pinned to the signer above, and regenerate it before
+${iso(nextUpdate)} or when the anchor's certificate is replaced.
+`);
+  process.exit(0);
+}
 
 console.log(`
 ==> Written ${outPath}

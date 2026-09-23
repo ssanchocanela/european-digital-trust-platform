@@ -107,8 +107,22 @@ grantor and the evidence exist nowhere, the source is a FIXTURE, and every issua
 - **A PID without a country of birth cannot be used**: the Rulebook makes the place of birth
   mandatory for a natural-person proxy, and the platform refuses rather than inventing one.
 
-A presentation policy on the `:1` catalogue does not match a `:2` attestation. Verifying one needs an
-intended use registering the `:2` identifiers.
+A presentation policy on the `:1` catalogue does not match a `:2` attestation. **Verifying a `:2` one**
+takes three things, all in place since 23 September 2026:
+
+- an intended use registering the `:2` identifiers — `register-credential-catalogue.mjs` with the `:2`
+  catalogue file, generated from the issuance definitions so the paths cannot drift;
+- a policy per type, from [`scripts/register-pox-presentation.mjs`](../scripts/register-pox-presentation.mjs),
+  asking only for claims every issued attestation carries — a DCQL query naming an absent claim
+  matches nothing, and the wallet then says it holds no suitable credential;
+- an issuer trust anchor, because since A30 a policy naming none is refused: the **EDTP TEST list of
+  non-qualified EAA providers** (`make-test-lote.mjs --kind eaa`), one anchor — the development
+  attestation provider's self-signed certificate — published on the project's GitHub Pages, loaded
+  into the engine as `edtp-test-eaa-providers`. Not notified; its type identifiers are ours.
+
+**An attestation is verifiable only while its status list is reachable.** Its status list URI is the
+engine's public URL at the time of issue, so attestations issued through a quick tunnel cannot be
+verified once that tunnel closes. Issue through the named tunnel (`test-session-gateway.md` §2).
 
 ## Adding to the catalogue
 

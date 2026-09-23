@@ -1,12 +1,25 @@
 # Where the work stands
 
-Written 12 September 2026, updated 23 September. **The one page to read after `CLAUDE.md` when picking the work up.**
+Written 12 September 2026, updated 24 September. **The one page to read after `CLAUDE.md` when picking the work up.**
 
 Everything here is state that the code and the git history do not make obvious: what is in flight,
 what is blocked and why, and what the next action is. Findings live in their own documents and are
 linked rather than repeated.
 
 ---
+
+## 24 September 2026, night — **a representation credential from the wallet's own list, issued as CORPME after identifying with the PID**
+
+W6, now listing two issuers (WD-5 with `pid-1,rpi-1`), requested *Poder de representación* from
+*CORPME (demo)*. The hosted form (CORPME look) had the person present their PID from the same wallet
+**mid-issuance**, came back through the platform, showed what the attestation would say, and issued it:
+presentation `VERIFIED`, issuance `ISSUED`. Personal data from the PID; organisation, position and powers
+fixed and fictitious. PoX types at **v2** with Spanish names; `rpi-1` advertises only them. Record:
+[`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1m; gate and return: `test-session-gateway.md` §1e.
+
+**Always open a form session with `GATEWAY_PINNED_WALLET_COMPAT=true`** — without it the list fails
+(A29 item 3); the script now refuses. *Poder notarial* and *Autorización de empleado* go through the
+same path and were not yet run on the phone.
 
 ## 24 September 2026 — **a PID requested from the wallet's own list, for an FNMT demonstration**
 

@@ -689,6 +689,27 @@ open). What this does **not** show: anything about an unmodified wallet — whos
 issuers and is not ours to change — or about FNMT: the branding is a demonstration, the band on the
 form says so, and the data is fictitious. No registration certificate (B3).
 
+### 8.1m Fourteenth wallet run — **a representation credential from the wallet's own list, after identifying with the PID (CORPME demonstration)**
+
+24 September 2026, **W6** rebuilt with WD-5 carrying two issuers (`pid-1`, `rpi-1`) — a **modified
+wallet** — updated in place, keeping its PID. Named tunnel, gateway in demo compatibility mode, hosted-form
+gate on for `pid-1,rpi-1`. Negative checks passed (19 probes, all `404`) before the phone was used.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 0 · First attempt | *From list* failed: `attestation proof must contain 'key_attestations_required'` | the session had been opened **without** `GATEWAY_PINNED_WALLET_COMPAT=true`, so the gateway did not add the field (A29 item 3). Reopened with it; `test-session-tunnel.sh` now refuses a form session without it |
+| 1 · Discover | the list showed "PID - FNMT" and, from *CORPME (demo)*, *Poder de representación*, *Poder notarial*, *Autorización de empleado* | `rpi-1` advertises only the three PoX v2 configurations; the seven stale ones were withdrawn (`DELETE …/issuance-policies/{id}/provision`) |
+| 2 · Authorize | PAR, then the gateway sent the browser to the CORPME-styled form, which resolved the requested policy from the engine session | `POST /v1/hosted-forms/requests/resolve` |
+| 3 · Identify | the form started a `SAME_DEVICE` presentation; **the wallet presented its PID mid-issuance** and returned through the platform into the form | presentation **`VERIFIED`**; return destination fixed by the platform, not the request |
+| 4 · Request | the form showed the PID claims and the fixed test data; *Solicitar* | submission with the presentation id as subject reference; `303` back to the engine with the pass |
+| 5 · Collect | the wallet collected the attestation | platform **`ISSUED`**, *Poder de representación* policy **v2**, warnings: no registration certificate, FIXTURE source |
+
+The risk carried into this run — a wallet presenting while it is itself in the middle of an issuance —
+did not materialise: one wallet, one pass. What this does **not** show: anything about an unmodified
+wallet, about CORPME (the branding is a demonstration and the band says so), or about anyone's
+authority to act for anyone: the organisation, position and powers are fictitious. No registration
+certificate (B3).
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

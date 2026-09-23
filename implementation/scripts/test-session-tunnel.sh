@@ -225,6 +225,13 @@ case "${1:-up}" in
 
     step "Starting the filtering gateway"
     if ! curl -s -o /dev/null --max-time 3 "http://127.0.0.1:${GATEWAY_ENGINE_PORT:-3010}/" ; then
+      # "From list" reads issuer metadata the pinned wallet's parser refuses unless the gateway adds
+      # key_attestations_required (interop-findings.md A29 item 3). A form session without the compat
+      # switch fails at the list, with a message that points nowhere near the cause — so refuse it.
+      if [ -n "${EDTP_FORM_TENANTS:-}" ] && [ "${GATEWAY_PINNED_WALLET_COMPAT:-false}" != "true" ]; then
+        die "EDTP_FORM_TENANTS is set but GATEWAY_PINNED_WALLET_COMPAT is not true: the wallet's issuer
+    list would fail on key_attestations_required (A29). Re-run with GATEWAY_PINNED_WALLET_COMPAT=true."
+      fi
       # The hosted-form gate, when a form host is configured. The pass secret is read from .env and
       # handed to the gateway alone; it never reaches the form process.
       if [ -n "${EDTP_FORM_HOST:-}" ] && [ -f "$HERE/.env" ]; then

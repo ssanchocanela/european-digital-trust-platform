@@ -377,11 +377,18 @@ export class IssuanceRepository {
         credentialTypes,
         eq(issuancePolicyVersions.credentialTypeId, credentialTypes.id),
       )
+      // Only policies that can still issue. A retired policy's published versions stay published —
+      // versions are immutable — so filtering on the version alone kept writing the eligibility
+      // presentation of every policy ever retired on the provider. Since A30 made a presentation
+      // without trust anchors fail closed, one retired test policy with none blocked every issuance
+      // on its provider: found 23 September 2026, on the first Power of X issuance.
+      .innerJoin(issuancePolicies, eq(issuancePolicyVersions.policyId, issuancePolicies.id))
       .where(
         and(
           eq(issuancePolicyVersions.tenantId, tenantId),
           eq(credentialTypes.attestationProviderId, attestationProviderId),
           eq(issuancePolicyVersions.status, "PUBLISHED"),
+          eq(issuancePolicies.status, "ACTIVE"),
         ),
       );
 

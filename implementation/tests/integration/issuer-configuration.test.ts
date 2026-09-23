@@ -246,6 +246,28 @@ describe("the issuer configuration is composed from the provider, not from one p
     expect(config.requiresBuiltInAuthorizationServer).toBe(true);
   });
 
+  it("leaves out the gate of a retired policy, whose versions stay published", async () => {
+    // Found on 23 September 2026 on the first Power of X issuance: two retired test policies gated
+    // on a presentation policy with no trust anchors kept being written, A30 refused that gate, and
+    // every issuance on the provider failed with `trust_anchor_sources_missing`.
+    const seed = await seedProvider("Example Organisation BV");
+    const oldGate = await seedPresentationPolicy(seed, "Old gate");
+    const retired = await seedPolicy(seed, {
+      name: "Retired gated issuance",
+      gatedOn: oldGate,
+    });
+    await seedPolicy(seed, { name: "Ordinary issuance" });
+    await issuance().setPolicyStatus({
+      tenantId: seed.tenantId,
+      policyId: retired.id,
+      to: "RETIRED",
+    });
+
+    const config = await issuance().issuerConfigurationInputs(seed.tenantId, seed.providerId);
+    expect(config.eligibilityPresentations).toEqual([]);
+    expect(config.requiresBuiltInAuthorizationServer).toBe(true);
+  });
+
   it("omits the built-in server when every published policy is gated", async () => {
     const seed = await seedProvider("Example Organisation BV");
     const gate = await seedPresentationPolicy(seed, "Adult verification");

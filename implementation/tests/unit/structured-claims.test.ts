@@ -324,7 +324,7 @@ describe("the engine's credential configuration", () => {
         body?: Record<string, unknown>,
       ) => {
         if (path === "/issuer/credentials" && body) bodies.push(body);
-        return {} as never;
+        return (path === "/status-lists" ? [] : {}) as never;
       },
     } as unknown as EngineClient;
     const p = plan();

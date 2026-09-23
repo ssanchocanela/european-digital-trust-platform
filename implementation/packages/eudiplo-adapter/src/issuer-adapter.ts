@@ -25,6 +25,7 @@ import {
   engineCredentialIssuerMetadataSchema,
   engineIssuerOfferResponseSchema,
   engineSessionSchema,
+  engineStatusListsSchema,
   keyChainIdSchema,
 } from "./schemas.js";
 
@@ -346,6 +347,51 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     if (plan.credential.vct) body.vct = plan.credential.vct;
 
     await this.client.request(engineTenantRef, "POST", "/issuer/credentials", body);
+
+    if (plan.statusListEnabled) {
+      await this.pinStatusListSigningKey(
+        engineTenantRef,
+        plan.providerContext.signingKeyBindingRef,
+      );
+    }
+  }
+
+  /**
+   * Makes the tenant's shared status lists sign with the provider's attestation key.
+   *
+   * A status list created without a key chain is signed with whatever the engine finds: a
+   * `statusList`-usage key if the tenant has one, otherwise **any** attestation key — in practice the
+   * oldest. On `rpi-1` that was a smoke-test key which expired on 15 September 2026; from then on the
+   * engine refused to serve the list, every status check failed, and no attestation issued there
+   * could be verified under a strict status policy (`interop-findings.md` A33). Pinning also keeps
+   * the list's signer the same party as the attestation's, whose anchor a verifier already holds.
+   *
+   * The tenant serves one Attestation Provider (ADR 0002 Decision 3), so its shared lists are that
+   * provider's. A list bound to one credential configuration is the engine's to manage and is left
+   * alone. With no shared list yet, one is created already pinned, so the first attestation cannot
+   * land on an unpinned list created on demand.
+   */
+  private async pinStatusListSigningKey(
+    engineTenantRef: string,
+    keyChainId: string,
+  ): Promise<void> {
+    const lists = engineStatusListsSchema.parse(
+      await this.client.request(engineTenantRef, "GET", "/status-lists"),
+    );
+    const shared = lists.filter((list) => !list.credentialConfigurationId);
+    if (shared.length === 0) {
+      await this.client.request(engineTenantRef, "POST", "/status-lists", { keyChainId });
+      return;
+    }
+    for (const list of shared) {
+      if (list.keyChainId === keyChainId) continue;
+      await this.client.request(
+        engineTenantRef,
+        "PATCH",
+        `/status-lists/${encodeURIComponent(list.id)}`,
+        { keyChainId },
+      );
+    }
   }
 
   async importSigningCertificate(input: {

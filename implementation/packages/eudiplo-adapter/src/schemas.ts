@@ -84,6 +84,17 @@ export type EngineSessionResponse = z.infer<typeof engineSessionSchema>;
 /** `POST /key-chain` and `POST /key-chain/import`. */
 export const keyChainIdSchema = z.object({ id: z.string().min(1) }).passthrough();
 
+/** `GET /status-lists`. Only what pinning the signing key needs. */
+export const engineStatusListsSchema = z.array(
+  z
+    .object({
+      id: z.string().min(1),
+      credentialConfigurationId: z.string().nullable().optional(),
+      keyChainId: z.string().nullable().optional(),
+    })
+    .passthrough(),
+);
+
 /** `PUT /session-config`. The platform asserts the values it set were applied. */
 export const engineSessionConfigSchema = z
   .object({

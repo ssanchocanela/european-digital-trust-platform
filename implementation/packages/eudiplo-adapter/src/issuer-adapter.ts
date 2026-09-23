@@ -77,6 +77,11 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       /** As on the verifier adapter: anchor source `ref` → engine-held list id. */
       readonly issuerTrustLists?: Readonly<Record<string, string>>;
       /**
+       * A display name for the Credential Issuer, per engine tenant, instead of the organisation's
+       * legal name. What a wallet shows under the logo; the legal name stays the platform's record.
+       */
+      readonly issuerDisplayNames?: Readonly<Record<string, string>>;
+      /**
        * A logo for the Credential Issuer's `display`, per engine tenant. A Wallet shows the
        * issuer-level logo next to every document from that issuer; the per-credential logo is used
        * for nothing on the pinned wallet. HTTPS only — the wallet refuses cleartext.
@@ -331,7 +336,7 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       authorizationServers,
       // The **issuer's** name, not the credential's. See `PlanAttestationProviderContext`.
       display: issuerDisplay(
-        context.issuerDisplayName,
+        this.options.issuerDisplayNames?.[engineTenantRef] ?? context.issuerDisplayName,
         this.options.issuerBranding?.[engineTenantRef],
       ),
       batchSize: 1,

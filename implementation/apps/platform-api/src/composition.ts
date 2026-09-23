@@ -158,6 +158,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
           ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
           : {}),
         issuerBranding: config.ENGINE_ISSUER_BRANDING,
+        issuerDisplayNames: config.ENGINE_ISSUER_DISPLAY_NAMES,
         ...(config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL && config.ENGINE_ATTRIBUTE_PROVIDER_KEY
           ? {
               attributeProvider: {

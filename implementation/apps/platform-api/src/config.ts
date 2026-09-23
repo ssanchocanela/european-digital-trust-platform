@@ -136,6 +136,26 @@ const schema = z.object({
       return out;
     }),
   /**
+   * The name a wallet shows for the Credential Issuer, per engine tenant, as `engineTenantRef=name`
+   * pairs separated by `;` (a name may contain commas). Display only: the organisation's registered
+   * legal name is unchanged, and it is what the platform records. Unset: the legal name is shown.
+   */
+  ENGINE_ISSUER_DISPLAY_NAMES: z
+    .string()
+    .default("")
+    .transform((value) => {
+      const map: Record<string, string> = {};
+      for (const pair of value
+        .split(";")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const at = pair.indexOf("=");
+        if (at > 0 && pair.slice(at + 1).trim())
+          map[pair.slice(0, at)] = pair.slice(at + 1).trim();
+      }
+      return map;
+    }),
+  /**
    * A logo for the Credential Issuer's display, per engine tenant, as `engineTenantRef=https-url`
    * pairs. The wallet shows it beside every document from that issuer.
    */

@@ -8,6 +8,10 @@ import { z } from "zod";
  * `PLATFORM_ADMIN_API_KEY` or engine credential must stop the process, not silently fall
  * back to a well-known value.
  */
+/** Compose passes an unset variable as `""`; for an optional setting that means "not set". */
+const unsetIfEmpty = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess((value) => (value === "" ? undefined : value), inner);
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3100),
@@ -88,6 +92,76 @@ const schema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
+
+  // --- wallet-initiated issuance through a hosted form ------------------------------------
+  //
+  // All unset by default, and then the feature is simply off: no attribute provider is registered
+  // on the engine, and the hosted-form and engine routes refuse every request.
+
+  /**
+   * Where the engine reaches this API to ask for held claims — the compose-internal origin, never
+   * the public one: `http://platform-api:3100`. The engine's outbound URL policy must allow it.
+   */
+  ENGINE_ATTRIBUTE_PROVIDER_BASE_URL: unsetIfEmpty(z.string().url().optional()),
+  /** The key the engine presents on that call. A secret, shared with nothing else. */
+  ENGINE_ATTRIBUTE_PROVIDER_KEY: unsetIfEmpty(z.string().min(32).optional()),
+  /** The secret the hosted form presents when it submits. */
+  HOSTED_FORM_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * Signs the hand-back from the form to the engine's authorization endpoint, which the test gateway
+   * verifies before letting the browser through. Shared with the gateway and nothing else — it must
+   * differ from `HOSTED_FORM_SECRET`, or the form could mint its own passes.
+   */
+  HOSTED_FORM_AUTHORIZE_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * The issuance policies a hosted form may submit to, as `tenantId:policyId` entries separated by
+   * commas. A policy not listed here is refused: the form holds one secret, not a tenant's key.
+   */
+  HOSTED_FORM_POLICIES: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const out: { tenantId: string; policyId: string }[] = [];
+      for (const entry of value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)) {
+        const [tenantId, policyId, extra] = entry.split(":");
+        if (!tenantId || !policyId || extra !== undefined) {
+          ctx.addIssue({ code: "custom", message: `not a tenantId:policyId pair: ${entry}` });
+          return z.NEVER;
+        }
+        out.push({ tenantId, policyId });
+      }
+      return out;
+    }),
+  /**
+   * A logo for the Credential Issuer's display, per engine tenant, as `engineTenantRef=https-url`
+   * pairs. The wallet shows it beside every document from that issuer.
+   */
+  ENGINE_ISSUER_BRANDING: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const map: Record<string, { logoUri: string }> = {};
+      for (const pair of value
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const at = pair.indexOf("=");
+        const ref = pair.slice(0, at);
+        const uri = pair.slice(at + 1);
+        if (at <= 0 || !/^https:\/\//.test(uri)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `not an engineTenantRef=https-url pair: ${pair}`,
+          });
+          return z.NEVER;
+        }
+        map[ref] = { logoUri: uri };
+      }
+      return map;
+    }),
 });
 
 export type PlatformConfig = Readonly<z.infer<typeof schema>> & {
@@ -131,6 +205,25 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
       .map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`)
       .join("\n");
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  const d = parsed.data;
+  if (
+    d.HOSTED_FORM_SECRET &&
+    d.HOSTED_FORM_AUTHORIZE_SECRET &&
+    d.HOSTED_FORM_SECRET === d.HOSTED_FORM_AUTHORIZE_SECRET
+  ) {
+    // The form holds the first; a pass through the gateway needs the second. Equal, the form could
+    // mint its own passes and the gateway's check would prove nothing.
+    throw new Error(
+      "Invalid environment configuration:\n  HOSTED_FORM_AUTHORIZE_SECRET must differ from HOSTED_FORM_SECRET",
+    );
+  }
+  if (
+    Boolean(d.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL) !== Boolean(d.ENGINE_ATTRIBUTE_PROVIDER_KEY)
+  ) {
+    throw new Error(
+      "Invalid environment configuration:\n  ENGINE_ATTRIBUTE_PROVIDER_BASE_URL and ENGINE_ATTRIBUTE_PROVIDER_KEY are set together or not at all",
+    );
   }
   return {
     ...parsed.data,

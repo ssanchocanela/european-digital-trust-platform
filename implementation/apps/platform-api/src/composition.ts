@@ -33,6 +33,7 @@ import {
 import { IssuanceService } from "./modules/issuances/issuance.service.js";
 import { OperatorFormConnector } from "./modules/issuances/operator-form-connector.js";
 import { VerifiedPresentationConnector } from "./modules/issuances/verified-presentation-connector.js";
+import { WalletInitiatedClaims } from "./modules/issuances/wallet-initiated-claims.js";
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
@@ -156,6 +157,15 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
         ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
           ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
           : {}),
+        issuerBranding: config.ENGINE_ISSUER_BRANDING,
+        ...(config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL && config.ENGINE_ATTRIBUTE_PROVIDER_KEY
+          ? {
+              attributeProvider: {
+                baseUrl: config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL,
+                apiKey: config.ENGINE_ATTRIBUTE_PROVIDER_KEY,
+              },
+            }
+          : {}),
       });
 
   const verifier: EudiVerifierPort = options.verifier ?? (adapter as EudiploVerifierAdapter);
@@ -236,6 +246,11 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     webhooks,
     clock,
     logger,
+    // Wallet-initiated issuance holds claims between the hosted form and the engine's call, in
+    // memory only. Without an attribute provider configured there is no call to hold them for.
+    config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL
+      ? new WalletInitiatedClaims(() => clock.now())
+      : undefined,
   );
 
   const jobs = new BackgroundJobs(

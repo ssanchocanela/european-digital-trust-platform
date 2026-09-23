@@ -54,7 +54,27 @@ export class IssuanceConfigurationController {
       readonly sampleSubjectReferences?: readonly string[];
     }[],
     @Inject(FEATURE_PID_DURING_ISSUANCE) private readonly pidDuringIssuanceEnabled: boolean,
+    @Inject(ISSUANCE_SERVICE) private readonly issuances: IssuanceService,
   ) {}
+
+  /**
+   * Writes a policy's published version to the protocol engine now, rather than at the first
+   * issuance, and withdraws its earlier versions from the issuer's metadata. Needed for issuance a
+   * wallet starts from its own list of issuers, which reads the metadata before any issuance exists.
+   */
+  @Post(":tenantId/issuance-policies/:policyId/provision")
+  @ApiOperation({
+    summary: "Provision an issuance policy's current version on the issuer (TEST)",
+  })
+  async provisionPolicy(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("policyId") policyId: string,
+  ) {
+    const id = assertTenantMatches(ctx, tenantId);
+    assertUuidPathParam("policyId", policyId);
+    return await this.issuances.provisionPolicy(id, policyId);
+  }
 
   @Post(":tenantId/attestation-providers")
   @ApiOperation({ summary: "Register an Organisation as an Attestation Provider (TEST)" })

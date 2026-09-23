@@ -76,8 +76,56 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       readonly walletProviderTrustListId?: string;
       /** As on the verifier adapter: anchor source `ref` → engine-held list id. */
       readonly issuerTrustLists?: Readonly<Record<string, string>>;
+      /**
+       * A logo for the Credential Issuer's `display`, per engine tenant. A Wallet shows the
+       * issuer-level logo next to every document from that issuer; the per-credential logo is used
+       * for nothing on the pinned wallet. HTTPS only — the wallet refuses cleartext.
+       */
+      readonly issuerBranding?: Readonly<
+        Record<string, { readonly logoUri: string; readonly logoAltText?: string }>
+      >;
+      /**
+       * Where the engine asks the platform for claim values when no offer carried them — a
+       * **wallet-initiated** issuance, started from the wallet's own list of issuers. The engine
+       * calls `{baseUrl}/internal/engine/{engineTenantRef}/attributes` with the key in
+       * `x-edtp-engine-key`. Offers keep carrying their claims inline, which the engine prefers.
+       */
+      readonly attributeProvider?: { readonly baseUrl: string; readonly apiKey: string };
     } = {},
   ) {}
+
+  /**
+   * The wallet's authorization request an engine session was created for.
+   *
+   * A wallet-initiated issuance starts with a pushed authorization request, which creates the
+   * engine session and hands the wallet an opaque `request_uri`. The platform's hosted form sees only
+   * that `request_uri`; the engine's attribute provider call sees only the session id. This is the
+   * join.
+   */
+  async resolveAuthorizationRequest(
+    session: CredentialOfferHandle,
+  ): Promise<string | undefined> {
+    let raw: unknown;
+    try {
+      raw = await this.client.request(
+        session.engineTenantRef,
+        "GET",
+        `/session/${encodeURIComponent(session.ref)}`,
+      );
+    } catch (error) {
+      // A session the engine does not know has no authorization request: nothing is held for it.
+      // Authentication and availability failures are ours, and stay failures.
+      if (
+        error instanceof PlatformError &&
+        ["engine_unauthorised", "engine_unavailable", "engine_unreachable"].includes(error.code)
+      ) {
+        throw error;
+      }
+      return undefined;
+    }
+    const requestUri = (raw as { request_uri?: unknown } | undefined)?.request_uri;
+    return typeof requestUri === "string" && requestUri.length > 0 ? requestUri : undefined;
+  }
 
   async createCredentialOffer(
     input: CreateCredentialOfferInput,
@@ -282,7 +330,10 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     const issuanceConfig: Record<string, unknown> = {
       authorizationServers,
       // The **issuer's** name, not the credential's. See `PlanAttestationProviderContext`.
-      display: [{ name: context.issuerDisplayName, locale: "en" }],
+      display: issuerDisplay(
+        context.issuerDisplayName,
+        this.options.issuerBranding?.[engineTenantRef],
+      ),
       batchSize: 1,
       notificationEndpointEnabled: true,
       ...(this.options.walletProviderTrustListId
@@ -345,6 +396,12 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
     };
 
     if (plan.credential.vct) body.vct = plan.credential.vct;
+    if (this.options.attributeProvider) {
+      body.attributeProviderId = await this.ensureAttributeProvider(
+        engineTenantRef,
+        this.options.attributeProvider,
+      );
+    }
 
     await this.client.request(engineTenantRef, "POST", "/issuer/credentials", body);
 
@@ -354,6 +411,71 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         plan.providerContext.signingKeyBindingRef,
       );
     }
+  }
+
+  async withdrawCredentialConfigurations(input: {
+    readonly engineTenantRef: string;
+    readonly policyId: string;
+    readonly versions: readonly number[];
+  }): Promise<void> {
+    if (input.versions.length === 0) return;
+    const existing = (await this.client.request(
+      input.engineTenantRef,
+      "GET",
+      "/issuer/credentials",
+    )) as readonly { readonly id?: string }[];
+    const ids = new Set((Array.isArray(existing) ? existing : []).map((c) => c.id));
+    for (const version of input.versions) {
+      const id = credentialConfigIdFor(input.policyId, version);
+      if (!ids.has(id)) continue;
+      await this.client.request(
+        input.engineTenantRef,
+        "DELETE",
+        `/issuer/credentials/${encodeURIComponent(id)}`,
+      );
+    }
+  }
+
+  /**
+   * Registers the platform as the tenant's attribute provider, and returns its engine-side id.
+   *
+   * The engine consults a credential configuration's attribute provider only when the session
+   * carries no claims of its own — so offers, which carry theirs inline, are unaffected, and a
+   * wallet-initiated issuance gets its values from the platform at credential-request time rather
+   * than from static defaults. Written on every provisioning, so a changed URL or key follows.
+   */
+  private async ensureAttributeProvider(
+    engineTenantRef: string,
+    provider: { readonly baseUrl: string; readonly apiKey: string },
+  ): Promise<string> {
+    const id = ATTRIBUTE_PROVIDER_ID;
+    const body = {
+      name: "EDTP platform",
+      url: `${provider.baseUrl.replace(/\/$/, "")}/internal/engine/${encodeURIComponent(engineTenantRef)}/attributes`,
+      auth: {
+        type: "apiKey",
+        config: { headerName: ATTRIBUTE_PROVIDER_KEY_HEADER, value: provider.apiKey },
+      },
+    };
+    const existing = (await this.client.request(
+      engineTenantRef,
+      "GET",
+      "/issuer/attribute-providers",
+    )) as readonly { readonly id?: string }[];
+    if (Array.isArray(existing) && existing.some((p) => p.id === id)) {
+      await this.client.request(
+        engineTenantRef,
+        "PATCH",
+        `/issuer/attribute-providers/${encodeURIComponent(id)}`,
+        body,
+      );
+    } else {
+      await this.client.request(engineTenantRef, "POST", "/issuer/attribute-providers", {
+        id,
+        ...body,
+      });
+    }
+    return id;
   }
 
   /**
@@ -646,6 +768,26 @@ const toEngineStatus = (status: CredentialStatus): number => {
     }
   }
 };
+
+/** The platform's attribute provider, as the engine knows it, and the header carrying its key. */
+export const ATTRIBUTE_PROVIDER_ID = "edtp-platform";
+export const ATTRIBUTE_PROVIDER_KEY_HEADER = "x-edtp-engine-key";
+
+/**
+ * The Credential Issuer's `display`: its name in English and Spanish, and a logo when the tenant
+ * has one. The pinned wallet reads the issuer-level logo for its document list and details.
+ */
+const issuerDisplay = (
+  name: string,
+  branding: { readonly logoUri: string; readonly logoAltText?: string } | undefined,
+): Record<string, unknown>[] =>
+  ["en", "es"].map((locale) => ({
+    name,
+    locale,
+    ...(branding
+      ? { logo: { uri: branding.logoUri, alt_text: branding.logoAltText ?? name } }
+      : {}),
+  }));
 
 /**
  * The engine's field `type` for each platform value type. Feeds the engine's generated JSON schema

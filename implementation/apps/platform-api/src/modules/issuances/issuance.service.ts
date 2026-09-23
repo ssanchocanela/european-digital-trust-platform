@@ -10,6 +10,7 @@ import {
   resolveCallbackUrl,
   resolvePublishedVersion,
   type SourceAttributes,
+  sentWithoutRegistrationCertificate,
 } from "@edtp/domain";
 import type {
   CredentialOfferHandle,
@@ -29,6 +30,7 @@ import type { Logger } from "../../logging/logger.js";
 import type { WebhookService } from "../../webhook/webhook.service.js";
 import type { AuditService } from "../audit/audit.service.js";
 import { assertPayloadSatisfiesSchema } from "./payload-schema.js";
+import type { WalletInitiatedClaims } from "./wallet-initiated-claims.js";
 
 export interface CreateIssuanceCommand {
   readonly tenantId: TenantId;
@@ -42,6 +44,13 @@ export interface CreateIssuanceCommand {
   readonly suppliedAttributes?: Readonly<Record<string, unknown>>;
   readonly businessReference?: string;
   readonly callbackUrl?: string;
+  /**
+   * Set for a **wallet-initiated** issuance: the opaque reference of the authorization request the
+   * wallet pushed before being sent to the hosted form. No offer is created; the validated claims
+   * are held for the protocol engine, which asks for them when the wallet requests the credential
+   * (`claimsForEngineSession`).
+   */
+  readonly walletAuthorizationRequest?: string;
 }
 
 export interface IssuanceView {
@@ -63,6 +72,11 @@ export interface IssuanceView {
   readonly issuedCredentialId?: string;
   readonly notEligibleReason?: string;
   readonly failureCode?: string;
+  /**
+   * Only on a wallet-initiated issuance: which engine tenant will ask for the held claims. The
+   * hosted form needs it to send the browser back to the right authorization endpoint.
+   */
+  readonly walletInitiated?: { readonly engineTenantRef: string };
 }
 
 /**
@@ -93,6 +107,8 @@ export class IssuanceService {
     private readonly webhooks: WebhookService,
     private readonly clock: Clock,
     private readonly logger: Logger,
+    /** Present only when wallet-initiated issuance is configured. */
+    private readonly walletInitiated?: WalletInitiatedClaims,
   ) {}
 
   /**
@@ -103,78 +119,11 @@ export class IssuanceService {
   async create(command: CreateIssuanceCommand): Promise<IssuanceView> {
     const now = this.clock.now();
 
-    const policy = await this.issuance.findPolicy(command.tenantId, command.policyId);
-    if (!policy) throw PlatformError.notFound("Issuance policy");
-    // The same guard the verification side has had since Milestone 1. It was missing here because
-    // nothing could retire an issuance policy — the state was modelled and unreachable — so the
-    // check had never had anything to refuse.
-    if (policy.status === "RETIRED") {
-      throw PlatformError.conflict(
-        "policy_retired",
-        "The issuance policy has been retired and cannot be used. Attestations already issued " +
-          "under it are unaffected and keep the terms they were issued under.",
-      );
-    }
-
-    const versions = await this.issuance.listVersions(command.tenantId, command.policyId);
-    const version = resolvePublishedVersion(versions);
-
-    const context = await this.issuance.loadIssuanceContext(
+    const { policy, version, context, plan, engineTenantRef } = await this.compileForPolicy(
       command.tenantId,
-      version.credentialTypeId,
+      command.policyId,
+      now,
     );
-
-    const engineTenantRef = context.attestationProvider.engineTenantRef;
-    const signingKeyBindingRef = context.attestationProvider.signingKeyBindingRef;
-    if (!engineTenantRef || !signingKeyBindingRef) {
-      throw PlatformError.conflict(
-        "attestation_provider_not_provisioned",
-        "The Attestation Provider has no engine tenant or signing key. Provision it before issuing.",
-      );
-    }
-
-    // The engine's issuer configuration is tenant-scoped, so it is composed from the **provider** —
-    // every published policy on it — rather than from the policy being issued. Writing it from one
-    // policy is `interop-findings.md` A20: each issuance overwrote the last one's authorization
-    // servers, and the Credential Issuer's display name became the last credential type's name.
-    const issuerConfiguration = await this.issuance.issuerConfigurationInputs(
-      command.tenantId,
-      context.attestationProvider.id,
-    );
-
-    // Re-validated at compile time, not trusted from publication: the records were written at
-    // different moments and the combination can be wrong even when each part was right.
-    const plan = compileIssuancePolicy({
-      policyVersion: version,
-      credentialType: context.credentialType,
-      attestationProvider: {
-        id: context.attestationProvider.id,
-        tenantId: asId<"TenantId">(context.attestationProvider.tenantId),
-        organisationId: asId<"OrganisationId">(context.attestationProvider.organisationId),
-        registrarAssignedIdentifier: context.attestationProvider.registrarAssignedIdentifier,
-        trustEnvironment: context.attestationProvider.trustEnvironment,
-        createdAt: context.attestationProvider.createdAt,
-      },
-      providerContext: {
-        attestationProviderIdentifier: context.attestationProvider.registrarAssignedIdentifier,
-        ...(context.attestationProvider.registrationCertificateJwt
-          ? {
-              registrationCertificateJwt:
-                context.attestationProvider.registrationCertificateJwt,
-            }
-          : {}),
-        signingKeyBindingRef,
-        engineTenantRef,
-        issuerDisplayName: issuerConfiguration.issuerDisplayName,
-        eligibilityPresentations: issuerConfiguration.eligibilityPresentations,
-        requiresBuiltInAuthorizationServer:
-          issuerConfiguration.requiresBuiltInAuthorizationServer,
-        ...(issuerConfiguration.accessKeyBindingRef
-          ? { accessKeyBindingRef: issuerConfiguration.accessKeyBindingRef }
-          : {}),
-      },
-      at: now,
-    });
 
     // The same SSRF control verification uses, from the same function: a request may only name a
     // URL already on the endpoint's allow-list.
@@ -321,6 +270,21 @@ export class IssuanceService {
     // dropped before the attributes reach the engine.
     const claims = this.narrowForCredential(sourceAttributes, plan, version);
 
+    if (command.walletAuthorizationRequest !== undefined) {
+      return await this.holdForWallet({
+        command,
+        issuanceId,
+        engineTenantRef,
+        claims,
+        expiresAt,
+        policyId: policy.id,
+        policyVersion: version.version,
+        sentWithout: sentWithoutRegistrationCertificate(plan),
+        connectorKind: connector.kind,
+        rulebook: plan.credential.rulebookIdentifier,
+      });
+    }
+
     const offer = await this.issuer.createCredentialOffer({
       plan,
       claims,
@@ -372,6 +336,234 @@ export class IssuanceService {
       expiresAt,
       ...this.warningsFor(offer.sentWithoutRegistrationCertificate, connector.kind),
     };
+  }
+
+  /**
+   * The wallet-initiated ending of `create`: the claims are held, not offered.
+   *
+   * The transaction stops at `OFFER_READY` — the form is confirmed and the attestation is ready to
+   * be collected — with no engine session yet, because the engine's session belongs to the wallet's
+   * authorization request and is learnt only when the engine asks for the claims.
+   */
+  private async holdForWallet(input: {
+    readonly command: CreateIssuanceCommand;
+    readonly issuanceId: string;
+    readonly engineTenantRef: string;
+    readonly claims: SourceAttributes;
+    readonly expiresAt: Date;
+    readonly policyId: string;
+    readonly policyVersion: number;
+    readonly sentWithout: boolean;
+    readonly connectorKind: AuthenticSourceConnector["kind"];
+    readonly rulebook: string;
+  }): Promise<IssuanceView> {
+    const { command, issuanceId, engineTenantRef } = input;
+    const requestUri = command.walletAuthorizationRequest as string;
+    if (!this.walletInitiated) {
+      throw PlatformError.conflict(
+        "wallet_initiated_issuance_not_configured",
+        "This deployment does not hold claims for wallet-initiated issuance.",
+      );
+    }
+    const held = this.walletInitiated.hold(requestUri, {
+      tenantId: command.tenantId,
+      issuanceId,
+      engineTenantRef,
+      claims: input.claims,
+      expiresAt: input.expiresAt,
+    });
+    if (!held) {
+      throw PlatformError.conflict(
+        "wallet_authorization_request_already_used",
+        "This authorization request already has an attestation waiting for it.",
+      );
+    }
+
+    await this.issuance.transition({
+      tenantId: command.tenantId,
+      id: issuanceId,
+      from: "ELIGIBILITY_CHECK",
+      to: "OFFER_READY",
+      at: this.clock.now(),
+      patch: { engineTenantRef, sentWithoutRegistrationCertificate: input.sentWithout },
+    });
+    await this.audit.record({
+      tenantId: command.tenantId,
+      actor: "platform",
+      action: "issuance.created",
+      subjectType: "issuance",
+      subjectId: issuanceId,
+      detail: {
+        policyId: input.policyId,
+        policyVersion: input.policyVersion,
+        authenticSourceKind: input.connectorKind,
+        sentWithoutRegistrationCertificate: input.sentWithout,
+        rulebook: input.rulebook,
+        walletInitiated: true,
+      },
+    });
+
+    return {
+      issuanceId,
+      status: "OFFER_READY",
+      ...(command.businessReference ? { businessReference: command.businessReference } : {}),
+      policyId: input.policyId,
+      policyVersion: input.policyVersion,
+      expiresAt: input.expiresAt,
+      walletInitiated: { engineTenantRef },
+      ...this.warningsFor(input.sentWithout, input.connectorKind),
+    };
+  }
+
+  /**
+   * The protocol engine asking for a wallet-initiated issuance's claims.
+   *
+   * The engine names its session; the session names the wallet's authorization request; the request
+   * names the held claims. They are handed over **once** and forgotten, and the transaction learns
+   * its engine session here, which is what lets `get` follow it to `ISSUED` and lets its status be
+   * changed later. Returns `undefined` when nothing is held — the engine then has nothing to issue,
+   * which is the correct outcome for an authorization that did not pass through the form.
+   */
+  async claimsForEngineSession(input: {
+    readonly engineTenantRef: string;
+    readonly engineSessionRef: string;
+  }): Promise<SourceAttributes | undefined> {
+    if (!this.walletInitiated) return undefined;
+    const requestUri = await this.issuer.resolveAuthorizationRequest({
+      ref: input.engineSessionRef as CredentialOfferHandle["ref"],
+      engineTenantRef: input.engineTenantRef,
+    });
+    if (!requestUri) return undefined;
+    const held = this.walletInitiated.take(input.engineTenantRef, requestUri);
+    if (!held) return undefined;
+
+    const tenantId = asId<"TenantId">(held.tenantId);
+    await this.issuance.transition({
+      tenantId,
+      id: held.issuanceId,
+      from: "OFFER_READY",
+      to: "AWAITING_WALLET",
+      at: this.clock.now(),
+      patch: { engineSessionRef: input.engineSessionRef },
+    });
+    return held.claims;
+  }
+
+  /**
+   * The published version of a policy, compiled against its credential type and provider — shared by
+   * `create` and `provisionPolicy`, so what a wallet discovers and what an issuance uses cannot
+   * differ.
+   */
+  private async compileForPolicy(tenantId: TenantId, policyId: string, now: Date) {
+    const policy = await this.issuance.findPolicy(tenantId, policyId);
+    if (!policy) throw PlatformError.notFound("Issuance policy");
+    // The same guard the verification side has had since Milestone 1. It was missing here because
+    // nothing could retire an issuance policy — the state was modelled and unreachable — so the
+    // check had never had anything to refuse.
+    if (policy.status === "RETIRED") {
+      throw PlatformError.conflict(
+        "policy_retired",
+        "The issuance policy has been retired and cannot be used. Attestations already issued " +
+          "under it are unaffected and keep the terms they were issued under.",
+      );
+    }
+
+    const versions = await this.issuance.listVersions(tenantId, policyId);
+    const version = resolvePublishedVersion(versions);
+
+    const context = await this.issuance.loadIssuanceContext(tenantId, version.credentialTypeId);
+
+    const engineTenantRef = context.attestationProvider.engineTenantRef;
+    const signingKeyBindingRef = context.attestationProvider.signingKeyBindingRef;
+    if (!engineTenantRef || !signingKeyBindingRef) {
+      throw PlatformError.conflict(
+        "attestation_provider_not_provisioned",
+        "The Attestation Provider has no engine tenant or signing key. Provision it before issuing.",
+      );
+    }
+
+    // The engine's issuer configuration is tenant-scoped, so it is composed from the **provider** —
+    // every published policy on it — rather than from the policy being issued. Writing it from one
+    // policy is `interop-findings.md` A20: each issuance overwrote the last one's authorization
+    // servers, and the Credential Issuer's display name became the last credential type's name.
+    const issuerConfiguration = await this.issuance.issuerConfigurationInputs(
+      tenantId,
+      context.attestationProvider.id,
+    );
+
+    // Re-validated at compile time, not trusted from publication: the records were written at
+    // different moments and the combination can be wrong even when each part was right.
+    const plan = compileIssuancePolicy({
+      policyVersion: version,
+      credentialType: context.credentialType,
+      attestationProvider: {
+        id: context.attestationProvider.id,
+        tenantId: asId<"TenantId">(context.attestationProvider.tenantId),
+        organisationId: asId<"OrganisationId">(context.attestationProvider.organisationId),
+        registrarAssignedIdentifier: context.attestationProvider.registrarAssignedIdentifier,
+        trustEnvironment: context.attestationProvider.trustEnvironment,
+        createdAt: context.attestationProvider.createdAt,
+      },
+      providerContext: {
+        attestationProviderIdentifier: context.attestationProvider.registrarAssignedIdentifier,
+        ...(context.attestationProvider.registrationCertificateJwt
+          ? {
+              registrationCertificateJwt:
+                context.attestationProvider.registrationCertificateJwt,
+            }
+          : {}),
+        signingKeyBindingRef,
+        engineTenantRef,
+        issuerDisplayName: issuerConfiguration.issuerDisplayName,
+        eligibilityPresentations: issuerConfiguration.eligibilityPresentations,
+        requiresBuiltInAuthorizationServer:
+          issuerConfiguration.requiresBuiltInAuthorizationServer,
+        ...(issuerConfiguration.accessKeyBindingRef
+          ? { accessKeyBindingRef: issuerConfiguration.accessKeyBindingRef }
+          : {}),
+      },
+      at: now,
+    });
+
+    return { policy, version, context, plan, engineTenantRef };
+  }
+
+  /**
+   * Writes a policy's published version to the protocol engine ahead of any issuance, and withdraws
+   * the configurations of its earlier versions.
+   *
+   * An offer provisions on demand, because the offer names the configuration. A **wallet-initiated**
+   * issuance cannot wait: the wallet reads the issuer's metadata to build its list before anyone has
+   * asked for anything, so the configuration must already be there — and only the current one,
+   * because the wallet merges every PID configuration of an issuer into one entry and requests them
+   * all at once.
+   */
+  async provisionPolicy(
+    tenantId: TenantId,
+    policyId: string,
+  ): Promise<{ readonly policyVersion: number; readonly withdrawn: readonly number[] }> {
+    const { policy, version, plan, engineTenantRef } = await this.compileForPolicy(
+      tenantId,
+      policyId,
+      this.clock.now(),
+    );
+    await this.provisioning.provisionCredentialConfiguration({ engineTenantRef, plan });
+    const versions = await this.issuance.listVersions(tenantId, policy.id);
+    const superseded = versions.map((v) => v.version).filter((v) => v !== version.version);
+    await this.provisioning.withdrawCredentialConfigurations({
+      engineTenantRef,
+      policyId: policy.id,
+      versions: superseded,
+    });
+    await this.audit.record({
+      tenantId,
+      actor: "platform",
+      action: "issuance_policy.provisioned",
+      subjectType: "issuance_policy",
+      subjectId: policy.id,
+      detail: { policyVersion: version.version, withdrawnVersions: superseded },
+    });
+    return { policyVersion: version.version, withdrawn: superseded };
   }
 
   /** Reads an issuance, polling the engine and advancing the transaction as needed. */

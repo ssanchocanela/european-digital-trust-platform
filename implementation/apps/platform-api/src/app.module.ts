@@ -19,6 +19,10 @@ import {
   TransactionListingController,
 } from "./http/listing.controllers.js";
 import {
+  EngineAttributesController,
+  HostedFormController,
+} from "./http/wallet-initiated.controllers.js";
+import {
   API_KEY_REPOSITORY,
   AUDIT_SERVICE,
   CLOCK_TOKEN,
@@ -64,6 +68,8 @@ export class AppModule {
         TenantListingController,
         TransactionListingController,
         HealthController,
+        HostedFormController,
+        EngineAttributesController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },

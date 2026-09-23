@@ -170,6 +170,17 @@ export interface EudiIssuerPort {
   }): Promise<void>;
 
   cancelIssuance(session: CredentialOfferHandle): Promise<void>;
+
+  /**
+   * The opaque authorization-request reference a wallet-initiated session was created for.
+   *
+   * In an issuance the wallet starts from its own list of issuers there is no offer: the wallet
+   * pushes an authorization request, receives an opaque reference, and is sent to the platform's
+   * hosted form with it. When the protocol engine later asks the platform for claim values it names
+   * only its session, and this is how the two are joined. `undefined` when the session carries no
+   * such reference.
+   */
+  resolveAuthorizationRequest(session: CredentialOfferHandle): Promise<string | undefined>;
 }
 
 /** Provisioning, separated so the business layer never touches it. */
@@ -180,6 +191,17 @@ export interface EudiIssuerProvisioningPort {
    * Idempotent by identifier, so re-provisioning an Attestation Provider is safe.
    */
   provisionCredentialConfiguration(input: IssuanceProvisioningInput): Promise<void>;
+
+  /**
+   * Removes the engine configurations of the given versions of a policy, so a wallet reading the
+   * issuer's metadata discovers only the current one. Versions that were never provisioned are
+   * skipped. Attestations already issued under them keep their status entries.
+   */
+  withdrawCredentialConfigurations(input: {
+    readonly engineTenantRef: string;
+    readonly policyId: string;
+    readonly versions: readonly number[];
+  }): Promise<void>;
 
   /** Imports the attestation-signing key and its certificate chain. Returns an opaque reference. */
   importSigningCertificate(input: {

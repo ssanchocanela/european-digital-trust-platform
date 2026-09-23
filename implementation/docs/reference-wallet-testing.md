@@ -668,6 +668,27 @@ its status checked in the next. Values were checked for presence only.
 Every limit of §8.1j still applies: a modified wallet, no registration certificate, a fictitious
 representation, TEST lists that are not notified.
 
+### 8.1l Thirteenth wallet run — **a PID requested from the wallet's own list, through a hosted form (FNMT demonstration)**
+
+24 September 2026, **W6** (`eu.europa.ec.euidi.edtptest6`, debug, `wd-2,wd-3,wd-4,wd-5`,
+`--pid-label "PID - FNMT"`) — a **modified wallet** — on the named tunnel, gateway in demo compatibility
+mode, hosted-form gate on for `pid-1`. Negative checks passed on all four hosts (19 probes, all `404`)
+before the phone was used.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · Discover | *Documents → Add document → From list* listed one issuer, ours, with one row "PID - FNMT" | WD-5; the issuer metadata carries one PID configuration (policy v3) |
+| 2 · Authorize | PAR, then the browser opened `…/issuers/pid-1/authorize`; the gateway sent it to the hosted form | first attempt refused at PAR: `jwt 'nbf' is in the future` — the phone ran **2.2 s fast** against a zero-tolerance check (A29). Passed with the gateway's 3 s hold |
+| 3 · Form | FNMT-styled form, demonstration band, fictitious values, *Confirmar* | platform validated against the credential type, held the values, returned the pass; `303` back to the engine |
+| 4 · Collect | the engine sent the browser back to the wallet; token and credential requests; the engine fetched the values from the platform's attribute provider | platform **`ISSUED`** (policy v3) |
+| 5 · Token | read from the debug wallet, structure only | `iss` `https://edtp-engine.murcata.es/issuers/pid-1`; **8 disclosures, 8 `_sd` digests** — the typed values including `personal_administrative_number`, and the two fixed ones; `place_of_birth` is structure, its `country` a disclosure |
+| 6 · Branding | the wallet showed the FNMT emblem as the issuer logo and, after a re-issue, the issuer name *FNMT-RCM (demo)* | `ENGINE_ISSUER_BRANDING`, `ENGINE_ISSUER_DISPLAY_NAMES`; the wallet stores issuer display at issue time, so an earlier document keeps the earlier name |
+
+The test PID's own selective disclosure is seen on a token for the first time here (§8.1j left it
+open). What this does **not** show: anything about an unmodified wallet — whose list offers the EUDI
+issuers and is not ours to change — or about FNMT: the branding is a demonstration, the band on the
+form says so, and the data is fictitious. No registration certificate (B3).
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

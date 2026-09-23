@@ -7,8 +7,8 @@ tag, what it is for, and whether it is compiled in.
 nothing; a deviation that is on is named in `BuildConfig.EDTP_DEVIATIONS`, printed by the banner on
 every screen, and must appear in the record of any test run it touched.
 
-`build.sh --deviations` accepts `none`, `wd-2`, `wd-3` and `wd-4`, and **refuses anything else**, and
-any of those three without what it needs, rather than accepting a flag that does nothing. An accepted-but-inert flag is how a test record comes to say
+`build.sh --deviations` accepts `none`, `wd-2`, `wd-3`, `wd-4` and `wd-5`, and **refuses anything else**, and
+any of them without what it needs, rather than accepting a flag that does nothing. An accepted-but-inert flag is how a test record comes to say
 "WD-1 active" about a build where it was not.
 
 | | Deviation | Gate | Kind | State |
@@ -17,7 +17,8 @@ any of those three without what it needs, rather than accepting a flag that does
 | **WD-1** | `eaaProviders` trust list pointing at our TEST LoTE | (b), ARF §6.3.2.4 | Configuration of an ARF-intended mechanism | Not built |
 | **WD-2** | Signed-issuer-metadata requirement relaxed | (a), ARF §6.6.2.2 | **Security relaxation** | Not built |
 | **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | **Built** (W3, W4) — Path A failed |
-| **WD-4** | `pidProviders` trust list pointing at our TEST PID LoTE, which carries the notified anchors **plus** our development PID Provider CA | (b), for a PID | Configuration of an ARF-intended mechanism | **In `build.sh`**, 23 September 2026; not yet in an installed build |
+| **WD-4** | `pidProviders` trust list pointing at our TEST PID LoTE, which carries the notified anchors **plus** our development PID Provider CA | (b), for a PID | Configuration of an ARF-intended mechanism | **Built** (W5, W6) |
+| **WD-5** | The wallet's issuer list (*From list*) offers our issuer only; optional relabel of the merged PID row | — | Configuration (which issuers the app offers) | **Built** (W6), 24 September 2026 |
 
 ---
 
@@ -231,6 +232,9 @@ an EUDI issuer remains, or if more than one issuer is left. Verified with `--pre
 
 **Offers are unaffected.** A credential offer from any issuer still works, because upstream uses the
 first configured issuer's settings for an issuer it does not know.
+
+**`--pid-label`** (optional) replaces upstream's fixed "PID Combined" label of an issuer's merged PID
+row with a flavour string resource; W6 uses "PID - FNMT".
 
 **One thing to know on the phone.** Every EDTP test build keeps upstream's authorization redirect,
 `eu.europa.ec.euidi://authorization`. With several builds installed, Android may ask which app should

@@ -8,6 +8,21 @@ linked rather than repeated.
 
 ---
 
+## 24 September 2026 — **a PID requested from the wallet's own list, for an FNMT demonstration**
+
+Wallet-initiated issuance works end to end with **W6** (WD-5: the wallet's *From list* offers only our
+`pid-1`, row "PID - FNMT"): the wallet pushes an authorization request, the test gateway sends the
+browser to the **hosted form** (`apps/pid-form`, `edtp-pid.murcata.es`, FNMT-styled with a
+demonstration band), the platform validates and holds the values in memory, and the engine fetches them
+through the platform's **attribute provider** when the wallet collects the PID. The issuer shows as
+*FNMT-RCM (demo)* with the FNMT emblem. PID policy is at **v3** (ID number mandatory), provisioned ahead
+with `POST …/issuance-policies/{id}/provision`, which also withdraws earlier versions. Record:
+[`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1l; gate: `test-session-gateway.md` §1e;
+limits P5, P6, V4.
+
+**Next, agreed:** the representative credentials from the same list, issued by *CORPME* after
+identifying with the PID on a web page.
+
 ## 23 September 2026 — **a test PID issuer, built; not yet shown with a wallet**
 
 The agreed next step from the 17th, everything except the phone run:

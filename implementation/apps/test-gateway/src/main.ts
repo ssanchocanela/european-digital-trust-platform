@@ -1,6 +1,7 @@
 import http from "node:http";
 import { z } from "zod";
 import { ENGINE_RULES, isAllowed, PLATFORM_RULES, type Rule } from "./allow-list.js";
+import { hostedFormGate } from "./hosted-form-gate.js";
 
 /**
  * The filtering reverse proxy that sits between a public tunnel and the stack.
@@ -67,6 +68,24 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  /**
+   * Wallet-initiated issuance through a hosted form (`docs/test-session-gateway.md` §1e). For the
+   * engine tenants listed, a browser arriving at `/issuers/{tenant}/authorize` is sent to the form
+   * instead — the engine's own authorization endpoint mints a code for anyone who asks, so the form
+   * must stand in front of it — and is let through only with the pass the platform gives the form on
+   * a valid submission. All three set, or the feature is off and `/authorize` behaves as before.
+   */
+  GATEWAY_HOSTED_FORM_URL: z.string().url().optional(),
+  GATEWAY_HOSTED_FORM_AUTHORIZE_SECRET: z.string().min(32).optional(),
+  GATEWAY_HOSTED_FORM_TENANTS: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    ),
   /** Bound to every interface: a tunnel connects to it, and on a laptop that means all of them. */
   GATEWAY_BIND_HOST: z.string().min(1).default("127.0.0.1"),
 });
@@ -138,7 +157,28 @@ const createProxy = (
       return;
     }
 
-    const upstream = new URL(request.url ?? "/", target);
+    let forwardUrl = request.url ?? "/";
+    if (name === "engine") {
+      const gate = hostedFormGate(config, method, forwardUrl);
+      if (gate.kind === "redirect") {
+        log("sent to the hosted form", {
+          target: name,
+          method,
+          path: pathname,
+          tenant: gate.tenant,
+        });
+        response.writeHead(302, { location: gate.location, "cache-control": "no-store" });
+        response.end();
+        return;
+      }
+      if (gate.kind === "refuse") {
+        deny(response, gate.reason, { target: name, method, path: pathname });
+        return;
+      }
+      if (gate.kind === "pass") forwardUrl = gate.forwardUrl;
+    }
+
+    const upstream = new URL(forwardUrl, target);
     const headers: Record<string, string | string[]> = {};
     for (const [key, value] of Object.entries(request.headers)) {
       if (value !== undefined && !HOP_BY_HOP.has(key.toLowerCase())) {

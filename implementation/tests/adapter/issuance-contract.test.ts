@@ -288,6 +288,25 @@ describe("issuance contract against a real engine (skipped when none is reachabl
     ).resolves.toBeUndefined();
   }, 60_000);
 
+  it("stores every claim as selectively disclosable, with a type — A32", async () => {
+    if (!reachable || !adapter || !client) return;
+    const plan = planFor();
+    await adapter.provisionCredentialConfiguration({ engineTenantRef, plan });
+
+    // Read back, because the engine's field schema is lenient: a field sent without `disclosable`
+    // was accepted for weeks and signed in the clear. What it stored is what it will sign with.
+    const configs = (await client.request(engineTenantRef, "GET", "/issuer/credentials")) as {
+      readonly description?: string;
+      readonly fields?: readonly Record<string, unknown>[];
+    }[];
+    const mine = configs.find((c) =>
+      c.description?.includes(`policy ${plan.policyId} v${plan.policyVersion}`),
+    );
+    expect(mine?.fields).toEqual([
+      expect.objectContaining({ path: ["employee_id"], type: "string", disclosable: true }),
+    ]);
+  }, 60_000);
+
   it("obtains a credential offer end to end, and reports the missing certificate", async () => {
     if (!reachable || !adapter) return;
     const plan = planFor();

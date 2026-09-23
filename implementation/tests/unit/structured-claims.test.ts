@@ -1,15 +1,20 @@
 import {
   type CredentialType,
+  compileIssuancePolicy,
+  defaultRetentionPolicy,
+  type IssuancePlan,
   narrowToDeclaredClaims,
   validateCredentialType,
 } from "@edtp/domain";
+import type { EngineClient } from "@edtp/eudiplo-adapter";
+import { EudiploIssuerAdapter } from "@edtp/eudiplo-adapter";
 import type { TransactionRepository } from "@edtp/persistence";
 import {
   assertPayloadSatisfiesSchema,
   compilePayloadSchema,
 } from "@edtp/platform-api/modules/issuances/payload-schema.js";
 import { VerifiedPresentationConnector } from "@edtp/platform-api/modules/issuances/verified-presentation-connector.js";
-import { PlatformError } from "@edtp/shared";
+import { asId, PlatformError } from "@edtp/shared";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -267,5 +272,86 @@ describe("verified-presentation source, with nested credential paths", () => {
     expect(out).toEqual(expected);
     // The regression: flat "Person.Family" keys read as absent, so a mandatory nested claim failed.
     expect(narrowToDeclaredClaims(out ?? {}, type)).toEqual(expected);
+  });
+});
+
+describe("the engine's credential configuration", () => {
+  const plan = (): IssuancePlan =>
+    compileIssuancePolicy({
+      policyVersion: {
+        policyId: "policy-1",
+        version: 1,
+        status: "PUBLISHED",
+        credentialTypeId: "type-1",
+        purpose: text("Structured test"),
+        eligibilityRule: { evaluator: "AlwaysEligible", parameters: {} },
+        authenticSource: { connector: "fixture", parameters: {} },
+        holderBinding: "KEY_BOUND",
+        flow: "PRE_AUTHORIZED_CODE",
+        credentialValiditySeconds: 3_600,
+        statusPolicy: { statusListEnabled: true, suspensionAllowed: false },
+        retentionPolicy: defaultRetentionPolicy(),
+        createdAt: at,
+        publishedAt: at,
+      },
+      credentialType: type,
+      attestationProvider: {
+        id: "provider-1",
+        tenantId: asId<"TenantId">(TENANT),
+        organisationId: asId<"OrganisationId">("33333333-3333-3333-3333-333333333333"),
+        registrarAssignedIdentifier: "NLAP.test",
+        trustEnvironment: "TEST",
+        createdAt: at,
+      },
+      providerContext: {
+        attestationProviderIdentifier: "NLAP.test",
+        signingKeyBindingRef: "key-1",
+        engineTenantRef: "rpi-1",
+        issuerDisplayName: "Test Organisation BV",
+        eligibilityPresentations: [],
+        requiresBuiltInAuthorizationServer: true,
+      },
+      at,
+    });
+
+  const fieldsSent = async (): Promise<readonly Record<string, unknown>[]> => {
+    const bodies: Record<string, unknown>[] = [];
+    const client = {
+      request: async (
+        _ref: string,
+        _method: string,
+        path: string,
+        body?: Record<string, unknown>,
+      ) => {
+        if (path === "/issuer/credentials" && body) bodies.push(body);
+        return {} as never;
+      },
+    } as unknown as EngineClient;
+    const p = plan();
+    await new EudiploIssuerAdapter(client).provisionCredentialConfiguration({
+      engineTenantRef: p.providerContext.engineTenantRef,
+      plan: p,
+    });
+    return (bodies[0]?.fields ?? []) as Record<string, unknown>[];
+  };
+
+  it("marks every claim selectively disclosable — the engine signs an unmarked one in the clear", async () => {
+    const fields = await fieldsSent();
+    expect(fields).toHaveLength(claims.length);
+    for (const field of fields) expect(field.disclosable).toBe(true);
+  });
+
+  it("gives every field the engine's type", async () => {
+    const byPath = Object.fromEntries(
+      (await fieldsSent()).map((f) => [String(f.path), f.type]),
+    );
+    expect(byPath).toEqual({
+      "Org,Id": "string",
+      "Holder,Kind": "integer",
+      "Person,Family": "string",
+      "Person,Countries": "array",
+      "Entity,Id": "string",
+      Mandates: "array",
+    });
   });
 });

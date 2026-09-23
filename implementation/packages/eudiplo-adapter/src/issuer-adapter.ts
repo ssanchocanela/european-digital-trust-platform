@@ -1,4 +1,9 @@
-import type { CredentialStatus, IssuancePlan, SourceAttributes } from "@edtp/domain";
+import type {
+  ClaimValueType,
+  CredentialStatus,
+  IssuancePlan,
+  SourceAttributes,
+} from "@edtp/domain";
 import type {
   CreateCredentialOfferInput,
   CreateCredentialOfferOutput,
@@ -315,8 +320,17 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
       fields: plan.credential.claims.map((claim) => ({
         // The engine's claim field definition is flat-path based.
         path: [...claim.path],
+        type: ENGINE_FIELD_TYPE[claim.valueType],
         display: claim.display.map((d) => ({ name: d.value, locale: d.lang })),
         mandatory: claim.mandatory,
+        // Selective disclosure is **opt-in per field** in the engine: its SD-JWT disclosure frame
+        // is built only from fields marked `disclosable`, and an unmarked field is signed in the
+        // clear. Until 23 September 2026 no field was marked, so every attestation this platform
+        // issued disclosed every claim to every verifier (`interop-findings.md` A32). Every
+        // declared claim is a leaf, so each becomes its own disclosure; an `object[]` claim is one
+        // disclosure for the whole array, because a `null` path segment reaches the engine's frame
+        // as the key "*", which the SD-JWT library does not treat as "each element".
+        disclosable: true,
       })),
       keyBinding: plan.holderBinding === "KEY_BOUND",
       statusManagement: plan.statusListEnabled,
@@ -585,6 +599,20 @@ const toEngineStatus = (status: CredentialStatus): number => {
       );
     }
   }
+};
+
+/**
+ * The engine's field `type` for each platform value type. Feeds the engine's generated JSON schema
+ * for the credential, which otherwise carried `type: undefined` on every leaf.
+ */
+const ENGINE_FIELD_TYPE: Readonly<Record<ClaimValueType, string>> = {
+  string: "string",
+  number: "number",
+  integer: "integer",
+  boolean: "boolean",
+  date: "string",
+  "string[]": "array",
+  "object[]": "array",
 };
 
 /** Re-exported so the composition root can name the claims type without importing the domain. */

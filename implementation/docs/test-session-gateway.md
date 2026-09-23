@@ -123,7 +123,7 @@ request to the engine and opens the browser at `/issuers/{tenant}/authorize`. **
 authorization server mints a code for whoever arrives there** — it has no page and no hook — so the
 person's form must stand in front of it, and the gateway is where it can.
 
-For the engine tenants in `GATEWAY_HOSTED_FORM_TENANTS` (`pid-1`):
+For the engine tenants in `GATEWAY_HOSTED_FORM_TENANTS` (`pid-1`, `rpi-1`):
 
 - a `GET` to that path **without a valid pass** is answered `302` to the hosted form
   (`edtp-pid.murcata.es`, `apps/pid-form`), carrying `request_uri` and `client_id` only;
@@ -136,6 +136,15 @@ The form is a **fourth public hostname**, a separate process holding one secret 
 accepts only for the policies configured for it. It serves the form and two images; the negative
 checks probe it too. The values typed reach the engine only through the platform's attribute provider,
 on the internal network, once. `tests/unit/hosted-form-pass.test.ts`.
+
+**Identify, then request (`rpi-1`, CORPME look).** For a policy whose `HOSTED_FORM_POLICIES` entry
+names an identifying presentation policy, the form types nothing: it starts a `SAME_DEVICE`
+presentation of the PID, the wallet presents mid-issuance, and its return comes back through the
+platform's `/v1/presentations/{id}/return` (already on the allow-list) into the form's `/continuar`.
+**That redirect is not an open one:** the platform builds the destination from
+`HOSTED_FORM_PUBLIC_URL` when it creates the presentation and looks it up by presentation id; nothing
+in the return request chooses it. The form then shows what the attestation will state and submits
+with the presentation id. No new public path. `tests/unit/hosted-form-identify.test.ts`.
 
 **What the gate does not do:** make the engine's `/authorize` safe on its own. Without the gateway —
 the engine exposed directly — the form is skipped, and the platform then has no values for that

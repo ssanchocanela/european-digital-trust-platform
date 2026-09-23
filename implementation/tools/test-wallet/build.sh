@@ -12,7 +12,7 @@
 #   ANDROID_KEYSTORE_PATH=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=... ./build.sh
 #   ... ./build.sh --deviations wd-3 --wrpac-lote https://<host>/lote/WRPACProviders.jwt
 #
-# Deviations: `none`, `wd-2`, `wd-3`, or a comma-separated set (`wd-2,wd-3`). Each is refused unless
+# Deviations: `none`, `wd-2`, `wd-3`, `wd-4`, or a comma-separated set (`wd-2,wd-3`). Each is refused unless
 # everything it needs is present, because a flag that is accepted and does nothing puts a false claim
 # in a test record. `wd-1` is refused outright: it needs a published list of **issuer** anchors,
 # which does not exist.
@@ -22,6 +22,10 @@
 # trusted. **wd-2 is a security relaxation and bypasses gate (a) rather than meeting it.**
 #
 #   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
+#   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
+#
+# `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
+# PID Provider CA is trusted, the other two for the reasons above.
 #   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
 #                           an existing one instead of replacing it. Needed whenever the installed
 #                           build must survive: uninstalling it deletes its documents, and a
@@ -54,6 +58,7 @@ DEVIATIONS="none"
 DIAGNOSTICS=no
 SKIP_BUILD="no"
 WRPAC_LOTE=""
+PID_LOTE=""
 APP_ID_SUFFIX=""
 APP_NAME=""
 BUILD_TYPE="release"
@@ -63,11 +68,12 @@ while [ $# -gt 0 ]; do
     --deviations) DEVIATIONS="${2:-}"; shift 2 ;;
     --diagnostics) DIAGNOSTICS=yes; shift 1 ;;
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
+    --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
     --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
     --build-type) BUILD_TYPE="${2:-}"; shift 2 ;;
     --prepare-only) SKIP_BUILD="yes"; shift ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -86,6 +92,7 @@ step() { printf '\n==> %s\n' "$*"; }
 # or unbuildable name is refused rather than ignored.
 WANT_WD2=no
 WANT_WD3=no
+WANT_WD4=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
   for d in $DEVIATIONS; do
@@ -108,6 +115,18 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-3.patch" ] || die "deviations/wd-3.patch is missing."
         WANT_WD3=yes
         ;;
+      wd-4)
+        # Refused without the URL, for the same reason as wd-3.
+        [ -n "$PID_LOTE" ] ||
+          die "--deviations wd-4 requires --pid-lote <url>: the PID Provider list this build is to
+    consult. Publish one with scripts/make-test-lote.mjs --kind pid first. See deviations.md."
+        case "$PID_LOTE" in
+          https://*) ;;
+          *) die "--pid-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        esac
+        [ -f "$HERE/deviations/wd-4.kt" ] || die "deviations/wd-4.kt is missing."
+        WANT_WD4=yes
+        ;;
       wd-1)
         die "wd-1 is recorded in deviations.md and is not built. It needs an ETSI TS 119 602 list
     of **issuer** anchors published and reachable, which does not exist — scripts/make-test-lote.mjs
@@ -115,7 +134,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2, wd-3, or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2, wd-3, wd-4, or a comma-separated set of them."
         ;;
     esac
   done
@@ -295,6 +314,26 @@ if [ "$WANT_WD3" = "yes" ]; then
   echo "    this build consults a list we publish. Every result from it says 'modified wallet'."
 fi
 
+if [ "$WANT_WD4" = "yes" ]; then
+  step "Applying WD-4 (pidProviders -> our TEST PID LoTE)"
+  # A line replacement rather than a patch: wd-3.patch carries the upstream `pidProviders` line as
+  # context, so a second patch changing it could never be applied together with wd-3. Anchored on
+  # the exact upstream line, and refused if that line is not there exactly once.
+  WD4_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  WD4_LINE='pidProviders = Uri("https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt"),'
+  [ "$(grep -cF "$WD4_LINE" "$WD4_FILE")" = "1" ] ||
+    die "the upstream pidProviders line is not in $WD4_FILE exactly once; WD-4 must be regenerated."
+  awk -v line="$WD4_LINE" -v fragment="$HERE/deviations/wd-4.kt" '
+    index($0, line) { while ((getline l < fragment) > 0) print l; next } { print }
+  ' "$WD4_FILE" > "$WD4_FILE.new" && mv "$WD4_FILE.new" "$WD4_FILE"
+  grep -qF "$WD4_LINE" "$WD4_FILE" && die "WD-4 left the notified pidProviders list in place."
+  sed -i.bak "s|__EDTP_PID_LOTE__|$PID_LOTE|" "$WD4_FILE" && rm -f "$WD4_FILE.bak"
+  grep -q "pidProviders = Uri(\"$PID_LOTE\")" "$WD4_FILE" ||
+    die "substituting the WD-4 list URL did not take effect."
+  echo "    pidProviders -> $PID_LOTE"
+  echo "    this build trusts PIDs signed under our development CA. Every result says 'modified wallet'."
+fi
+
 # --- 5. Build stamp ----------------------------------------------------------------------------
 #
 # version.properties is how upstream's build reads the version, and the patch reads the deviation
@@ -312,6 +351,7 @@ EDTP_DIAGNOSTICS=$DIAGNOSTICS
 EDTP_APP_ID_SUFFIX=$EFFECTIVE_APP_ID_SUFFIX
 EDTP_APP_NAME=$EFFECTIVE_APP_NAME
 EDTP_WRPAC_LOTE=$WRPAC_LOTE
+EDTP_PID_LOTE=$PID_LOTE
 EOF
 [ -f local.properties ] || echo "sdk.dir=$SDK" > local.properties
 cat version.properties | sed 's/^/    /'

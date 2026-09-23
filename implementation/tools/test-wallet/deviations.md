@@ -7,8 +7,8 @@ tag, what it is for, and whether it is compiled in.
 nothing; a deviation that is on is named in `BuildConfig.EDTP_DEVIATIONS`, printed by the banner on
 every screen, and must appear in the record of any test run it touched.
 
-`build.sh --deviations` currently accepts only `none`, and **refuses anything else** rather than
-accepting a flag that does nothing. An accepted-but-inert flag is how a test record comes to say
+`build.sh --deviations` accepts `none`, `wd-2`, `wd-3` and `wd-4`, and **refuses anything else**, and
+any of those three without what it needs, rather than accepting a flag that does nothing. An accepted-but-inert flag is how a test record comes to say
 "WD-1 active" about a build where it was not.
 
 | | Deviation | Gate | Kind | State |
@@ -16,7 +16,8 @@ accepting a flag that does nothing. An accepted-but-inert flag is how a test rec
 | **Identity** | Distinct `applicationId`, app name and an on-screen banner | — | Identity only | **Built** (W1) |
 | **WD-1** | `eaaProviders` trust list pointing at our TEST LoTE | (b), ARF §6.3.2.4 | Configuration of an ARF-intended mechanism | Not built |
 | **WD-2** | Signed-issuer-metadata requirement relaxed | (a), ARF §6.6.2.2 | **Security relaxation** | Not built |
-| **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | Not built, and now **needed** — Path A failed |
+| **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | **Built** (W3, W4) — Path A failed |
+| **WD-4** | `pidProviders` trust list pointing at our TEST PID LoTE, which carries the notified anchors **plus** our development PID Provider CA | (b), for a PID | Configuration of an ARF-intended mechanism | **In `build.sh`**, 23 September 2026; not yet in an installed build |
 
 ---
 
@@ -183,6 +184,36 @@ It may say that our presentation flow works end to end against a real wallet. It
 anything about whether an unmodified wallet would accept our certificates — it would not, and that
 is the whole reason this exists. Every report, document, test name, log line and PR statement says
 "modified wallet".
+
+## WD-4 — `pidProviders` trust list pointing at our TEST PID LoTE
+
+For the **test PID issuer**: a PID this platform issues, signed under the development PID Provider CA
+(`scripts/make-dev-pid-ca.sh`), so the end-to-end demonstration's first step no longer depends on the
+EUDI reference issuer.
+
+The shape of WD-3 in the other trust domain. `pidProviders` is a single `Uri` in the same
+`SupportedLists`, so pointing it at our list *replaces* the notified one, and our list carries the
+seven notified development PID anchors forward for the same reason — the build still trusts a PID from
+the reference issuer. Built by `scripts/make-test-lote.mjs --kind pid` and published at
+`https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt`, signed by the
+same list signer as WD-3's.
+
+**One configuration point, not two.** Unlike WD-1, the classification already exists: upstream
+classifies `urn:eudi:pid:1` and `eu.europa.ec.eudi.pid.1` as PIDs, which resolves them to
+`VerificationContext.PID`, which consults `pidProviders`. Only the location changes.
+
+**Applied as a line replacement, not a patch.** `wd-3.patch` carries the upstream `pidProviders`
+line as context, so a patch changing it could never be applied together with WD-3. `build.sh`
+replaces that exact line with `deviations/wd-4.kt` and refuses if it is not there exactly once.
+Verified with `--prepare-only` for `wd-2,wd-3,wd-4`.
+
+### What a run with this build may and may not say
+
+That a PID issued by this platform under a development CA is accepted by a wallet configured to
+trust that CA, and that it can then be presented to this platform. **Nothing** about a real PID, a
+real PID Provider, or an unmodified wallet — which would refuse it, correctly: PID Provider anchors
+come from a Member State notification (`EW-PIO-01-024`, `OIA_12`), and ours has none. The PID is
+**test data**, whatever it contains.
 
 ---
 

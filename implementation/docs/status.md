@@ -10,7 +10,8 @@ linked rather than repeated.
 
 ## 24 September 2026, night — **a representation credential from the wallet's own list, issued as CORPME after identifying with the PID**
 
-W6, now listing two issuers (WD-5 with `pid-1,rpi-1`), requested *Poder de representación* from
+W6, now listing two issuers (WD-5 with `pid-1,rpi-1`), requested *Poder de representación* — and then
+*Poder notarial*, the same way — from
 *CORPME (demo)*. The hosted form (CORPME look) had the person present their PID from the same wallet
 **mid-issuance**, came back through the platform, showed what the attestation would say, and issued it:
 presentation `VERIFIED`, issuance `ISSUED`. Personal data from the PID; organisation, position and powers
@@ -18,8 +19,8 @@ fixed and fictitious. PoX types at **v2** with Spanish names; `rpi-1` advertises
 [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1m; gate and return: `test-session-gateway.md` §1e.
 
 **Always open a form session with `GATEWAY_PINNED_WALLET_COMPAT=true`** — without it the list fails
-(A29 item 3); the script now refuses. *Poder notarial* and *Autorización de empleado* go through the
-same path and were not yet run on the phone.
+(A29 item 3); the script now refuses. *Autorización de empleado* goes through the same path and was not
+yet run on the phone.
 
 ## 24 September 2026 — **a PID requested from the wallet's own list, for an FNMT demonstration**
 

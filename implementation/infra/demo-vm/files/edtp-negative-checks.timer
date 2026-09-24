@@ -1,0 +1,10 @@
+[Unit]
+Description=EDTP demo: negative checks every 15 minutes (ADR 0010)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -64,8 +64,15 @@ export const renderHome = (cards: readonly DemoCard[]): string =>
     <div class="cards">${cards.map(card).join("")}</div>`,
   );
 
+export interface ChecksStatus {
+  readonly at: string;
+  readonly result: "pass" | "exposed" | "unreachable" | string;
+  readonly summary: string;
+}
+
 export interface OperatorView {
   readonly who: string;
+  readonly checks?: ChecksStatus;
   readonly profile: string;
   readonly clientProfileOn: boolean;
   readonly links: readonly { readonly label: string; readonly url: string }[];
@@ -78,6 +85,21 @@ export const renderOperator = (view: OperatorView): string =>
     <nav class="crumbs"><a href="./">Demostraciones</a> › <strong>Operador</strong></nav>
     <h1>Vista de operador</h1>
     <p class="lead">Sesión de <!--email_off-->${escapeHtml(view.who)}<!--/email_off--> (Cloudflare Access).</p>
+    <section class="card">
+      <h2>Comprobaciones negativas</h2>
+      ${
+        view.checks
+          ? `<p><span class="dot ${view.checks.result === "pass" ? "up" : "down"}"></span> <strong>${
+              view.checks.result === "pass"
+                ? "Correctas"
+                : view.checks.result === "exposed"
+                  ? "FALLIDAS: túnel detenido"
+                  : "No se pudieron completar"
+            }</strong> — ${escapeHtml(view.checks.at)}</p><p class="lead">${escapeHtml(view.checks.summary)}</p>`
+          : "<p>Aún no hay resultados.</p>"
+      }
+      <p class="lead">Cada 15 minutos. Si una ruta prohibida responde, el túnel se detiene (ADR 0010 §3).</p>
+    </section>
     <section class="card">
       <h2>Perfil de marca</h2>
       <p>Activo: <strong>${escapeHtml(view.profile)}</strong>${view.clientProfileOn ? " — vuelve solo a genérico a las 4 horas de activarse." : ""}</p>

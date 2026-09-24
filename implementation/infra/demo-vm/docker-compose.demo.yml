@@ -38,6 +38,11 @@ services:
 
   demo-portal:
     <<: *platform-image
+    environment:
+      PORTAL_STATUS_FILE: /status/checks.json
+    volumes:
+      # The scheduled negative checks' last result, read-only (infra/demo-vm/scheduled-checks.sh).
+      - /var/lib/edtp-status:/status:ro
 
   gateway:
     <<: *platform-image

@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
 import express, { type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { z } from "zod";
 import {
+  type ChecksStatus,
   type DemoCard,
   type Health,
   renderForbidden,
@@ -32,6 +34,8 @@ const schema = z.object({
   PORTAL_BANK_URL: url.default("https://edtp-banco.murcata.es/"),
   PORTAL_SHOP_URL: url.default("https://edtp-banco.murcata.es/edad"),
   PORTAL_CLIENT_FORM_URL: url.default("https://edtp-cliente.murcata.es/"),
+  /** The scheduled negative checks' last result, mounted read-only on the VM. */
+  PORTAL_STATUS_FILE: z.string().min(1).optional(),
   // Internal addresses the status dots probe. Any answer below 500 counts as up.
   CHECK_PLATFORM_URL: url.default("http://platform-api:3100/health"),
   CHECK_FORM_URL: url.default("http://pid-form:3202/"),
@@ -164,6 +168,16 @@ const currentProfile = async (config: Config): Promise<{ name: string; client: b
   }
 };
 
+const lastChecks = async (config: Config): Promise<ChecksStatus | undefined> => {
+  if (!config.PORTAL_STATUS_FILE) return undefined;
+  try {
+    const d = JSON.parse(await readFile(config.PORTAL_STATUS_FILE, "utf8")) as ChecksStatus;
+    return typeof d.at === "string" && typeof d.result === "string" ? d : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /** The identity Cloudflare Access injects once a visitor has logged in. */
 const accessIdentity = (request: Request): string | undefined => {
   const email = request.header("cf-access-authenticated-user-email");
@@ -196,10 +210,11 @@ const main = (): void => {
       response.status(403).send(renderForbidden());
       return;
     }
-    const profile = await currentProfile(config);
+    const [profile, checks] = await Promise.all([currentProfile(config), lastChecks(config)]);
     response.send(
       renderOperator({
         who,
+        ...(checks ? { checks } : {}),
         profile: profile.name,
         clientProfileOn: profile.client,
         links: [

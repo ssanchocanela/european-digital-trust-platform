@@ -1,0 +1,8 @@
+[Unit]
+Description=EDTP demo: negative checks (ADR 0010)
+After=network-online.target cloudflared.service
+
+[Service]
+Type=oneshot
+User=edtp
+ExecStart=/home/edtp/edtp/implementation/infra/demo-vm/scheduled-checks.sh

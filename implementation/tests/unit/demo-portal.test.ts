@@ -51,6 +51,24 @@ describe("demonstration portal", () => {
   });
 });
 
+describe("operator view: scheduled negative checks", () => {
+  const view = (result: string) =>
+    renderOperator({
+      who: "op@example.test",
+      checks: { at: "2026-09-24T18:00:00Z", result, summary: "<b>x</b>" },
+      profile: "genérico",
+      clientProfileOn: false,
+      links: [],
+    });
+
+  it("says plainly when the checks failed and the tunnel was stopped", () => {
+    expect(view("pass")).toContain("Correctas");
+    expect(view("exposed")).toContain("FALLIDAS: túnel detenido");
+    expect(view("unreachable")).toContain("No se pudieron completar");
+    expect(view("pass")).not.toContain("<b>x</b>");
+  });
+});
+
 describe("Tienda Demo age check", () => {
   it("is a fictional shop, not the bank", () => {
     const html = renderAgeHome();

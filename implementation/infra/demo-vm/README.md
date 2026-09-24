@@ -47,6 +47,21 @@ hosted-verifier secret. Its policy, "Comprobación de mayoría de edad (demo)", 
 `scripts/register-age-check.mjs`. It requests `birthdate` and returns only `over_18`. It has to be
 listed in both `HOSTED_VERIFIER_POLICIES` and `DEMO_BANK_POLICIES` (`edad=<id>`).
 
+## Scheduled checks and the nightly reset (ADR 0010 §3)
+
+systemd timers, whose units are in `files/`:
+
+| Timer | What |
+|---|---|
+| `edtp-negative-checks` | Every 15 minutes, `scheduled-checks.sh`: the public negative checks. **An exposure (a forbidden path answering other than 404) stops the tunnel**, taking every demo hostname offline until a person has looked. An unreachable host only alerts. The last result is in `/var/lib/edtp-status/checks.json`, shown on the portal's `/operador` |
+| `edtp-nightly` | 03:30 Europe/Madrid, `nightly-reset.sh`: back to the `generic` profile, application containers recreated (never the databases or the engine, whose status lists issued credentials depend on), old images pruned, then the checks |
+
+Alerts go to the journal (`journalctl -t edtp-checks`). If `~/.edtp/alerts.env` sets `ALERT_WEBHOOK_URL`,
+they are also POSTed there, for example to a push-notification topic. The message carries no path,
+address or secret.
+
+After a stop: find the cause, fix it, then `sudo systemctl start cloudflared` and run the checks by hand.
+
 ## Branding profiles (ADR 0010 §2)
 
 `profiles/generic.env` is the public default. `profiles/fnmt-corpme.env` is a client profile; switch it

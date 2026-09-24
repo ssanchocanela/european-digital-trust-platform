@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { clientKey, RateLimiter } from "@edtp/shared";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -43,6 +44,9 @@ import {
  */
 
 const schema = z.object({
+  /** Per-client limits per minute (ADR 0010 §3); `0` disables. POSTs are what create platform work. */
+  PID_FORM_RATE_POST_PER_MIN: z.coerce.number().int().min(0).default(20),
+  PID_FORM_RATE_GET_PER_MIN: z.coerce.number().int().min(0).default(120),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   /** Not `PORT`, for the reason `apps/test-start` gives: one environment configures several processes. */
   PID_FORM_PORT: z.coerce.number().int().min(1).max(65_535).default(3202),
@@ -272,6 +276,29 @@ const main = (): void => {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.urlencoded({ extended: false, limit: "16kb" }));
+
+  // Per-client limits, before any route: a flood gets a 429 and never reaches the platform.
+  const postLimit = new RateLimiter({
+    max: config.PID_FORM_RATE_POST_PER_MIN,
+    windowMs: 60_000,
+  });
+  const getLimit = new RateLimiter({ max: config.PID_FORM_RATE_GET_PER_MIN, windowMs: 60_000 });
+  app.use((request, response, next) => {
+    const limiter = request.method === "POST" ? postLimit : getLimit;
+    const decision = limiter.take(clientKey(request.headers, request.socket.remoteAddress));
+    if (decision.allowed) return next();
+    secureHeaders(response);
+    response.setHeader("retry-after", String(decision.retryAfterSeconds));
+    response
+      .status(429)
+      .send(
+        renderMessage(
+          BRANDS["demo"] as Brand,
+          "Demasiadas solicitudes",
+          "Espere un minuto e inténtelo de nuevo.",
+        ),
+      );
+  });
 
   // The images, and nothing else static. The emblems are the Credential Issuers' logos in the wallet.
   for (const name of IMAGES) {

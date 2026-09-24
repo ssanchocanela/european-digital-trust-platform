@@ -136,6 +136,9 @@ importers:
 
   apps/demo-bank:
     dependencies:
+      '@edtp/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       express:
         specifier: 5.1.0
         version: 5.1.0
@@ -193,6 +196,9 @@ importers:
 
   apps/pid-form:
     dependencies:
+      '@edtp/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       express:
         specifier: 5.1.0
         version: 5.1.0
@@ -258,6 +264,9 @@ importers:
 
   apps/test-gateway:
     dependencies:
+      '@edtp/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       zod:
         specifier: 3.25.76
         version: 3.25.76

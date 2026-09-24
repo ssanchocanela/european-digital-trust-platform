@@ -8,6 +8,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
+    "@edtp/shared": "workspace:*",
     "zod": "3.25.76"
   }
 }

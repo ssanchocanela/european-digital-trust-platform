@@ -1,4 +1,5 @@
 import http from "node:http";
+import { clientKey, RateLimiter } from "@edtp/shared";
 import { z } from "zod";
 import { ENGINE_RULES, isAllowed, PLATFORM_RULES, type Rule } from "./allow-list.js";
 import { hostedFormGate } from "./hosted-form-gate.js";
@@ -93,6 +94,14 @@ const schema = z.object({
    * 0, the default, is off.
    */
   GATEWAY_ATTESTATION_SKEW_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(0),
+  /**
+   * Per-client limits, per minute (ADR 0010 §3); `0` disables one. The general limit counts every
+   * request, refused ones included, so probing for paths is limited too. The other two cover what makes
+   * the engine do real work: issuance (PAR, token, nonce, credential) and presentation responses.
+   */
+  GATEWAY_RATE_GENERAL_PER_MIN: z.coerce.number().int().min(0).default(300),
+  GATEWAY_RATE_ISSUANCE_PER_MIN: z.coerce.number().int().min(0).default(30),
+  GATEWAY_RATE_PRESENTATION_PER_MIN: z.coerce.number().int().min(0).default(30),
   GATEWAY_BIND_HOST: z.string().min(1).default("127.0.0.1"),
 });
 
@@ -140,6 +149,37 @@ const deny = (
   response.end('{"error":"not_found"}');
 };
 
+/** The work-heavy classes the per-minute limits distinguish. */
+const ISSUANCE_ENDPOINT =
+  /^\/issuers\/[A-Za-z0-9._-]+\/(authorize\/(par|token)|vci\/(credential|nonce|deferred_credential))$/;
+const PRESENTATION_ENDPOINT = /^\/presentations\/[^/]+\//;
+
+/** One set of limiters per proxy (engine, platform), created on first use. */
+type Limits = Record<"general" | "issuance" | "presentation", RateLimiter>;
+const limitSets = new Map<string, Limits>();
+const limitsOf = (name: string, config: GatewayConfig): Limits => {
+  let set = limitSets.get(name);
+  if (!set) {
+    const perMinute = (max: number) => new RateLimiter({ max, windowMs: 60_000 });
+    set = {
+      general: perMinute(config.GATEWAY_RATE_GENERAL_PER_MIN),
+      issuance: perMinute(config.GATEWAY_RATE_ISSUANCE_PER_MIN),
+      presentation: perMinute(config.GATEWAY_RATE_PRESENTATION_PER_MIN),
+    };
+    limitSets.set(name, set);
+  }
+  return set;
+};
+
+const rateLimited = (response: http.ServerResponse, retryAfterSeconds: number): void => {
+  response.writeHead(429, {
+    "content-type": "application/json",
+    "retry-after": String(retryAfterSeconds),
+    "cache-control": "no-store",
+  });
+  response.end('{"error":"rate_limited"}');
+};
+
 /** Endpoints that verify a client attestation: pushed authorization and token. */
 const ATTESTED_ENDPOINT = /^\/issuers\/[A-Za-z0-9._-]+\/authorize\/(par|token)$/;
 
@@ -151,6 +191,15 @@ const createProxy = (
 ): http.Server =>
   http.createServer(async (request, response) => {
     const method = request.method ?? "GET";
+    const who = clientKey(request.headers, request.socket.remoteAddress);
+    const limits = limitsOf(name, config);
+    const general = limits.general.take(who);
+    if (!general.allowed) {
+      // The address is personal data and is not logged; the path class is enough to see a pattern.
+      log("rate limited", { target: name, class: "general" });
+      rateLimited(response, general.retryAfterSeconds);
+      return;
+    }
     // Parsed against a dummy base so the pathname is separated from the query. Matching the raw URL
     // would let `?x=/allowed/path` influence the decision.
     let pathname: string;
@@ -164,6 +213,22 @@ const createProxy = (
     if (!isAllowed(rules, method, pathname)) {
       deny(response, "not_on_allow_list", { target: name, method, path: pathname });
       return;
+    }
+
+    if (name === "engine" && method === "POST") {
+      const cls = ISSUANCE_ENDPOINT.test(pathname)
+        ? "issuance"
+        : PRESENTATION_ENDPOINT.test(pathname)
+          ? "presentation"
+          : undefined;
+      if (cls) {
+        const d = limits[cls].take(who);
+        if (!d.allowed) {
+          log("rate limited", { target: name, class: cls });
+          rateLimited(response, d.retryAfterSeconds);
+          return;
+        }
+      }
     }
 
     let forwardUrl = request.url ?? "/";

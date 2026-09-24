@@ -110,6 +110,33 @@ const schema = z.object({
    * identification step — built by the platform, never taken from a request.
    */
   HOSTED_FORM_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
+  /**
+   * A **hosted verifier**: a demonstration Relying Party page (`apps/demo-bank`) that asks a wallet to
+   * present and shows the outcome. It holds this one secret, accepted only for the presentation
+   * policies in `HOSTED_VERIFIER_POLICIES` (`tenantId:presentationPolicyId`, comma-separated), never a
+   * tenant key. The wallet's same-device return is sent to `HOSTED_VERIFIER_PUBLIC_URL`, built by the
+   * platform — the same rule as the hosted form's. All three unset: off.
+   */
+  HOSTED_VERIFIER_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  HOSTED_VERIFIER_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
+  HOSTED_VERIFIER_POLICIES: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const out: { tenantId: string; policyId: string }[] = [];
+      for (const entry of value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)) {
+        const [tenantId, policyId, extra] = entry.split(":");
+        if (!tenantId || !policyId || extra !== undefined) {
+          ctx.addIssue({ code: "custom", message: `not a tenantId:policyId entry: ${entry}` });
+          return z.NEVER;
+        }
+        out.push({ tenantId, policyId });
+      }
+      return out;
+    }),
   /** The secret the hosted form presents when it submits. */
   HOSTED_FORM_SECRET: unsetIfEmpty(z.string().min(32).optional()),
   /**
@@ -246,6 +273,16 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
     // mint its own passes and the gateway's check would prove nothing.
     throw new Error(
       "Invalid environment configuration:\n  HOSTED_FORM_AUTHORIZE_SECRET must differ from HOSTED_FORM_SECRET",
+    );
+  }
+  if (
+    d.HOSTED_VERIFIER_SECRET &&
+    (d.HOSTED_VERIFIER_SECRET === d.HOSTED_FORM_SECRET ||
+      d.HOSTED_VERIFIER_SECRET === d.HOSTED_FORM_AUTHORIZE_SECRET)
+  ) {
+    // Each public process holds its own secret, so one compromised page opens only its own policies.
+    throw new Error(
+      "Invalid environment configuration:\n  HOSTED_VERIFIER_SECRET must differ from the hosted form's secrets",
     );
   }
   if (

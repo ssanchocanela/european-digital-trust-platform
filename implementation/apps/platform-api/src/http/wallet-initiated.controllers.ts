@@ -314,6 +314,101 @@ export class HostedFormController {
   }
 }
 
+export const HOSTED_VERIFIER_SECRET_HEADER = "x-edtp-verifier-secret";
+
+/**
+ * The hosted verifier — a demonstration Relying Party page that asks a wallet to present and shows
+ * the outcome, used to exercise the platform's attestations the way a customer would.
+ *
+ * The page is public and holds no tenant key: one secret, accepted only for the presentation policies
+ * configured for it. The platform creates the presentation, `SAME_DEVICE`, and decides where the
+ * wallet's return goes — the page's configured origin, keyed by presentation id — so neither a visitor
+ * nor the page can point that redirect anywhere else.
+ */
+@ApiExcludeController()
+@Public()
+@Controller("v1/hosted-verifications")
+export class HostedVerifierController {
+  constructor(
+    @Inject(CONFIG_TOKEN) private readonly config: PlatformConfig,
+    @Inject(PRESENTATION_SERVICE) private readonly presentations: PresentationService,
+    @Inject(HOSTED_FORM_RETURNS) private readonly returns: HostedFormReturns,
+  ) {}
+
+  @Post(":policyId")
+  @HttpCode(201)
+  async start(
+    @Headers(HOSTED_VERIFIER_SECRET_HEADER) secret: string | undefined,
+    @Param("policyId") policyId: string,
+  ) {
+    const binding = this.authorise(secret, policyId);
+    const origin = this.config.HOSTED_VERIFIER_PUBLIC_URL;
+    if (!origin) {
+      throw PlatformError.conflict(
+        "hosted_verifier_not_configured",
+        "The hosted verifier has no public origin to return the wallet to.",
+      );
+    }
+    const view = await this.presentations.create({
+      tenantId: asId<"TenantId">(binding.tenantId),
+      policyId: asId<"PresentationPolicyId">(binding.policyId),
+      businessReference: "hosted-verifier",
+      interactionType: "SAME_DEVICE",
+      correlationId: newCorrelationId(),
+    });
+    const next = new URL("resultado", origin.endsWith("/") ? origin : `${origin}/`);
+    next.searchParams.set("policy", binding.policyId);
+    next.searchParams.set("presentation", view.presentationId);
+    this.returns.remember(view.presentationId, next.toString(), view.expiresAt);
+    return {
+      presentationId: view.presentationId,
+      walletUri: view.interaction?.uri,
+      expiresAt: view.expiresAt,
+    };
+  }
+
+  /**
+   * The outcome, and — once verified — the claims the policy's result emits, for the page the person
+   * is looking at. Content, returned to that page and nowhere else; the page does not keep it.
+   */
+  @Get(":policyId/:presentationId")
+  async outcome(
+    @Headers(HOSTED_VERIFIER_SECRET_HEADER) secret: string | undefined,
+    @Param("policyId") policyId: string,
+    @Param("presentationId") presentationId: string,
+  ) {
+    const binding = this.authorise(secret, policyId);
+    assertUuidPathParam("presentationId", presentationId);
+    const view = await this.presentations.get(
+      asId<"TenantId">(binding.tenantId),
+      asId<"PresentationId">(presentationId),
+      newCorrelationId(),
+    );
+    if (view.policyId !== binding.policyId) throw PlatformError.notFound("Presentation");
+    return {
+      status: view.status,
+      ...(view.status === "VERIFIED" && view.result ? { claims: view.result.claims } : {}),
+      ...(view.failureCode ? { failureCode: view.failureCode } : {}),
+    };
+  }
+
+  private authorise(presented: string | undefined, policyId: string) {
+    const expected = this.config.HOSTED_VERIFIER_SECRET;
+    if (!expected || !presented || !constantTimeEquals(presented, expected)) {
+      throw PlatformError.unauthenticated();
+    }
+    assertUuidPathParam("policyId", policyId);
+    const binding = this.config.HOSTED_VERIFIER_POLICIES.find((b) => b.policyId === policyId);
+    if (!binding) {
+      throw PlatformError.forbidden(
+        "hosted_verifier_policy_not_allowed",
+        "This presentation policy is not open to the hosted verifier.",
+      );
+    }
+    return binding;
+  }
+}
+
 @ApiExcludeController()
 @Public()
 @Controller("internal/engine")

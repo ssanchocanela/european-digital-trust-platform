@@ -21,6 +21,7 @@ import {
 import {
   EngineAttributesController,
   HostedFormController,
+  HostedVerifierController,
 } from "./http/wallet-initiated.controllers.js";
 import {
   API_KEY_REPOSITORY,
@@ -70,6 +71,7 @@ export class AppModule {
         TransactionListingController,
         HealthController,
         HostedFormController,
+        HostedVerifierController,
         EngineAttributesController,
       ],
       providers: [

@@ -1,3 +1,4 @@
+import { CLAIM_VALUE_TYPES } from "@edtp/domain";
 import { z } from "zod";
 
 /**
@@ -297,6 +298,21 @@ export const provisionAttestationProviderSchema = z
       privateKeyJwk: z.record(z.string(), z.unknown()),
       certificateChain: z.array(z.string().min(1)).min(1),
     }),
+    /**
+     * The provider's **own** access certificate, required only when one of its issuance policies
+     * gates on a presentation (§7.3).
+     *
+     * In that exchange the issuer is the Relying Party: it signs the presentation request itself,
+     * and a Wallet accepts only an access certificate chaining to a notified anchor
+     * (`AS-WP-06-005` / `RPA_04`). It is therefore not the Relying Party Service's certificate, and
+     * there had been no way to supply it — `interop-findings.md` A22.
+     */
+    accessCertificate: z
+      .object({
+        privateKeyJwk: z.record(z.string(), z.unknown()),
+        certificateChain: z.array(z.string().min(1)).min(1),
+      })
+      .optional(),
     /** ARF §6.6.2.2. Absent in V0 (blocker B3); the omission is reported, never faked. */
     registrationCertificateJwt: z.string().min(1).optional(),
     /**
@@ -333,7 +349,7 @@ export const createCredentialTypeSchema = z
           path: z.array(z.string().min(1)).min(1),
           display: z.array(localisedTextSchema).min(1),
           mandatory: z.boolean().default(true),
-          valueType: z.enum(["string", "number", "boolean", "date"]),
+          valueType: z.enum(CLAIM_VALUE_TYPES),
         }),
       )
       .min(1),
@@ -341,6 +357,12 @@ export const createCredentialTypeSchema = z
     validitySeconds: z.number().int().positive(),
     statusMechanism: z.enum(["TOKEN_STATUS_LIST", "NONE"]).default("TOKEN_STATUS_LIST"),
     requiresKeyBinding: z.boolean().default(true),
+    /**
+     * JSON Schema (2020-12) the assembled claims must satisfy, checked against `{ vct, ...claims }`
+     * before issuance. Compiled when the type is created, so a schema that cannot be compiled is
+     * refused here rather than at the first issuance.
+     */
+    payloadSchema: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 
@@ -370,6 +392,14 @@ export const createIssuancePolicyVersionSchema = z
       statusListEnabled: z.boolean().default(true),
       suspensionAllowed: z.boolean().default(false),
     }),
+    /** ARF `ISSU_38`/`ISSU_50`: how often one credential may be presented. Absent: none published. */
+    reusePolicy: z
+      .object({
+        method: z.literal("LIMITED_TIME"),
+        reissueBeforeExpirySeconds: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
     retentionPolicy: z
       .object({
         transactionLifetimeSeconds: z.number().int().positive().default(300),
@@ -392,9 +422,29 @@ export const createIssuanceSchema = z
      * issuing claims nobody authoritative asserted.
      */
     subjectReference: z.string().min(1).max(200),
+    /**
+     * Attribute values — the **one exception** to the rule above, accepted only when the policy's
+     * authentic source is `operator-form`, a `FIXTURE` for issuing synthetic test data in `TEST`.
+     * Refused for every other source. Content: never persisted, never logged, never returned.
+     */
+    subjectAttributes: z
+      .record(z.string().min(1).max(200), z.unknown())
+      .refine((value) => Object.keys(value).length <= 64, "At most 64 attributes.")
+      .optional(),
     businessReference: z.string().min(1).max(200).optional(),
     callbackUrl: z.string().url().optional(),
   })
+  .strict();
+
+/**
+ * Retiring an issuance policy, or bringing one back.
+ *
+ * Reversible on purpose, and the contrast with `changeCredentialStatusSchema` below is the point: a
+ * revoked attestation stays revoked, because revocation is a statement about a credential somebody
+ * holds. Retiring a policy only stops new transactions starting.
+ */
+export const setIssuancePolicyStatusSchema = z
+  .object({ status: z.enum(["ACTIVE", "RETIRED"]) })
   .strict();
 
 export const changeCredentialStatusSchema = z

@@ -13,6 +13,12 @@ Everything — code, documentation, comments, commit messages, PR descriptions �
 Work only inside this repository. EUDIPLO, the EUDI Reference Implementation and the ARF are read for
 investigation only: **never forked, never modified**.
 
+**One exception, decided 24 September 2026:** an **upstream contribution** to EUDIPLO — batch issuance
+with an `attestation` proof (`docs/interop-findings.md` A34) — may be prepared as a pull request from a
+personal fork **outside this repository**, once the maintainers have accepted the issue
+(`docs/upstream/eudiplo-batch-attestation-proof.md`). The engine this platform runs stays the pinned
+release image until an upstream release contains the change. Never run a patched engine.
+
 Three phases with human checkpoints. Do not skip a checkpoint.
 
 | Phase | Branch | Ends with |
@@ -272,7 +278,12 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     `docs/interop-findings.md` A9 and A11.
 15. **A database constraint violation is a client error, not a server error.** PostgreSQL class 23
     codes are translated in `error.filter.ts`: `23505` to a `409` naming the **constraint**, never
-    PostgreSQL's `detail`, which embeds the offending values. And an unhandled throw logs its
+    PostgreSQL's `detail`, which embeds the offending values. **The driver wraps the error**: Drizzle
+    0.44 throws its own `Error: Failed query: …` and hangs the `pg` error off `cause`, so the code
+    has to be found by walking that chain — reading it off the exception finds nothing and every
+    violation becomes a `500`, which is what happened until 13 September 2026. The test that covers
+    it provokes a real duplicate insert, because one that hand-builds `{code: "23505"}` would pass
+    throughout the regression. And an unhandled throw logs its
     message and a capped stack — through the redactor, which strips denied keys — because a 500
     that logs only `{"errorName":"Error"}` cannot be diagnosed. Both found by running the stack.
 16. **Issuer trust is two separate gates, and neither is satisfied.** (a) ARF §6.6.2.2, pre-issuance
@@ -302,7 +313,12 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     client-credentials secret. Never tunnel a whole port: use the default-deny path allow-list in
     [`docs/test-session-gateway.md`](docs/test-session-gateway.md), run its negative checks before any
     wallet interaction, and treat a `401` on an `/api/*` probe as a failure — it proves the endpoint
-    is reachable. A tunnel is hand-started, open only during a session, synthetic data only.
+    is reachable. A tunnel **from a laptop** is hand-started, open only during a session, synthetic
+    data only. The **permanent demonstration environment** is the one exception
+    ([ADR 0010](docs/adr/0010-permanent-demonstration-environment.md), accepted 24 September 2026). It
+    runs its own tunnel from its VM, always on, with the same allow-list, plus edge rate limits,
+    scheduled negative checks and a nightly reset. **Every deployment to it is confirmed by the user
+    first.**
 21. **Gate (a) is one mechanism, and G1 and G8 are one fix.** ETSI TS 119 472-3 V1.1.1 routes all of
     it through a single JWS: the metadata **shall** be signed (`ISS-MDATA-4.2.1-01`), the signing
     certificate **shall be the access certificate** (`-02`), it travels in the `x5c` protected header
@@ -321,7 +337,13 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     `eu.europa.ec.euidi.edtptest`, our own signing key (`OU=TEST ONLY`), a banner on every screen, and
     `BuildConfig.EDTP_DEVIATIONS` naming what is compiled in. Every deviation defaults to upstream
     behaviour and `build.sh` **refuses** a deviation flag it cannot honestly honour. Never write "the
-    Reference Wallet" about a result from it, and never commit or publish the APK.
+    Reference Wallet" about a result from it, and never commit the APK. **Publishing it** is allowed
+    in one form only, decided 24 September 2026. It must be a **release** build signed with our own key,
+    never a debug build: the debug build logs HTTP bodies, which include PID contents. It is offered
+    **behind Cloudflare Access** on the demonstration portal, never publicly and never on Google Play.
+    It must carry the EUPL 1.2 terms of the upstream wallet: the notices, a statement that it is
+    modified and how, and a link to `tools/test-wallet/` as the source. The EUPL reading awaits legal
+    confirmation. `docs/demo-hosting-proposal.md` §7.
 ---
 
 ## 7. Trust environment
@@ -430,6 +452,9 @@ migrations up from an empty database.
 
 | | |
 |---|---|
+| **Where the work stands, and the next action** | [`docs/status.md`](docs/status.md) — **read this first**; it carries what the code and the git history do not |
+| **Showing it to someone**, and the sentences that would be untrue | [`docs/demonstration-script.md`](docs/demonstration-script.md) — read §5 before any demonstration, slide or follow-up email |
+| Prerequisites, and moving to another machine (Windows → WSL2) | [`docs/development-setup.md`](docs/development-setup.md) |
 | Phase 0 findings, blockers, open questions | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) |
 | Test wallet: build tooling, deviation register, install + first PID sheet | [`tools/test-wallet/`](tools/test-wallet/) — and [`docs/test-wallet-plan.md`](docs/test-wallet-plan.md) for the W0 investigation it was built from |
 | Public exposure for a phone test, and the G7 evaluation | [`docs/test-session-gateway.md`](docs/test-session-gateway.md) — the allow-list governs both deployments; [`docs/test-session-vm.md`](docs/test-session-vm.md) is the disposable-VM alternative, recommended for any recorded result |
@@ -437,7 +462,7 @@ migrations up from an empty database.
 | Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
-| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
+| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
 
 Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
 checkpoint**: Q1 → **Path A** — enrol a real access certificate at the reference RP Registration

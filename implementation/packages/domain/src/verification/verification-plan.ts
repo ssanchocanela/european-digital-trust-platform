@@ -271,3 +271,63 @@ export const compilePresentationPolicy = (input: CompilerInput): VerificationPla
 
   return deepFreeze(plan);
 };
+
+/**
+ * What an **Attestation Provider** needs in order to ask for a presentation before issuing.
+ *
+ * The §7.3 stretch goal reuses a verification policy as an eligibility gate. What gets reused is the
+ * policy's **content** — the credential requirement, the claims, the status-check mode — and not the
+ * Relying Party Instance's engine objects. That distinction is the whole of `interop-findings.md`
+ * A22: the presentation configuration was written to the Relying Party Instance's engine tenant and
+ * read back on the Attestation Provider's, which are the same only on a development stack where one
+ * engine tenant happens to serve both roles.
+ *
+ * So the issuer writes its own presentation configuration, on its own engine tenant, signed with its
+ * own access certificate — because in that exchange the issuer *is* the Relying Party, and
+ * `AS-WP-06-005` (`RPA_04`) makes the Wallet check the certificate that signed the request, not
+ * whichever organisation authored the policy.
+ *
+ * Deliberately not a `VerificationPlan`. A plan carries a Relying Party context — identifiers, trade
+ * name, intended use, that party's access certificate — and none of it belongs to the issuer. A type
+ * that carried it would invite exactly the confusion A22 records.
+ */
+export interface EligibilityPresentation {
+  readonly policyId: string;
+  readonly policyVersion: number;
+  readonly credentialRequirement: PlanCredentialRequirement;
+  readonly requestedClaims: readonly RequestedClaim[];
+  readonly statusCheckMode: TrustPolicy["statusCheckMode"];
+  readonly anchorSources: TrustPolicy["anchorSources"];
+}
+
+/**
+ * Derives the eligibility presentation from a published policy version and its intended use.
+ *
+ * The intended use is required rather than optional: `vct_values` come from the **registered**
+ * credentials, so a DCQL query built without it would request a credential type the Relying Party
+ * never registered for. The verification side has taken that position since Milestone 1 and this
+ * reuses the same derivation rather than a second one that would drift.
+ */
+export const compileEligibilityPresentation = (input: {
+  readonly policyVersion: PresentationPolicyVersion;
+  readonly intendedUse: IntendedUse;
+}): EligibilityPresentation => {
+  const { policyVersion, intendedUse } = input;
+  if (policyVersion.status !== "PUBLISHED") {
+    throw PlatformError.conflict(
+      "eligibility_policy_not_published",
+      "Only a published presentation policy version can gate issuance.",
+    );
+  }
+  return {
+    policyId: policyVersion.policyId,
+    policyVersion: policyVersion.version,
+    credentialRequirement: planRequirement(
+      soleCredentialRequirement(policyVersion),
+      intendedUse,
+    ),
+    requestedClaims: dedupeRequestedClaims(policyVersion.requestedClaims),
+    statusCheckMode: policyVersion.trustPolicy.statusCheckMode,
+    anchorSources: policyVersion.trustPolicy.anchorSources,
+  };
+};

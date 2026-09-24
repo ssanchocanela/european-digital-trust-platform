@@ -1,8 +1,25 @@
 # Test-session gateway — design
 
-**Nothing is exposed yet.** This is the design, written before anything is opened, because the single
-largest operational risk in the wallet workstream is putting a tunnel in front of port 3000 and
-publishing the engine's management API by accident.
+**This was the design, written before anything was opened.** It is kept as written; what changed is
+recorded in the box below.
+
+> **Status, 12 September 2026: built, and run.** The allow-list in §1 is now enforced code in
+> [`apps/test-gateway`](../apps/test-gateway/), the session is opened by
+> [`scripts/test-session-tunnel.sh`](../scripts/test-session-tunnel.sh), and a session **has been
+> opened** — the fourteen negative checks in §4 all returned `404` over the public hostnames, and a
+> wallet-facing signed request object was fetched over public HTTPS. Blocker **B5** is closed.
+>
+> One thing the design did not anticipate, in §2: a Cloudflare **quick tunnel** — the kind needing no
+> account and no domain — has no path-level ingress rules. It forwards every path on its hostname to one
+> port, which pointed at the engine would publish `/api/*` outright. So the filtering happens in a
+> reverse proxy **in front of** the tunnel rather than in the tunnel's own configuration. Named tunnels
+> with `ingress` rules still work as sketched, and need an account and a domain.
+>
+> One operational surprise: a quick tunnel can register successfully and be handed a hostname that
+> answers `NXDOMAIN` indefinitely. The script now verifies DNS and retries rather than waiting it out.
+
+The design exists because the single largest operational risk in the wallet workstream is putting a
+tunnel in front of port 3000 and publishing the engine's management API by accident.
 
 A phone cannot reach `localhost`, and the wallet refuses cleartext
 (`network_security_config.xml`: `<base-config cleartextTrafficPermitted="false" />`). So a wallet test
@@ -82,14 +99,70 @@ host.
 
 An allow-list that lives in a document is a wish. It must be enforced at the edge:
 
+0. **`apps/test-gateway` is the enforcement.** The rules in §1a and §1b are its
+   [`allow-list.ts`](../apps/test-gateway/src/allow-list.ts), default-deny with a `404`, the method part
+   of the decision, patterns anchored at both ends, and the path normalised *before* it is matched —
+   deciding on an un-normalised path is the classic hole. Eleven unit tests probe it the way an attacker
+   would: `/api/*` under five methods, traversal in both directions, percent-encoded traversal, an
+   identifier containing a separator, and a query string smuggling an allowed path. The negative probes
+   of §4 live in that same file, and a test asserts they are genuinely refused — so a carelessly added
+   rule and the check that would catch it are reviewed together.
 1. **Keep the compose bindings as they are** — `127.0.0.1:3000` and `127.0.0.1:3100`. The tunnel
-   connects to localhost on the host; nothing else can.
+   connects to the gateway, the gateway connects to localhost; nothing else can.
 2. **Two tunnel hostnames**, one per service, so an engine path can never resolve on the platform host
    or the reverse.
 3. **Path allow-list in the gateway** (the reverse proxy in front of the tunnel, or the tunnel's own
    ingress rules), expressed as anchored regexes with a default-deny terminal rule.
 4. **A closing assertion**: before any wallet interaction, run the negative checks in §4 against the
    public hostnames. A tunnel is trusted only after it has been shown to refuse the things it must.
+
+### 1e. The hosted-form gate — wallet-initiated issuance (24 September 2026)
+
+A wallet built with WD-5 starts an issuance from its own list of issuers: it pushes an authorization
+request to the engine and opens the browser at `/issuers/{tenant}/authorize`. **The engine's built-in
+authorization server mints a code for whoever arrives there** — it has no page and no hook — so the
+person's form must stand in front of it, and the gateway is where it can.
+
+For the engine tenants in `GATEWAY_HOSTED_FORM_TENANTS` (`pid-1`, `rpi-1`):
+
+- a `GET` to that path **without a valid pass** is answered `302` to the hosted form
+  (`edtp-pid.murcata.es`, `apps/pid-form`), carrying `request_uri` and `client_id` only;
+- **with a valid pass** it goes on to the engine, the pass stripped. The pass is an HMAC over the tenant
+  and that `request_uri`, which the platform returns to the form on a valid submission and only the
+  platform and the gateway can compute (`HOSTED_FORM_AUTHORIZE_SECRET`, never given to the form);
+- a request with no `request_uri` is refused.
+
+The form is a **fourth public hostname**, a separate process holding one secret that the platform
+accepts only for the policies configured for it. It serves the form and two images; the negative
+checks probe it too. The values typed reach the engine only through the platform's attribute provider,
+on the internal network, once. `tests/unit/hosted-form-pass.test.ts`.
+
+**Identify, then request (`rpi-1`, CORPME look).** For a policy whose `HOSTED_FORM_POLICIES` entry
+names an identifying presentation policy, the form types nothing: it starts a `SAME_DEVICE`
+presentation of the PID, the wallet presents mid-issuance, and its return comes back through the
+platform's `/v1/presentations/{id}/return` (already on the allow-list) into the form's `/continuar`.
+**That redirect is not an open one:** the platform builds the destination from
+`HOSTED_FORM_PUBLIC_URL` when it creates the presentation and looks it up by presentation id; nothing
+in the return request chooses it. The form then shows what the attestation will state and submits
+with the presentation id. No new public path. `tests/unit/hosted-form-identify.test.ts`.
+
+**The demonstration bank — a fifth public hostname (`edtp-banco.murcata.es`, `apps/demo-bank`).** A
+fictional Relying Party page, "Banco Demo", for presenting the representation credentials. It holds
+one secret, `HOSTED_VERIFIER_SECRET` — distinct from the form's; the platform refuses to start if they
+match — accepted only for `HOSTED_VERIFIER_POLICIES`, via `/v1/hosted-verifications`. The wallet's
+return comes back through the platform's `/v1/presentations/{id}/return`, which sends the browser to
+the bank's `/resultado` by the same rule as the form: destination built from configuration, looked up by
+presentation id. The negative checks probe its host with the form's list, which now includes
+`/v1/hosted-verifications`. `tests/unit/demo-bank.test.ts`; `security-limitations.md` P7.
+
+**What the gate does not do:** make the engine's `/authorize` safe on its own. Without the gateway —
+the engine exposed directly — the form is skipped, and the platform then has no values for that
+session, so nothing is issued. That is the failure mode, not a design.
+
+**Clock skew.** With `GATEWAY_PINNED_WALLET_COMPAT=true` the gateway also holds a `POST` to an issuer's
+`/authorize/par` or `/authorize/token` for `GATEWAY_ATTESTATION_SKEW_DELAY_MS` (3000). The engine checks
+a client attestation's `nbf` with zero tolerance (`interop-findings.md` A29, item 4) and the test phone's
+clock ran 2.2 s fast; PAR was refused until the delay was added. Timing only; nothing is rewritten.
 
 ## 2. How the stack is reached — two options, and this document governs both
 
@@ -116,6 +189,33 @@ Cloudflare terminating TLS puts a third party inside the thing under test.
 the credential offer and request URIs, so changing it afterwards breaks sessions already in a wallet.
 The same applies to `PLATFORM_PUBLIC_URL` for the same-device return URL. So the order is: start the
 tunnel, learn the hostnames, set both variables, **then** `docker compose up`, then create sessions.
+
+### The named tunnel, and why it replaced quick tunnels (23 September 2026)
+
+**The hostname has to outlive the session, not only the session's start.** The engine writes its public
+URL into every attestation it issues — the Token Status List URI — so an attestation issued through a
+quick tunnel pointed its status at a hostname that ceased to exist when the session closed. The first
+Power of X verification, in the next session, failed on exactly that: *Failed to fetch status list …
+530*. No attestation issued through a quick tunnel can have its status checked afterwards.
+
+So sessions now run on a **named tunnel, `edtp-dev`**, with fixed hostnames on `murcata.es` —
+`edtp-engine`, `edtp-platform`, `edtp-start`. `scripts/test-session-tunnel.sh` uses it whenever
+`~/.edtp/named-tunnel.env` exists; its ingress is `~/.edtp/edtp-dev-tunnel.yml`. The engine's hostname
+routes to the **gateway** (3010), never to the engine's port, so the allow-list in §1 still does the
+filtering and the negative checks still run before any wallet interaction. The tunnel process still
+runs only during a session; between sessions the hostnames answer Cloudflare's 1033.
+
+**Two traps, both met on the day:**
+
+- **`~/.cloudflared/config.yml` wins over the tunnel name you type.** On this host it belongs to
+  another project's named tunnel. Every `cloudflared tunnel …` command reads it, so
+  `tunnel route dns edtp-dev <host>` silently routed the hostnames to *that* tunnel, and
+  `tunnel info edtp-dev` printed the other tunnel. Always pass `--config ~/.edtp/edtp-dev-tunnel.yml`;
+  the script does. The same file had already been answering every quick tunnel with a bare 404.
+- **A new hostname can be cached as nonexistent for half an hour.** Resolving it before its record
+  exists leaves an NXDOMAIN in the router's and public resolvers' caches for the zone's negative TTL
+  (1800 s on `murcata.es`). The negative checks then see nothing at all — which the script now reports
+  as "could not run", closing the tunnels, rather than as something exposed.
 
 A sketch of the ingress, to be written properly when a session is actually prepared:
 

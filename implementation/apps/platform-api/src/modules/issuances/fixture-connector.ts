@@ -22,6 +22,11 @@ export class FixtureAuthenticSourceConnector implements AuthenticSourceConnector
   readonly name = "fixture";
   readonly kind = "FIXTURE" as const;
 
+  /** Safe to list, because they are invented. See the note on the interface. */
+  get sampleSubjectReferences(): readonly string[] {
+    return [...this.subjects.keys()];
+  }
+
   /**
    * Subjects this connector knows about.
    *

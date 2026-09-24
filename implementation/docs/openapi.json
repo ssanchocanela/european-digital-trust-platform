@@ -1,0 +1,1132 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v1/tenants": {
+      "post": {
+        "operationId": "TenantController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a tenant (administrative)",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}": {
+      "get": {
+        "operationId": "TenantController_get",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read a tenant",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/organisations": {
+      "post": {
+        "operationId": "TenantController_createOrganisation",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register an Organisation",
+        "tags": [
+          "Tenants"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_organisations",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List organisations",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/relying-parties": {
+      "post": {
+        "operationId": "TenantController_createRelyingParty",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register a Relying Party (TEST registration data)",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/rp-services": {
+      "post": {
+        "operationId": "TenantController_createService",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register a Relying Party Service",
+        "tags": [
+          "Tenants"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_relyingPartyServices",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List Relying Party Services",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/rp-services/{serviceId}": {
+      "get": {
+        "operationId": "TenantController_getService",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read a Relying Party Service",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/rp-services/{serviceId}/intended-uses": {
+      "post": {
+        "operationId": "TenantController_createIntendedUse",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register an intended use",
+        "tags": [
+          "Tenants"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_intendedUses",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List the intended uses of one Relying Party Service",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/rp-services/{serviceId}/registration-certificates": {
+      "post": {
+        "operationId": "TenantController_recordRegistrationCertificate",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Record a registration certificate for one intended use",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/rp-services/{serviceId}/instance": {
+      "post": {
+        "operationId": "TenantController_provisionInstance",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Provision the Relying Party Instance and import its access certificate",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/presentation-policies": {
+      "post": {
+        "operationId": "PolicyController_create",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a presentation policy",
+        "tags": [
+          "Presentation policies"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_presentationPolicies",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List presentation policies",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/presentation-policies/{policyId}": {
+      "get": {
+        "operationId": "PolicyController_get",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read a presentation policy and its versions",
+        "tags": [
+          "Presentation policies"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/presentation-policies/{policyId}/versions": {
+      "post": {
+        "operationId": "PolicyController_createVersion",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a presentation policy version",
+        "tags": [
+          "Presentation policies"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/presentation-policies/{policyId}/versions/{version}/publish": {
+      "post": {
+        "operationId": "PolicyController_publish",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Publish a draft policy version",
+        "tags": [
+          "Presentation policies"
+        ]
+      }
+    },
+    "/v1/presentations": {
+      "post": {
+        "operationId": "PresentationController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create a presentation transaction",
+        "tags": [
+          "Presentations"
+        ]
+      },
+      "get": {
+        "operationId": "TransactionListingController_presentations",
+        "parameters": [
+          {
+            "name": "policyId",
+            "required": false,
+            "in": "query",
+            "description": "Narrows to one presentation policy.",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List presentation transactions. Metadata only — never a result",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/presentations/{presentationId}": {
+      "get": {
+        "operationId": "PresentationController_get",
+        "parameters": [
+          {
+            "name": "presentationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read a presentation transaction and its result",
+        "tags": [
+          "Presentations"
+        ]
+      }
+    },
+    "/v1/presentations/{presentationId}/cancel": {
+      "post": {
+        "operationId": "PresentationController_cancel",
+        "parameters": [
+          {
+            "name": "presentationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Cancel a presentation transaction",
+        "tags": [
+          "Presentations"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/attestation-providers": {
+      "post": {
+        "operationId": "IssuanceConfigurationController_createAttestationProvider",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Register an Organisation as an Attestation Provider (TEST)",
+        "tags": [
+          "issuance-configuration"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_attestationProviders",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List Attestation Providers",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/attestation-providers/{providerId}/provision": {
+      "delete": {
+        "operationId": "IssuanceConfigurationController_decommission",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "providerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Release the provider's engine tenant so another provider can be given it",
+        "tags": [
+          "issuance-configuration"
+        ]
+      },
+      "post": {
+        "operationId": "IssuanceConfigurationController_provision",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "providerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Provision the engine tenant, signing key and registration certificate",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/issuance-policies/{policyId}/status": {
+      "post": {
+        "operationId": "IssuanceConfigurationController_setIssuancePolicyStatus",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Retire an issuance policy, or bring a retired one back",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/issuance-capabilities": {
+      "get": {
+        "operationId": "IssuanceConfigurationController_issuanceCapabilities",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The eligibility rules and authentic sources this deployment can actually use",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/attestation-providers/{providerId}/provider-authentication": {
+      "get": {
+        "operationId": "IssuanceConfigurationController_providerAuthentication",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "providerId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "What a Wallet would see when authenticating this provider (ARF §6.6.2.2)",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/credential-types": {
+      "post": {
+        "operationId": "IssuanceConfigurationController_createCredentialType",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Define a credential type and the Rulebook that governs it",
+        "tags": [
+          "issuance-configuration"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_credentialTypes",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List credential types",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/credential-types/{credentialTypeId}": {
+      "get": {
+        "operationId": "IssuanceConfigurationController_getCredentialType",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "credentialTypeId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read a credential type",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/issuance-policies": {
+      "post": {
+        "operationId": "IssuanceConfigurationController_createPolicy",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create an issuance policy",
+        "tags": [
+          "issuance-configuration"
+        ]
+      },
+      "get": {
+        "operationId": "TenantListingController_issuancePolicies",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List issuance policies",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/issuance-policies/{policyId}": {
+      "get": {
+        "operationId": "IssuanceConfigurationController_getPolicy",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read an issuance policy and its versions",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/tenants/{tenantId}/issuance-policies/{policyId}/versions": {
+      "post": {
+        "operationId": "IssuanceConfigurationController_createVersion",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create, and optionally publish, an issuance policy version",
+        "tags": [
+          "issuance-configuration"
+        ]
+      }
+    },
+    "/v1/issuances": {
+      "post": {
+        "operationId": "IssuanceController_create",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Create an issuance and obtain a credential offer",
+        "tags": [
+          "issuances"
+        ]
+      },
+      "get": {
+        "operationId": "TransactionListingController_issuances",
+        "parameters": [
+          {
+            "name": "policyId",
+            "required": false,
+            "in": "query",
+            "description": "Narrows to one issuance policy.",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List issuance transactions",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/issuances/{issuanceId}": {
+      "get": {
+        "operationId": "IssuanceController_get",
+        "parameters": [
+          {
+            "name": "issuanceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Read an issuance transaction",
+        "tags": [
+          "issuances"
+        ]
+      }
+    },
+    "/v1/issued-credentials/{issuedCredentialId}/revoke": {
+      "post": {
+        "operationId": "IssuanceController_revoke",
+        "parameters": [
+          {
+            "name": "issuedCredentialId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Revoke an issued attestation. Irreversible — `AS-AP-07-007` (`VCR_04`)",
+        "tags": [
+          "issuances"
+        ]
+      }
+    },
+    "/v1/issued-credentials/{issuedCredentialId}/status": {
+      "post": {
+        "operationId": "IssuanceController_changeStatus",
+        "parameters": [
+          {
+            "name": "issuedCredentialId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Suspend or reinstate an issued attestation. `VALID` only from `SUSPENDED`",
+        "tags": [
+          "issuances"
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "IdentityController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The tenant the presented credential belongs to",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/issued-credentials": {
+      "get": {
+        "operationId": "TransactionListingController_issuedCredentials",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "List issued attestations. No status-list index, no engine reference",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/v1/presentations/{presentationId}/audit": {
+      "get": {
+        "operationId": "TransactionListingController_presentationAudit",
+        "parameters": [
+          {
+            "name": "presentationId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "The audit trail of one presentation. Evidence, never content",
+        "tags": [
+          "Listing"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "HealthController_health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "European Digital Trust Platform — Verification as a Service",
+    "description": "V0 business API. Customers work with presentation policies and transactions; protocol details (DCQL, OpenID4VP, engine sessions) are not part of this contract. No ARF or Technical Specification conformance and no production readiness is claimed.",
+    "version": "0.1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "Tenant API key"
+      }
+    },
+    "schemas": {}
+  }
+}

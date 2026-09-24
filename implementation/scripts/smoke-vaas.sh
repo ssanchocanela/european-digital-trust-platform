@@ -3,6 +3,15 @@
 # presentation, using nothing but curl.
 #
 #   PLATFORM_ADMIN_API_KEY=... ./scripts/smoke-vaas.sh
+#   PLATFORM_ADMIN_API_KEY=... SMOKE_CREDENTIALS_OUT=~/.edtp/smoke-credentials.json \
+#     ./scripts/smoke-vaas.sh
+#
+# `SMOKE_CREDENTIALS_OUT` writes the tenant id, its API key and the published policy id to a
+# mode-600 file. It exists because `.env.example` tells the operator to seed the operator
+# console "the same way the smoke test does", and the console needs exactly those three values —
+# but the tenant API key is returned once and stored only as a hash, so a run that discards it
+# leaves the console with a tenant it cannot authenticate to. Opt-in, and to a file rather than
+# to stdout: the key must not reach a terminal scrollback or a CI log.
 #
 # Walks: Tenant -> Organisation -> Relying Party (TEST) -> Service -> Intended Use ->
 # registration certificate record -> Relying Party Instance -> Presentation Policy ->
@@ -273,6 +282,17 @@ if [ "$FAILURES" -gt 0 ]; then
   printf '\033[31mThe configuration chain did NOT complete. Nothing above should be read as a\npassing end-to-end run.\033[0m\n'
   printf '\033[31m=========================================================================\033[0m\n'
   exit 1
+fi
+
+if [ -n "${SMOKE_CREDENTIALS_OUT:-}" ]; then
+  # `umask` first, so the file is never briefly world-readable between creation and chmod.
+  ( umask 077
+    jq -n --arg t "$TENANT_ID" --arg k "$TENANT_KEY" --arg p "$POLICY_ID" \
+      '{tenantId: $t, tenantApiKey: $k, policyId: $p, policyVersion: 1}' \
+      > "$SMOKE_CREDENTIALS_OUT" )
+  chmod 600 "$SMOKE_CREDENTIALS_OUT"
+  printf '\nTenant credentials written to %s (mode 600). The API key is in it and is a secret.\n' \
+    "$SMOKE_CREDENTIALS_OUT"
 fi
 
 cat <<'EOF'

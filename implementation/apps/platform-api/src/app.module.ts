@@ -6,6 +6,7 @@ import {
   PolicyController,
   PresentationController,
   TenantController,
+  VerificationCapabilitiesController,
 } from "./http/controllers.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
 import {
@@ -13,14 +14,27 @@ import {
   IssuanceController,
 } from "./http/issuance.controllers.js";
 import {
+  IdentityController,
+  TenantListingController,
+  TransactionListingController,
+} from "./http/listing.controllers.js";
+import {
+  EngineAttributesController,
+  HostedFormController,
+  HostedVerifierController,
+} from "./http/wallet-initiated.controllers.js";
+import {
   API_KEY_REPOSITORY,
+  AUDIT_SERVICE,
   CLOCK_TOKEN,
   CONFIG_TOKEN,
   FEATURE_PID_DURING_ISSUANCE,
+  HOSTED_FORM_RETURNS,
   ISSUANCE_REPOSITORY,
   ISSUANCE_SERVICE,
   ISSUER_PORT,
   ISSUER_PROVISIONING_PORT,
+  LISTING_REPOSITORY,
   LOGGER_TOKEN,
   POLICY_SERVICE,
   PRESENTATION_SERVICE,
@@ -51,7 +65,14 @@ export class AppModule {
         PresentationController,
         IssuanceConfigurationController,
         IssuanceController,
+        VerificationCapabilitiesController,
+        IdentityController,
+        TenantListingController,
+        TransactionListingController,
         HealthController,
+        HostedFormController,
+        HostedVerifierController,
+        EngineAttributesController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },
@@ -65,6 +86,10 @@ export class AppModule {
         { provide: PRESENTATION_SERVICE, useValue: deps.services.presentations },
         { provide: WEBHOOK_SERVICE, useValue: deps.services.webhooks },
         { provide: ISSUANCE_REPOSITORY, useValue: deps.repositories.issuance },
+        { provide: LISTING_REPOSITORY, useValue: deps.repositories.listing },
+        // Injected by the audit route. Absent until the listing controllers needed it, because until
+        // then the audit service was only ever called from inside other services.
+        { provide: AUDIT_SERVICE, useValue: deps.services.audit },
         {
           provide: WEBHOOK_ENDPOINT_REPOSITORY,
           useValue: deps.repositories.webhookEndpoints,
@@ -72,10 +97,23 @@ export class AppModule {
         { provide: ISSUER_PORT, useValue: deps.issuer },
         { provide: ISSUER_PROVISIONING_PORT, useValue: deps.issuerProvisioning },
         { provide: ISSUANCE_SERVICE, useValue: deps.services.issuances },
+        { provide: HOSTED_FORM_RETURNS, useValue: deps.hostedFormReturns },
         // Names only. Policy validation refuses an unknown evaluator or connector at publication,
         // so a typo fails while a reviewer is present rather than while a User is waiting.
         { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },
-        { provide: REGISTERED_CONNECTORS, useValue: [...deps.registry.connectors.keys()] },
+        {
+          provide: REGISTERED_CONNECTORS,
+          // Name and sample subjects, not just the name: the console needs to offer a
+          // fixture's known subject references rather than hint at them in a placeholder,
+          // which reads as a filled-in field and is not one.
+          useValue: [...deps.registry.connectors.values()].map((c) => ({
+            name: c.name,
+            kind: c.kind,
+            ...(c.sampleSubjectReferences
+              ? { sampleSubjectReferences: c.sampleSubjectReferences }
+              : {}),
+          })),
+        },
         {
           provide: FEATURE_PID_DURING_ISSUANCE,
           useValue: deps.config.FEATURE_PID_DURING_ISSUANCE,

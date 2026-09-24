@@ -9,6 +9,7 @@ import { ApiKeyGuard } from "./http/auth.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
 import { Logger } from "./logging/logger.js";
 import { migrationsPath } from "./migrations-path.js";
+import { openApiConfig } from "./openapi.js";
 
 /**
  * Entry point.
@@ -31,7 +32,13 @@ const bootstrap = async (): Promise<void> => {
   const deps = buildDependencies({ config, db: handle.db, logger });
 
   const app = await NestFactory.create(AppModule.withDependencies(deps), {
-    logger: false,
+    // Not `false`, which is what this was.
+    //
+    // Nest's startup output is noise — a line per route — but with the logger disabled entirely a
+    // **bootstrap failure prints nothing at all**: the process ran its migrations and exited 1 in
+    // silence, because `bootstrap().catch` never sees an error Nest handles itself. That cost a
+    // debugging cycle over a missing provider. `error` and `warn` keep the noise out and the failures in.
+    logger: ["error", "warn"],
     bodyParser: true,
   });
   // A modest body limit: every request in this API is small, and a large one is either a
@@ -39,16 +46,9 @@ const bootstrap = async (): Promise<void> => {
   app.useGlobalGuards(app.get(ApiKeyGuard));
   app.useGlobalFilters(new PlatformErrorFilter(logger));
 
-  const openapi = new DocumentBuilder()
-    .setTitle("European Digital Trust Platform — Verification as a Service")
-    .setDescription(
-      "V0 business API. Customers work with presentation policies and transactions; " +
-        "protocol details (DCQL, OpenID4VP, engine sessions) are not part of this contract. " +
-        "No ARF or Technical Specification conformance and no production readiness is claimed.",
-    )
-    .setVersion("0.1.0")
-    .addBearerAuth({ type: "http", scheme: "bearer", description: "Tenant API key" })
-    .build();
+  // Shared with `openapi-cli.ts`, which writes the same document to a file so the contract can be
+  // diffed in review. One definition, or the served and the checked-in one drift apart.
+  const openapi = openApiConfig(new DocumentBuilder());
   SwaggerModule.setup("openapi", app, SwaggerModule.createDocument(app, openapi));
 
   deps.jobs.start();

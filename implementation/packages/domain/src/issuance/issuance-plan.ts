@@ -2,11 +2,13 @@ import type { LocalisedText } from "@edtp/shared";
 import { PlatformError } from "@edtp/shared";
 import type { RetentionPolicy } from "../kernel/policies.js";
 import type { AttestationProvider, CredentialFormat } from "../kernel/registration.js";
+import type { EligibilityPresentation } from "../verification/verification-plan.js";
 import type { CredentialClaimDefinition, CredentialType } from "./credential-type.js";
 import type {
   HolderBindingMode,
   IssuanceFlowKind,
   IssuancePolicyVersion,
+  ReusePolicy,
 } from "./issuance-policy.js";
 
 /**
@@ -33,6 +35,35 @@ export interface PlanAttestationProviderContext {
   readonly signingKeyBindingRef: string;
   /** Opaque reference to the engine tenant serving this Attestation Provider. */
   readonly engineTenantRef: string;
+  /**
+   * The Credential Issuer's own display name, shown by a Wallet when it asks for consent.
+   *
+   * The **organisation's** legal name, not a credential's name. Both end up in the same engine
+   * call, and writing the credential's there made the metadata announce a Wallet-visible issuer
+   * called "Employee badge" — `interop-findings.md` A20.
+   */
+  readonly issuerDisplayName: string;
+  /**
+   * Every eligibility presentation used anywhere on this provider, not only by the policy being
+   * compiled, and carrying the content needed to write it on the provider's own engine tenant.
+   *
+   * Tenant-scoped, because the engine's `authorizationServers` is — a per-policy view of a
+   * tenant-scoped field is what A20 is. Carrying the content rather than only the policy id is
+   * A22: the configuration those servers point at has to be written by the issuer, on the issuer's
+   * tenant, or it exists only where somebody happened to run a presentation.
+   */
+  readonly eligibilityPresentations: readonly EligibilityPresentation[];
+  /**
+   * The provider's **own** access certificate, for the eligibility presentation request.
+   *
+   * Absent until the provider is provisioned with one. A gating policy without it cannot be
+   * honoured: the request object would be unsigned or signed by the wrong party, and a Wallet
+   * accepts only an access certificate chaining to a notified anchor (`AS-WP-06-005` / `RPA_04`).
+   * Reported rather than worked around.
+   */
+  readonly accessKeyBindingRef?: string;
+  /** True when at least one published policy on this provider issues without a presentation gate. */
+  readonly requiresBuiltInAuthorizationServer: boolean;
 }
 
 export interface PlanCredentialDefinition {
@@ -49,6 +80,8 @@ export interface PlanCredentialDefinition {
   readonly anchorSource: "RULEBOOK_ONLY" | "RULEBOOK_AND_PUBLISHED_LIST";
   readonly rulebookIdentifier: string;
   readonly rulebookVersion: string;
+  /** The type's `payloadSchema`, enforced on the assembled claims before the engine sees them. */
+  readonly payloadSchema?: Readonly<Record<string, unknown>>;
 }
 
 export interface IssuancePlan {
@@ -62,6 +95,8 @@ export interface IssuancePlan {
   readonly statusListEnabled: boolean;
   readonly suspensionAllowed: boolean;
   readonly retentionInstructions: RetentionPolicy;
+  /** How often one credential may be presented; absent publishes no policy (`ISSU_38`). */
+  readonly reusePolicy?: ReusePolicy;
   readonly providerContext: PlanAttestationProviderContext;
   /** The claim paths to fetch from the authentic source. Exactly the declared ones. */
   readonly claimPathsToFetch: readonly string[];
@@ -143,6 +178,7 @@ export const compileIssuancePolicy = (input: IssuanceCompilerInput): IssuancePla
     anchorSource: credentialType.rulebook.anchorSource,
     rulebookIdentifier: credentialType.rulebook.identifier,
     rulebookVersion: credentialType.rulebook.version,
+    ...(credentialType.payloadSchema ? { payloadSchema: credentialType.payloadSchema } : {}),
   };
 
   const plan: IssuancePlan = {
@@ -156,6 +192,7 @@ export const compileIssuancePolicy = (input: IssuanceCompilerInput): IssuancePla
     statusListEnabled: policyVersion.statusPolicy.statusListEnabled,
     suspensionAllowed: policyVersion.statusPolicy.suspensionAllowed,
     retentionInstructions: policyVersion.retentionPolicy,
+    ...(policyVersion.reusePolicy ? { reusePolicy: policyVersion.reusePolicy } : {}),
     providerContext,
     claimPathsToFetch: credentialType.claims.map((c) => c.path.join(".")),
     ...(policyVersion.eligibilityPresentationPolicyId

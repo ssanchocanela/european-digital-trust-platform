@@ -306,6 +306,454 @@ The script itself is verified: run against a freshly generated self-signed leaf 
 anchors from the live list and correctly reports `FAIL`, so a `PASS` is meaningful rather than a
 default.
 
+### 8.1a First wallet run — Path B, modified build, **blocked at relying-party verification**
+
+The first end-to-end attempt against a wallet. It is recorded whatever it says, per `CLAUDE.md` §8.
+
+| Field | Value |
+|---|---|
+| Date run | **13 September 2026** |
+| Wallet | **MODIFIED build**, not the Reference Wallet: `eu.europa.ec.euidi.edtptest2`, `versionName 2026.09.42-edtptest`, APK SHA-256 `5a87a95dcca05f458b626dac1d960c721a0ff91c1beb7f7267dddb48094160bf` |
+| Upstream | tag `Wallet/Demo_Version=2026.09.42-Demo_Build=42`, commit `43f362d2`, wallet core `0.30.2` |
+| Active deviation | **WD-3** — `wrpacProviders` pointed at our published TEST LoTE |
+| Device | Pixel 9a |
+| Access certificate | issued by our development Access CA, `x509_hash:jIv6homAf8bSFFKU5tmBAUsXiq4Y_90K9sZ2vDKwNXc`, `x5c` of 2 |
+| Exposure | Cloudflare quick tunnels, allow-list enforced; all **14 negative checks returned 404** |
+| **Result** | **BLOCKED.** *"This presentation request has been blocked because the relying party could not be verified by your Wallet."* No data shared |
+
+**What this run does establish**, and it is not nothing:
+
+- **Blocker B5 is closed on this machine.** The wallet resolved the `request_uri` over public HTTPS,
+  fetched the signed request object and processed it far enough to evaluate relying-party trust. A
+  transport failure would have stopped earlier and said something else.
+- **The gateway allow-list holds under a real session.** Fourteen paths refused, including the
+  engine's Management API, its health endpoint and its OpenAPI documents.
+- **The wallet behaves as `RPA_04` requires**: a relying party it cannot verify is refused, and
+  nothing is disclosed.
+
+**What it does not establish — and why we cannot yet say:** which of three causes blocked it.
+
+1. the wallet never fetched our list;
+2. it fetched it and rejected the signature — the open half of WD-3, and the likeliest;
+3. it verified the list but did not match our anchor to the certificate chain.
+
+The screen deliberately does not distinguish them: a wallet should not tell a relying party why it
+distrusts it. **And `logcat` cannot either — the release build emits no application logging at all.**
+Verified: across a 3,829-line capture the wallet's process wrote only framework lines (a navigation
+`Bundle` warning, window callbacks) and nothing of its own. So the next diagnostic step needs a
+**debug build**, which both logs and is `run-as`-readable, letting the trust decision and any cached
+list be inspected directly.
+
+### 8.1b Second wallet run — **a complete presentation**, modified build
+
+The run that succeeded, 13 September 2026. Same day, same tunnel session, same certificate as
+§8.1a; three things changed between them, and each was a real defect.
+
+| Field | Value |
+|---|---|
+| Wallet | **MODIFIED build**, not the Reference Wallet: `eu.europa.ec.euidi.edtptest3`, **debug**, APK SHA-256 `1fe79eed9fba745ae0cb20518563003d5870336f5c7deaf9a8d50f94fa0c210f` |
+| Active deviation | **WD-3** — `wrpacProviders` pointed at our published TEST LoTE |
+| Access certificate | our development Access CA, `x509_hash:jIv6homAf8bSFFKU5tmBAUsXiq4Y_90K9sZ2vDKwNXc` |
+| Credential presented | PID, `dc+sd-jwt`, `vct=urn:eudi:pid:1`, obtained from `issuer.eudiw.dev` |
+| **Result** | **`VERIFIED`**, result `{"over_18": false}` |
+
+The wallet's own log, which is why the debug build exists:
+
+```
+LoTE JWT signature verified successfully
+validateCertificationTrustPath: result=Trusted(trustAnchor=[
+  Trusted CA cert: … Issuer: CN=EDTP Development Access CA - TEST ONLY …
+```
+
+**What it establishes.** The platform compiles a policy to DCQL, signs a request object a wallet
+accepts, serves it over public HTTPS, receives an encrypted response, verifies the credential,
+applies the result policy and returns the derived claim. The minimisation holds where it matters:
+`birthdate` entered the adapter, `over_18` came out, and no `birthdate`, `iss`, `iat`, `exp` or
+`vct` appears anywhere in the result. `over_18: false` is correct — the test PID's date of birth
+was the day of the run.
+
+**What it does not establish, and no report may imply otherwise.** Nothing about an *official*
+build. An unmodified wallet consults only the notified `WRPACProviders` list, which does not carry
+our anchor and never will, so it would refuse this certificate exactly as §8.1a describes. Blocker
+**B1 is untouched** by this result.
+
+**Three defects found on the way**, each invisible until a wallet was involved:
+
+1. Our published list was fetched and its **signature verified**, then refused with
+   `FailedToParseJwt`. The only structural difference from the notified list was a missing
+   `TEAddress`. The generator now clones the notified entity rather than writing one by hand.
+2. The adapter read **`verifiedClaims`**, which the engine's session does not have — disclosed
+   content is on `credentials`. `interop-findings.md` **A18**, including why 21 contract tests
+   could not have caught it.
+3. The identifier in the wallet-facing `request_uri` is **not** the session id the management API
+   takes, which sent the first diagnosis down a blind alley.
+
+**Settled, and it simplifies WD-3:** the wallet's built-in JWS verifier accepts our self-signed list
+signer, so `jwtSignatureVerifier` is **not** needed. WD-3 is a single configuration point, unlike
+WD-1.
+
+### 8.1c Third wallet run — **issuance blocked at gate (a)**, and that is the correct outcome
+
+13 September 2026, W3 (`eu.europa.ec.euidi.edtptest3`, deviation `wd-3` only), over a Cloudflare
+quick tunnel, against a §7.3 PID-gated issuance policy.
+
+**The Wallet refused, on screen:**
+
+> ⚠ **Issuance blocked**
+> This issuance request has been blocked because the provider could not be verified by your Wallet.
+> Your personal information or other data has not been shared with this provider.
+
+**This is blocker B7, observed rather than reasoned about.** Until now it rested on reading
+`requireSignedMetadata()` and `evaluateIssuerTrust` in the pinned release. The exchange that produced
+it, from the Wallet's own HTTP log:
+
+| | |
+|---|---|
+| Credential offer | `GET …/issuers/rpi-1/vci/credential-offers/{id}` → **200** |
+| Issuer metadata, requested as | `Accept: application/jwt; application/json` — **the Wallet asks for the signed form first** |
+| Issuer metadata, served as | `content-type: application/json` — unsigned, **200**. `issuer_info` present, `signed_metadata` absent |
+| Outcome | Refused at ARF §6.6.2.2 pre-issuance provider authentication |
+
+Three things this run establishes that the code reading did not.
+
+1. **The Wallet does ask for signed metadata**, and takes the unsigned document only to discover it
+   cannot authenticate the provider. The `Accept` header is the direct evidence for `interop-findings.md`
+   A15.
+2. **It blocks before the eligibility presentation.** "no data has been shared" is the Wallet's own
+   statement, and it means the §7.3 presentation half is **unreachable while B7 stands** — the gate
+   fixed in A22 is correct at the platform and engine layer and cannot be exercised against a Wallet
+   from here.
+3. **Everything upstream of the gate worked**, over public HTTPS, first time: the offer resolved, the
+   metadata resolved, and it carried both authorization servers and the `issuer_info` registration
+   certificate. The failure is exactly where it should be and nowhere else.
+
+**What it does not establish.** Nothing about an official build — W3 is a modified wallet. And
+nothing about whether issuance would succeed with the gate passed: that needs deviations `wd-1` and
+`wd-2`, and **`wd-2` silently disables the issuer registration-certificate check** whatever the
+*Check Registration Certificates* preference says (`CLAUDE.md` §6.21), so a pass obtained that way
+proves less again and must be reported with that caveat attached.
+
+### 8.1d Fourth wallet run — **past gate (a)**, and stopped at the authorization-code start
+
+13 September 2026, **W4** (`eu.europa.ec.euidi.edtptest4`, deviations **`wd-2,wd-3`**), over the
+same tunnel, against the §7.3 PID-gated issuance policy.
+
+**Gate (a) no longer blocks.** The "Issuance blocked — the provider could not be verified" of §8.1c
+is gone, which is what `wd-2` was built to do. **It does not mean the gate is satisfied: it is
+bypassed.** `wd-2` accepts unsigned metadata *and* silently switches off the issuer
+registration-certificate check, so nothing here evidences ARF §6.6.2.2, `AS-AP-44-005` (`RPRC_22a`)
+or `AS-AP-44-007` (`RPRC_23`).
+
+**What the run reached, and where it stopped.** The Wallet fetched the credential offer (200) and
+the issuer metadata (200), and then made no further request and logged no error — the screen shows
+only a generic failure. The authorization-code flow never started.
+
+**Two platform defects were found getting that far, and both are fixed.**
+
+| | |
+|---|---|
+| **A gated policy with `PRE_AUTHORIZED_CODE` was accepted** | A pre-authorized code skips the authorization server by construction, and the gate *is* an authorization step. The offer was minted, and the eligibility presentation simply would not have happened. Now refused at publication (`gate_requires_authorization_code`) |
+| **The offer did not name its authorization server** | The tenant advertises every server its provider needs (A20), so the offer has to say which one this credential goes through. Without it the engine chose the built-in one — so a gated policy produced an offer pointing away from its own gate. Verified against the running engine: the offer's `authorization_server` was `…/issuers/{ref}` whatever the policy said |
+
+After both fixes the offer carries
+`grants.authorization_code.authorization_server = …/authorization-servers/eligibility-<policyId>`
+over public HTTPS, the authorization server's own metadata resolves (`issuer`,
+`authorization_endpoint`, `token_endpoint`, `response_types_supported: ["code"]`), and the gateway
+allow-list passes it. The Wallet still does not proceed, and the reason is not visible from here.
+
+**So the §7.3 eligibility presentation remains unexercised against a wallet.** What this run
+establishes is narrower and worth stating exactly: everything the platform emits for a gated
+issuance is now correct and reachable, and the remaining gap is on the wallet side of the
+authorization-code start. That is a better position than §8.1c — where the failure was ours — but it
+is not the test succeeding.
+
+### 8.1e Fifth wallet run — **the first mdoc presentation**, and two defects between here and it
+
+13 September 2026, W3 (`wd-3`), same tunnel, an **mDL** obtained from the reference issuer. Every
+previous run on this platform was SD-JWT VC; this is the first time an mdoc has been asked for,
+presented and verified.
+
+**Result: `VERIFIED`**, with `{"org.iso.18013.5.1.family_name": "…"}`. The whole mdoc path works —
+DCQL with `doctype_value` and namespaced claim paths, credential matching in the wallet, the signed
+request object, the encrypted response, and the result policy.
+
+**It took four attempts, and each failure was worth having.**
+
+| | What the screen or the log said | What it was |
+|---|---|---|
+| 1 | *"The requested document is not available in your EUDI Wallet"* | The relying party was **verified** — the green badge was there — and the wallet then could not satisfy the request. A misread: the run after it showed the wallet did match and did share |
+| 2 | `400 invalid_request · mDOC verification failed` | The engine cannot decode the reference issuer's CWT status list: it requires `aggregation_uri`, which the specification makes optional. `interop-findings.md` **A25** |
+| 3 | Identical, with `statusCheckMode: BEST_EFFORT` | The platform's status-check lever is **not** a lever for this. The decode throws before the mode is consulted; only `DISABLED` gets past it |
+| 4 | `POLICY_NOT_SATISFIED`, on an engine session reporting `success` and `verified: true` | Ours. The engine returns mdoc values flat, without the namespace the claim path addresses, so the result policy looked in the wrong place. **A24** — the same shape as A18 |
+
+**What this run therefore shows, exactly.** The mdoc path is sound and the platform now handles its
+result shape. It shows nothing about revocation: the successful run had status checking **disabled**,
+which `AS-AP-07-023` (`VCR_13`) permits only after a documented risk analysis that V0 has not
+performed. **An mdoc presentation with status checking on does not work today, and the reason is in
+the engine.**
+
+### 8.1f Sixth wallet run — **an attestation collected and stored**, modified build
+
+16 September 2026, **W4** (`eu.europa.ec.euidi.edtptest4`), deviations **`wd-2,wd-3`**, rebuilt with
+`--diagnostics` (`EDTP_DIAGNOSTICS=yes`, logging only). Pre-authorized-code offer for
+*Employee badge*, fixture subject, over the tunnel, with the test gateway's
+`GATEWAY_PINNED_WALLET_COMPAT` **on**.
+
+| | |
+|---|---|
+| Wallet HTTP trace | offer 200 · issuer metadata 200 · AS metadata 200 · `authorize/challenge` 200 · `authorize/token` 200 · `vci/nonce` 200 · **`vci/credential` 200** |
+| On the device | *Employee badge*, issued by *Smoke Test Issuer B.V.*, in the Documents list |
+| Platform | transaction `ISSUED`, attestation in the register as `VALID`, status confirmed |
+
+**Every layer between the first attempt on 13 September and this run is recorded** in
+`interop-findings.md` A28 and A29, in the order a wallet met it.
+
+**What this run establishes.** The platform's issuance chain completes against a real wallet on a
+real phone, and the platform records and can revoke what was issued.
+
+**What it does not, and no report may imply otherwise.**
+
+- **A modified build, not the Reference Wallet.** `wd-2` bypasses trust gate (a) — the engine still
+  signs no issuer metadata (B7) — and `wd-3` points access-certificate trust at our list.
+- **The gateway rewrote two responses on the way** (A29). An unmodified path through the engine alone
+  does not complete.
+- **`key_attestations_required: iso_18045_basic` is a parser requirement**, not a checked property.
+- **Wallet attestation was verified** by the engine against the notified **dev** WalletProviders
+  list — a TEST trust list.
+- **No registration certificate** (B3), and *Check Registration Certificates* in its default, off.
+  Not tested in the on position.
+
+### 8.1g Seventh wallet run — **the end-to-end demonstration: identified by PID, issued a representative credential**
+
+16 September 2026, same W4 build and gateway settings as §8.1f. One person, one wallet, two steps.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · Obtain a PID | Already held, from the EUDI reference issuer's own form | `PID (SD-JWT VC)` in the wallet |
+| 2 · Present it | Policy *Identify with PID* asks for `family_name` and `given_name` only | presentation **`VERIFIED`**, result holds exactly those two claims; the wallet's PID count went from 30/30 to **29/30** |
+| 3 · Request the representative credential from it | `POST /v1/issuances` with the **presentation id** as `subjectReference`, through the `verified-presentation` source | accepted; warnings returned: no registration certificate, and FIXTURE source |
+| 4 · Obtain it | offer → metadata → AS → challenge → token → nonce → **`/vci/credential` 200** | *Company representative* in the wallet, four fields, the two names from the PID; platform `ISSUED` |
+
+Values were checked **for presence only** — the names are PID attributes and are not written here.
+
+**What it establishes.** A platform-operated chain in which a verified presentation becomes the source
+of an issued attestation, in one tenant, refused across tenants, with the presentation id as the
+provenance of every attestation issued from it.
+
+**What it does not — and one thing found the next day.** The identification in step 2 was verified **without any issuer trust check**: the engine skips it when a policy names no trust list, and the platform never passed one (`interop-findings.md` A30, fixed 17 September). The PID was the reference issuer's and would have passed the check, but the run does not show that it did. Everything in §8.1f still holds — a modified wallet, gate (a) bypassed, two
+responses rewritten by the gateway, a dev wallet-provider list, no registration certificate. And the
+representation itself is **fictitious**: the organisation and the capacity to act for it come from
+policy configuration, which is why the source is a FIXTURE and the warning is returned. A real
+representative credential needs a company register behind it.
+
+**Setup for this run, beyond §8.1f.** The issuing tenant also needs a verification service whose
+instance holds the **development-CA** access certificate (`import-access-certificate.sh`), an intended
+use registered on it, and a presentation policy; the tenant's other provisioned service signed with a
+certificate the wallet does not trust.
+
+### 8.1h Eighth wallet run — **the same demonstration, driven from the operator console**
+
+16 September 2026, same build, gateway and policies as §8.1g. No API call by hand: the operator
+started *Identify with PID* from the console's Verification page, the wallet presented the PID, the
+presentation page turned **`VERIFIED`** and offered *Issue from this presentation*; pressing **Issue**
+on *Company representative (from a verified PID)* produced the offer QR, the wallet collected it, and
+the platform recorded the issuance **`ISSUED`** with a new `VALID`, status-confirmed register entry.
+About four minutes from presentation to credential. Values checked for presence only.
+
+One thing to know when watching it: the issuance **list** shows the status last stored, and the status
+is refreshed from the engine when the issuance itself is read, so the list can say
+`AWAITING_WALLET` for an issuance that is already `ISSUED` until its page is opened.
+
+Every limit of §8.1f and §8.1g still applies.
+
+### 8.1i Ninth and tenth wallet runs — **issuer trust, proved in both directions**
+
+18 September 2026, W4 as before, a fresh tunnel and gateway after a host restart. Two presentations
+of the same reference-issued PID against the same policy, differing only in the trust list the policy
+names — the check introduced that day (`interop-findings.md` A30).
+
+| Policy version | Trust anchor source it names | Outcome |
+|---|---|---|
+| v2 | The notified EUDI **development** `PIDProviders` list, loaded into the engine | **`VERIFIED`**, result as before |
+| v3 | A negative control: a list holding one anchor, this platform's development **Access** CA, which signs no attestation | **`TRUST_ERROR`**, `trust_chain_not_trusted`, **no result** |
+
+The PID was the same legitimate credential in both runs, so the difference is the check and nothing
+else. Together with the platform-side refusal of a policy naming no source at all
+(`trust_anchor_sources_missing`, exercised over the API), that is the whole behaviour: refused when
+nothing says whom to trust, refused when the signer is not among them, verified when it is.
+
+The negative control was removed afterwards and the policy republished at v4, naming the notified
+list. What this does **not** establish: anything about a notified production list, or about an
+official wallet build — §8.1f's limits all still apply.
+
+### 8.1j Eleventh wallet run — **a test PID, then the three Power of X attestations, selectively disclosed**
+
+23 September 2026, **W5** (`eu.europa.ec.euidi.edtptest5`, debug, `wd-2,wd-3,wd-4`, APK SHA-256
+`5c830bdc…5ea0`) — a **modified wallet**, not the Reference Wallet — on a Pixel 9a, through the gateway
+with `GATEWAY_PINNED_WALLET_COMPAT=true`. The gateway's negative checks passed before the phone was
+used: every `/api/*` probe, `POST /api/key-chain/import` included, answered `404` and was logged as
+denied. Synthetic data throughout.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · A test PID | `operator-form` issuance on `pid-1`, synthetic values, offer sent to W5 by `adb` | platform `ISSUED`; W5 stored it |
+| 2 · Identify | *Identify with PID, for a Power of X credential* (`c4e31d3f…` v1, TEST PID list), `SAME_DEVICE` | **`VERIFIED`**; the result holds exactly the five requested claims |
+| 3 · Power of Representation | `verified-presentation` source, presentation id as `subjectReference` | platform `ISSUED`; W5 stored it |
+| 4 · Power of Attorney | the same | platform `ISSUED`; W5 stored it |
+| 5 · Power of Employee | the same | platform `ISSUED`; W5 stored it |
+
+**The tokens, decoded.** W5 is a debug build, so its document store was read with `run-as`, the three
+SD-JWTs parsed for their structure only, and the copy deleted:
+
+| Attestation | Disclosures | `_sd` digests | Claims in the clear |
+|---|---|---|---|
+| `urn:edtp:pox:power-of-representation:2` | 19 | 19 | none |
+| `urn:edtp:pox:power-of-attorney:2` | 9 — the list of powers is **one** | 9 | none |
+| `urn:edtp:pox:power-of-employee:2` | 18 | 18 | none |
+
+**The first attestations this platform has issued with selective disclosure** (A32), and the first
+issued on the Power of X model. What it does **not** show: the test PID's own disclosures — W5 used
+its single PID credential for the presentation and deleted it, so there was no token left to read;
+anything about an official wallet build; a registration certificate (none, B3; *Check Registration
+Certificates* in its default, off, and not tested in the on position). The representation is
+fictitious and the source a FIXTURE.
+
+**Two defects found on the way, both ours:**
+
+1. **Every issuance on `rpi-1` failed** with `trust_anchor_sources_missing`. The issuer configuration
+   gathered the eligibility gates of every *published version*, including those of **retired**
+   policies — versions stay published when their policy is retired — and two retired A22 test
+   policies were gated on a presentation policy with no trust anchors, which A30 refuses. So from 17
+   September no issuance on the provider could have succeeded. Fixed in
+   `issuerConfigurationInputs`, with an integration test that fails without the fix.
+2. **The tunnel answered every request with a bare `404`.** cloudflared reads
+   `~/.cloudflared/config.yml` even for a quick tunnel, and a named tunnel's ingress there — another
+   project's — ends in `http_status:404`. `test-session-tunnel.sh` now passes an empty `--config`.
+
+### 8.1k Twelfth wallet run — **the three Power of X attestations verified, and again in a later session**
+
+23 September 2026, W5 (modified wallet) as in §8.1j, the gateway with `GATEWAY_PINNED_WALLET_COMPAT=true`,
+and — new — the **named tunnel** `edtp-dev` on fixed `murcata.es` hostnames (`test-session-gateway.md`
+§2). Negative checks passed before each session: every `/api/*` probe `404`. Between the two sessions
+the engine hostname answered `530`.
+
+The chain was issued again inside a named-tunnel session, so the attestations' status list URI is
+`https://edtp-engine.murcata.es/…`: test PID → *Identify with PID, for a Power of X credential* →
+Power of Representation, Attorney, Employee, all `ISSUED`. Then:
+
+| Presentation policy (`:2` intended use, TEST EAA list as issuer anchor, status `STRICT`) | Outcome | Result claims |
+|---|---|---|
+| *Verify a Power of Representation* | **`VERIFIED`** | exactly the six requested |
+| *Verify a Power of Attorney* | **`VERIFIED`** | the five common claims and the powers list, whole (two powers) |
+| *Verify an employee authorisation* | **`VERIFIED`** | exactly the seven requested |
+| *Verify a Power of Representation*, **after closing the session and opening a new one** | **`VERIFIED`** | the same six |
+
+The last row is what the named tunnel was for: an attestation issued in one session, verified with
+its status checked in the next. Values were checked for presence only.
+
+**What went wrong first, all recorded:**
+
+1. The first verification attempt, on the attestations of §8.1j, failed fetching their status list
+   from the closed quick tunnel (`530`) — no quick-tunnel attestation can be verified afterwards.
+2. In the named session the status list answered `404`: the engine signed it with an expired
+   smoke-test key it had picked by fallback (`interop-findings.md` A33). Re-pinned through the engine
+   API; the adapter now does it at provisioning.
+3. Two attempts settled `EXPIRED` although the engine session completed without failure: the wallet
+   answered after the platform's transaction lifetime, once because the phone was still resolving the
+   new hostname as nonexistent (a negative DNS cache).
+4. One attempt never reached the platform's transaction: W5 re-opened a stale deep link from an earlier
+   session. Force-stopping the wallet before sending a request avoids it. Two `JWEDecryptionFailed`
+   errors on an engine session belonging to none of the day's presentations are unexplained.
+
+Every limit of §8.1j still applies: a modified wallet, no registration certificate, a fictitious
+representation, TEST lists that are not notified.
+
+### 8.1l Thirteenth wallet run — **a PID requested from the wallet's own list, through a hosted form (FNMT demonstration)**
+
+24 September 2026, **W6** (`eu.europa.ec.euidi.edtptest6`, debug, `wd-2,wd-3,wd-4,wd-5`,
+`--pid-label "PID - FNMT"`) — a **modified wallet** — on the named tunnel, gateway in demo compatibility
+mode, hosted-form gate on for `pid-1`. Negative checks passed on all four hosts (19 probes, all `404`)
+before the phone was used.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · Discover | *Documents → Add document → From list* listed one issuer, ours, with one row "PID - FNMT" | WD-5; the issuer metadata carries one PID configuration (policy v3) |
+| 2 · Authorize | PAR, then the browser opened `…/issuers/pid-1/authorize`; the gateway sent it to the hosted form | first attempt refused at PAR: `jwt 'nbf' is in the future` — the phone ran **2.2 s fast** against a zero-tolerance check (A29). Passed with the gateway's 3 s hold |
+| 3 · Form | FNMT-styled form, demonstration band, fictitious values, *Confirmar* | platform validated against the credential type, held the values, returned the pass; `303` back to the engine |
+| 4 · Collect | the engine sent the browser back to the wallet; token and credential requests; the engine fetched the values from the platform's attribute provider | platform **`ISSUED`** (policy v3) |
+| 5 · Token | read from the debug wallet, structure only | `iss` `https://edtp-engine.murcata.es/issuers/pid-1`; **8 disclosures, 8 `_sd` digests** — the typed values including `personal_administrative_number`, and the two fixed ones; `place_of_birth` is structure, its `country` a disclosure |
+| 6 · Branding | the wallet showed the FNMT emblem as the issuer logo and, after a re-issue, the issuer name *FNMT-RCM (demo)* | `ENGINE_ISSUER_BRANDING`, `ENGINE_ISSUER_DISPLAY_NAMES`; the wallet stores issuer display at issue time, so an earlier document keeps the earlier name |
+
+The test PID's own selective disclosure is seen on a token for the first time here (§8.1j left it
+open). What this does **not** show: anything about an unmodified wallet — whose list offers the EUDI
+issuers and is not ours to change — or about FNMT: the branding is a demonstration, the band on the
+form says so, and the data is fictitious. No registration certificate (B3).
+
+### 8.1m Fourteenth wallet run — **a representation credential from the wallet's own list, after identifying with the PID (CORPME demonstration)**
+
+24 September 2026, **W6** rebuilt with WD-5 carrying two issuers (`pid-1`, `rpi-1`) — a **modified
+wallet** — updated in place, keeping its PID. Named tunnel, gateway in demo compatibility mode, hosted-form
+gate on for `pid-1,rpi-1`. Negative checks passed (19 probes, all `404`) before the phone was used.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 0 · First attempt | *From list* failed: `attestation proof must contain 'key_attestations_required'` | the session had been opened **without** `GATEWAY_PINNED_WALLET_COMPAT=true`, so the gateway did not add the field (A29 item 3). Reopened with it; `test-session-tunnel.sh` now refuses a form session without it |
+| 1 · Discover | the list showed "PID - FNMT" and, from *CORPME (demo)*, *Poder de representación*, *Poder notarial*, *Autorización de empleado* | `rpi-1` advertises only the three PoX v2 configurations; the seven stale ones were withdrawn (`DELETE …/issuance-policies/{id}/provision`) |
+| 2 · Authorize | PAR, then the gateway sent the browser to the CORPME-styled form, which resolved the requested policy from the engine session | `POST /v1/hosted-forms/requests/resolve` |
+| 3 · Identify | the form started a `SAME_DEVICE` presentation; **the wallet presented its PID mid-issuance** and returned through the platform into the form | presentation **`VERIFIED`**; return destination fixed by the platform, not the request |
+| 4 · Request | the form showed the PID claims and the fixed test data; *Solicitar* | submission with the presentation id as subject reference; `303` back to the engine with the pass |
+| 5 · Collect | the wallet collected the attestation | platform **`ISSUED`**, *Poder de representación* policy **v2**, warnings: no registration certificate, FIXTURE source |
+| 6 · Again | *Poder notarial*, then *Autorización de empleado*, by the same path, each with a fresh PID presentation | presentations `VERIFIED`, issuances **`ISSUED`** (policy v2 each) — all three PoX types |
+
+The risk carried into this run — a wallet presenting while it is itself in the middle of an issuance —
+did not materialise: one wallet, one pass. What this does **not** show: anything about an unmodified
+wallet, about CORPME (the branding is a demonstration and the band says so), or about anyone's
+authority to act for anyone: the organisation, position and powers are fictitious. No registration
+certificate (B3).
+
+### 8.1n Fifteenth wallet run — **one PID, presented twice: the reuse policy published by the issuer**
+
+24 September 2026, **W6** unchanged — a **modified wallet**, with **no wallet change for this run**.
+Named tunnel, gateway in demo compatibility mode; negative checks passed (19 probes, all `404`).
+
+Before: the PID arrived as one once-only credential and its first presentation spent it (A34). The
+PID policy v4 was meant to be identical to v3 but for `reusePolicy: LIMITED_TIME` (re-issue one day
+before its seven-day expiry), which the issuer metadata publishes as
+`credential_reuse_policy: {id: "arf_annex_ii", options: [{details: ["limited_time"],
+reissue_trigger_lifetime_left: 86400}]}`.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · Re-issue | the old PID deleted; a new one requested from the list | issuance **`ISSUED`**, policy v4 — which, it turned out, copied v1 (no ID number) rather than v3; the reuse behaviour is unaffected. Corrected as **v5** afterwards |
+| 2 · First presentation | the identification policy, `SAME_DEVICE` via `adb` | **`VERIFIED`** |
+| 3 · Second presentation | the same, straight after | first attempt: the wallet reported `InvalidJarJwt` — the stale-deep-link replay seen with W5/W6, not the PID; resent after a force-stop: **`VERIFIED`** |
+
+Since the engine serves one credential per request with this wallet (A34), a second `VERIFIED` means the
+one credential was presented twice: ARF Method B (`ISSU_48`–`ISSU_50`), chosen by the provider
+(`ISSU_38`). **Its privacy cost stands**: the two presentations are linkable by signature and salts.
+Not shown: re-issuance before expiry, which in a wallet-initiated flow with a web-form authorization
+step cannot run unattended; nor anything about an unmodified wallet.
+
+### 8.1o Sixteenth wallet run — **Banco Demo: a representation credential presented twice to a relying party page**
+
+24 September 2026, **W6** — a **modified wallet** — on the named tunnel with a fifth hostname,
+`edtp-banco.murcata.es` (`apps/demo-bank`). Negative checks passed on all five hosts (26 probes, all
+`404`). The phone needed Private DNS: the home router cached the new name as nonexistent, which is also
+why the session's probes now resolve over DNS-over-HTTPS.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 0 · PID | the PID re-issued under the Rulebook model | issuance **`ISSUED`**, policy **v7** |
+| 1 · Present | on the bank page, *Poder de representación*; the wallet opened on the same device, presented, and returned to the bank | presentation **`VERIFIED`**; the page showed "Operación autorizada" with the verified claims |
+| 2 · Present again | the same credential, straight after | presentation **`VERIFIED`** |
+| 3 · The other two | *Poder notarial*, then *Autorización de empleado* | both **`VERIFIED`** — all three PoX types accepted by a relying party page |
+
+The same Power of Representation, presented twice: the representation credentials are not
+single-use. This one was issued before the reuse policy existed, so the wallet stored it under its own
+default for non-PID documents (`RotatingBatch`, one credential, reused). New ones carry the published
+`LIMITED_TIME` policy. Either way, **the presentations are linkable** (A34). Banco Demo is fictional and
+the operation is fictitious.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

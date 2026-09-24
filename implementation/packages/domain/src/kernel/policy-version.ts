@@ -33,6 +33,30 @@ export const assertPolicyTransition = (from: PolicyStatus, to: PolicyStatus): vo
   }
 };
 
+/**
+ * Retiring a policy container, and bringing one back.
+ *
+ * **Reversible, and deliberately so** — the opposite of `AS-AP-07-007` (`VCR_04`), which makes an
+ * attestation's revocation irreversible. The two look similar and are not. Revoking an attestation
+ * makes a statement about a credential somebody holds, and un-saying it would let a provider
+ * rehabilitate something it had declared bad. Retiring a *policy* only stops new transactions
+ * starting: attestations already issued keep the terms they were issued under, every transaction
+ * still references the exact version it used, and nothing a holder has is changed. A policy retired
+ * by mistake should therefore be recoverable, because the alternative is a permanent scar on a
+ * tenant for a mis-click.
+ *
+ * A no-op is refused rather than silently accepted, so a caller that believes it changed something
+ * is told it did not.
+ */
+export const assertPolicyContainerTransition = (
+  from: PolicyContainerStatus,
+  to: PolicyContainerStatus,
+): void => {
+  if (from === to) {
+    throw PlatformError.conflict("policy_already_in_status", `The policy is already ${from}.`);
+  }
+};
+
 /** Thrown when a caller attempts to modify a published version. */
 export const assertVersionMutable = (status: PolicyStatus): void => {
   if (status !== "DRAFT") {

@@ -1,11 +1,16 @@
 import type { EudiVerifierProvisioningPort } from "@edtp/eudi-verifier-port";
 import { asId, PlatformError } from "@edtp/shared";
-import { Body, Controller, Get, HttpCode, Inject, Param, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Res } from "@nestjs/common";
 import { ApiExcludeEndpoint, ApiOperation, ApiTags } from "@nestjs/swagger";
+import type { Response } from "express";
+import type { PlatformConfig } from "../config.js";
+import type { HostedFormReturns } from "../modules/issuances/hosted-form-returns.js";
 import type { PolicyService } from "../modules/policies/policy.service.js";
 import type { PresentationService } from "../modules/presentations/presentation.service.js";
 import type { RegistrationService } from "../modules/registration/registration.service.js";
 import {
+  CONFIG_TOKEN,
+  HOSTED_FORM_RETURNS,
   POLICY_SERVICE,
   PRESENTATION_SERVICE,
   REGISTRATION_SERVICE,
@@ -15,6 +20,7 @@ import {
   ADMIN_ONLY,
   AdminOnly,
   assertTenantMatches,
+  assertUuidPathParam,
   Ctx,
   Public,
   type RequestContext,
@@ -42,6 +48,33 @@ import {
  * Tenancy comes from the authenticated credential. A `tenantId` in a path is checked
  * against it and never trusted (`assertTenantMatches`).
  */
+
+@ApiTags("Presentation policies")
+@Controller("v1/tenants/:tenantId/verification-capabilities")
+export class VerificationCapabilitiesController {
+  constructor(@Inject(CONFIG_TOKEN) private readonly config: PlatformConfig) {}
+
+  /**
+   * The trust anchor sources for attestation issuers that this deployment has loaded.
+   *
+   * A policy must name at least one, or every presentation against it is refused: the engine's
+   * alternative is to report a presentation verified without evaluating issuer trust at all
+   * (`docs/interop-findings.md` A30). This is the list a caller needs to avoid a refusal, rather
+   * than learning it from one. The published URL only — how the engine holds the list is not part
+   * of the business API.
+   */
+  @Get()
+  @ApiOperation({ summary: "The issuer trust anchor sources a presentation policy can name" })
+  capabilities(@Ctx() ctx: RequestContext, @Param("tenantId") tenantId: string) {
+    assertTenantMatches(ctx, tenantId);
+    return {
+      issuerTrustSources: Object.keys(this.config.ENGINE_ISSUER_TRUST_LISTS).map((ref) => ({
+        kind: "ETSI_TS_119_602_LOTE",
+        ref,
+      })),
+    };
+  }
+}
 
 @ApiTags("Tenants")
 @Controller("v1/tenants")
@@ -173,12 +206,26 @@ export class TenantController {
       id,
       asId<"RelyingPartyServiceId">(serviceId),
     );
+    // Whether the Service has a provisioned Relying Party Instance, and in which trust environment.
+    // **Not the certificate, and not the engine tenant reference** — the first is material a console
+    // has no use for and the second is internal correlation metadata that never leaves the platform.
+    // What a caller needs to know is whether this Service can sign a presentation request at all,
+    // and without this there was no way to ask: the operator console's certificate view had to
+    // report "none" for a Service that has held one all along.
+    const instance = await this.registration.findInstanceForService(
+      id,
+      asId<"RelyingPartyServiceId">(serviceId),
+    );
+
     return {
       serviceId: service.id,
       serviceIdentifier: service.serviceIdentifier,
       serviceTradeName: service.serviceTradeName,
       description: service.description,
       callbackUrlAllowList: service.callbackUrlAllowList,
+      ...(instance
+        ? { instance: { provisioned: true, trustEnvironment: instance.trustEnvironment } }
+        : { instance: { provisioned: false } }),
     };
   }
 
@@ -386,6 +433,7 @@ export class PolicyController {
 export class PresentationController {
   constructor(
     @Inject(PRESENTATION_SERVICE) private readonly presentations: PresentationService,
+    @Inject(HOSTED_FORM_RETURNS) private readonly hostedFormReturns: HostedFormReturns,
   ) {}
 
   @Post()
@@ -424,6 +472,7 @@ export class PresentationController {
   @Get(":presentationId")
   @ApiOperation({ summary: "Read a presentation transaction and its result" })
   async get(@Ctx() ctx: RequestContext, @Param("presentationId") presentationId: string) {
+    assertUuidPathParam("presentationId", presentationId);
     const view = await this.presentations.get(
       ctx.tenantId,
       asId<"PresentationId">(presentationId),
@@ -436,6 +485,7 @@ export class PresentationController {
   @HttpCode(200)
   @ApiOperation({ summary: "Cancel a presentation transaction" })
   async cancel(@Ctx() ctx: RequestContext, @Param("presentationId") presentationId: string) {
+    assertUuidPathParam("presentationId", presentationId);
     const view = await this.presentations.cancel(
       ctx.tenantId,
       asId<"PresentationId">(presentationId),
@@ -454,7 +504,20 @@ export class PresentationController {
   @Get(":presentationId/return")
   @Public()
   @ApiExcludeEndpoint()
-  async walletReturn(@Param("presentationId") presentationId: string) {
+  async walletReturn(
+    @Param("presentationId") presentationId: string,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    // Unauthenticated and reached by a browser, so the least validated surface of the three — and the
+    // one most likely to be poked at.
+    assertUuidPathParam("presentationId", presentationId);
+    // A presentation the hosted form started leads back into the form. The destination was built by
+    // the platform when the presentation was created; nothing in this request chooses it.
+    const destination = this.hostedFormReturns.destination(presentationId);
+    if (destination) {
+      response.redirect(303, destination);
+      return;
+    }
     return {
       presentationId,
       message: "The wallet interaction is complete. Return to the application to continue.",

@@ -9,6 +9,19 @@ import {
 import { EngineClient, EudiploVerifierAdapter } from "@edtp/eudiplo-adapter";
 import { systemClock } from "@edtp/shared";
 import { beforeAll, describe, expect, it } from "vitest";
+import { selfSignedCertificate } from "../support/self-signed.js";
+
+/**
+ * The issuer trust list the plans name. The adapter refuses a policy whose list is not loaded on
+ * the engine tenant (interop-findings A30), so the suite needs one: scripts/load-issuer-trust-list.mjs.
+ */
+const CONTRACT_PID_SOURCE = {
+  kind: "ETSI_TS_119_602_LOTE",
+  domain: "PID_PROVIDER",
+  ref: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt",
+} as const;
+const CONTRACT_PID_TRUST_LIST_ID =
+  process.env.CONTRACT_PID_TRUST_LIST_ID ?? "eudi-dev-pid-providers";
 
 /**
  * `RPRC_19`: does the registration certificate actually reach the wallet?
@@ -89,7 +102,7 @@ const planWith = (registrationCertificateJwt?: string): VerificationPlan => ({
     vctValues: ["urn:eudi:pid:1"],
   },
   requestedClaims: [{ path: ["birthdate"] }],
-  trustConstraints: defaultTrustPolicy(),
+  trustConstraints: { ...defaultTrustPolicy(), anchorSources: [CONTRACT_PID_SOURCE] },
   resultTransformation: {
     kind: "DERIVED_CLAIMS",
     derivations: [
@@ -134,26 +147,14 @@ beforeAll(async () => {
   });
   reachable = await client.health();
   if (!reachable) return;
-  adapter = new EudiploVerifierAdapter(client);
+  adapter = new EudiploVerifierAdapter(client, {
+    issuerTrustLists: { [CONTRACT_PID_SOURCE.ref]: CONTRACT_PID_TRUST_LIST_ID },
+  });
 
   // A development access certificate, so a presentation configuration can exist at all.
   const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  const cert = execFileSync(
-    "openssl",
-    [
-      "req",
-      "-new",
-      "-x509",
-      "-key",
-      "/dev/stdin",
-      "-days",
-      "2",
-      "-subj",
-      "/CN=rprc19-contract-test/O=Development only/C=EU",
-    ],
-    { input: pem },
-  ).toString();
+  const cert = selfSignedCertificate(pem, "rprc19-contract-test");
   const imported = await adapter.importAccessCertificate({
     engineTenantRef,
     name: "RPRC_19 contract test (development, self-signed)",

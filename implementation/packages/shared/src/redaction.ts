@@ -58,6 +58,13 @@ export const DENIED_KEYS: readonly string[] = [
   "given_name",
   "personal_administrative_number",
   "document_number",
+  "place_of_birth",
+  "nationalities",
+  "birth_family_name",
+  "birth_given_name",
+  // Attribute values a caller supplies to the operator-form source. Content, like the above.
+  "subjectattributes",
+  "suppliedattributes",
   // Secrets and key material
   //
   // `hash_pid` is the bearer value the EUDI RP Registration Service returns from its

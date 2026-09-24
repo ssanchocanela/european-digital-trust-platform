@@ -13,6 +13,7 @@ import {
   type Database,
   type DatabaseHandle,
   IssuanceRepository,
+  ListingRepository,
   PolicyRepository,
   RegistrationRepository,
   TransactionRepository,
@@ -29,7 +30,11 @@ import {
   FixtureAuthenticSourceConnector,
   MinimumAgeEligibilityEvaluator,
 } from "./modules/issuances/fixture-connector.js";
+import { HostedFormReturns } from "./modules/issuances/hosted-form-returns.js";
 import { IssuanceService } from "./modules/issuances/issuance.service.js";
+import { OperatorFormConnector } from "./modules/issuances/operator-form-connector.js";
+import { VerifiedPresentationConnector } from "./modules/issuances/verified-presentation-connector.js";
+import { WalletInitiatedClaims } from "./modules/issuances/wallet-initiated-claims.js";
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
@@ -59,6 +64,7 @@ export interface Dependencies {
     readonly deliveries: WebhookDeliveryRepository;
     readonly issuance: IssuanceRepository;
     readonly webhookEndpoints: WebhookEndpointRepository;
+    readonly listing: ListingRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -81,6 +87,8 @@ export interface Dependencies {
     readonly issuances: IssuanceService;
   };
   readonly jobs: BackgroundJobs;
+  /** Where a browser goes after presenting, for presentations the hosted form started. */
+  readonly hostedFormReturns: HostedFormReturns;
 }
 
 export interface BuildOptions {
@@ -110,6 +118,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     apiKeys: new ApiKeyRepository(db),
     deliveries: new WebhookDeliveryRepository(db),
     issuance: new IssuanceRepository(db),
+    listing: new ListingRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
 
@@ -141,10 +150,27 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
   // client resolves per-tenant credentials on demand (ADR 0002 Decision 3).
   const adapter = options.verifier
     ? undefined
-    : new EudiploVerifierAdapter(engineClient as EngineClient);
+    : new EudiploVerifierAdapter(engineClient as EngineClient, {
+        issuerTrustLists: config.ENGINE_ISSUER_TRUST_LISTS,
+      });
   const issuerAdapter = options.issuer
     ? undefined
-    : new EudiploIssuerAdapter(engineClient as EngineClient);
+    : new EudiploIssuerAdapter(engineClient as EngineClient, {
+        issuerTrustLists: config.ENGINE_ISSUER_TRUST_LISTS,
+        ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
+          ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
+          : {}),
+        issuerBranding: config.ENGINE_ISSUER_BRANDING,
+        issuerDisplayNames: config.ENGINE_ISSUER_DISPLAY_NAMES,
+        ...(config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL && config.ENGINE_ATTRIBUTE_PROVIDER_KEY
+          ? {
+              attributeProvider: {
+                baseUrl: config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL,
+                apiKey: config.ENGINE_ATTRIBUTE_PROVIDER_KEY,
+              },
+            }
+          : {}),
+      });
 
   const verifier: EudiVerifierPort = options.verifier ?? (adapter as EudiploVerifierAdapter);
   const provisioning: EudiVerifierProvisioningPort =
@@ -160,7 +186,17 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
 
   // Registered by name at startup, so a policy naming an unknown one is refused at publication.
   const connectors = new Map<string, AuthenticSourceConnector>();
-  for (const c of [new FixtureAuthenticSourceConnector()]) connectors.set(c.name, c);
+  for (const c of [
+    new FixtureAuthenticSourceConnector(),
+    // Issues from a presentation this platform has just verified. Tenant-scoped, and a FIXTURE:
+    // the representation it attests comes from policy configuration, not from a register.
+    new VerifiedPresentationConnector(repositories.transactions, clock),
+    // The test PID issuer's form. The one source that takes attribute values from the caller, so
+    // the service accepts it only under a TEST provider; FIXTURE for the same reason.
+    new OperatorFormConnector(),
+  ]) {
+    connectors.set(c.name, c);
+  }
   const evaluators = new Map<string, EligibilityEvaluator>();
   for (const e of [new MinimumAgeEligibilityEvaluator(), new AlwaysEligibleEvaluator()]) {
     evaluators.set(e.name, e);
@@ -214,6 +250,11 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     webhooks,
     clock,
     logger,
+    // Wallet-initiated issuance holds claims between the hosted form and the engine's call, in
+    // memory only. Without an attribute provider configured there is no call to hold them for.
+    config.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL
+      ? new WalletInitiatedClaims(() => clock.now())
+      : undefined,
   );
 
   const jobs = new BackgroundJobs(
@@ -238,6 +279,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     registry: { connectors, evaluators },
     services: { audit, registration, policies, presentations, webhooks, issuances },
     jobs,
+    hostedFormReturns: new HostedFormReturns(() => clock.now()),
   };
 };
 

@@ -1,0 +1,88 @@
+diff --git a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
+index 85a94f2..2d435c2 100644
+--- a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
++++ b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
+@@ -675,6 +675,51 @@ class WalletCoreDocumentsControllerImpl(
+             manager.resolveDocumentOffer(offerUri) { result ->
+                 when (result) {
+                     is OfferResult.Failure -> {
++                        // EDTP DIAGNOSTIC (diag-issuance). Logging only; no behaviour changes.
++                        //
++                        // `OfferResult.Failure` is mapped to a UI state and the throwable is
++                        // discarded — only `localizedMessage` survives, and for a Kotlin exception
++                        // raised without one that is null, so the screen shows a generic error and
++                        // the cause is unrecoverable. Observed 16 September 2026: the wallet fetched
++                        // the credential offer (200) and the issuer metadata (200), opened
++                        // DocumentOfferScreen, and popped it with no diagnosable reason anywhere.
++                        //
++                        // This walks the cause chain and prints each type, message and top frames.
++                        run {
++                            var t: Throwable? = result.cause
++                            var depth = 0
++                            while (t != null && depth < 10) {
++                                android.util.Log.e(
++                                    "EDTP-DIAG",
++                                    "offer resolve failure [$depth] ${t!!::class.qualifiedName}: " +
++                                        "${t!!.message ?: "<no message>"}"
++                                )
++                                t!!.stackTrace.take(4).forEach { f ->
++                                    android.util.Log.e("EDTP-DIAG", "    at $f")
++                                }
++                                // `CredentialOfferRequestException` carries its detail in `error`,
++                                // NOT in `cause` — walking the cause chain alone stops at a
++                                // message-less wrapper, which is exactly what happened on the first
++                                // instrumented run. `toUntrustedIssuerReasonOrNull` unwraps it the
++                                // same way; this mirrors that so the reason is printed rather than
++                                // classified and discarded.
++                                val offerError =
++                                    (t as? eu.europa.ec.eudi.openid4vci.CredentialOfferRequestException)?.error
++                                if (offerError != null) {
++                                    android.util.Log.e(
++                                        "EDTP-DIAG",
++                                        "  offer error: ${offerError::class.qualifiedName} -> $offerError"
++                                    )
++                                }
++                                t = if (offerError is eu.europa.ec.eudi.openid4vci.CredentialOfferRequestError.UnableToResolveCredentialIssuerMetadata) {
++                                    offerError.reason
++                                } else {
++                                    t!!.cause
++                                }
++                                depth += 1
++                            }
++                        }
++
+                         val untrustedReason = result.cause.toUntrustedIssuerReasonOrNull()
+ 
+                         trySendBlocking(
+diff --git a/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt b/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt
+index 2948af2..5f094b5 100644
+--- a/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt
++++ b/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt
+@@ -223,6 +223,27 @@ class DocumentOfferInteractorImpl(
+                 emit(it)
+             }
+         }.safeAsync {
++            // EDTP DIAGNOSTIC (diag-issuance). Logging only; no behaviour changes.
++            //
++            // The second place a throwable is reduced to `localizedMessage`. A failure raised here
++            // rather than inside Wallet Core never reaches the controller's diagnostic, so both are
++            // instrumented — otherwise "no log line" would be ambiguous between the two paths.
++            run {
++                var t: Throwable? = it
++                var depth = 0
++                while (t != null && depth < 8) {
++                    android.util.Log.e(
++                        "EDTP-DIAG",
++                        "interactor resolve failure [$depth] ${t!!::class.qualifiedName}: " +
++                            "${t!!.message ?: "<no message>"}"
++                    )
++                    t!!.stackTrace.take(6).forEach { f ->
++                        android.util.Log.e("EDTP-DIAG", "    at $f")
++                    }
++                    t = t!!.cause
++                    depth += 1
++                }
++            }
+             ResolveDocumentOfferInteractorPartialState.Failure(
+                 errorMessage = it.localizedMessage ?: genericErrorMsg
+             )

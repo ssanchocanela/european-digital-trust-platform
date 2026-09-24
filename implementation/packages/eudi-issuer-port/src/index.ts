@@ -149,13 +149,58 @@ export interface EudiIssuerPort {
    *
    * The platform, not the engine, enforces that `REVOKED` is terminal. This method simply carries
    * out a transition the domain has already approved.
+   *
+   * ## Why the policy identity is part of the input
+   *
+   * It names *which* credential configuration the transition applies to, and the wrapped engine
+   * needs it. Its status-update contract marks that field optional — "if omitted, all credentials
+   * linked to the session are updated" — and **the omitted path is the broken one**: the engine
+   * throws a `TypeORMError` about an undefined value in a `where` condition and answers `500`.
+   * Measured on one session, one status, two calls: without the field `500`, with it `204`.
+   * `docs/interop-findings.md` A26.
+   *
+   * These are platform concepts — a policy and its version. The engine's identifier format is the
+   * adapter's business and is derived there, so this port stays free of engine identifiers.
    */
   updateCredentialStatus(input: {
     readonly session: CredentialOfferHandle;
     readonly status: CredentialStatus;
+    readonly policyId: string;
+    readonly policyVersion: number;
   }): Promise<void>;
 
   cancelIssuance(session: CredentialOfferHandle): Promise<void>;
+
+  /**
+   * The opaque authorization-request reference a wallet-initiated session was created for.
+   *
+   * In an issuance the wallet starts from its own list of issuers there is no offer: the wallet
+   * pushes an authorization request, receives an opaque reference, and is sent to the platform's
+   * hosted form with it. When the protocol engine later asks the platform for claim values it names
+   * only its session, and this is how the two are joined. `undefined` when the session carries no
+   * such reference.
+   */
+  resolveAuthorizationRequest(session: CredentialOfferHandle): Promise<string | undefined>;
+
+  /**
+   * The other direction: which policy version a wallet's pending authorization request asks for.
+   *
+   * A wallet that lists several credentials from one issuer tells the issuer which it wants only in
+   * the pushed authorization request. A hosted form sees the request's opaque reference and must know
+   * what to offer. `undefined` when no pending request carries that reference.
+   */
+  findWalletAuthorizationRequest(input: {
+    readonly engineTenantRef: string;
+    readonly requestUri: string;
+  }): Promise<
+    | {
+        readonly requested: readonly {
+          readonly policyId: string;
+          readonly policyVersion: number;
+        }[];
+      }
+    | undefined
+  >;
 }
 
 /** Provisioning, separated so the business layer never touches it. */
@@ -167,8 +212,34 @@ export interface EudiIssuerProvisioningPort {
    */
   provisionCredentialConfiguration(input: IssuanceProvisioningInput): Promise<void>;
 
+  /**
+   * Removes the engine configurations of the given versions of a policy, so a wallet reading the
+   * issuer's metadata discovers only the current one. Versions that were never provisioned are
+   * skipped. Attestations already issued under them keep their status entries.
+   */
+  withdrawCredentialConfigurations(input: {
+    readonly engineTenantRef: string;
+    readonly policyId: string;
+    readonly versions: readonly number[];
+  }): Promise<void>;
+
   /** Imports the attestation-signing key and its certificate chain. Returns an opaque reference. */
   importSigningCertificate(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+    readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+    readonly certificateChain: readonly string[];
+  }): Promise<{ readonly keyBindingRef: string }>;
+
+  /**
+   * Imports the provider's **own** access certificate, for the §7.3 eligibility presentation.
+   *
+   * Separate from `importSigningCertificate` because the two keys are not interchangeable: the
+   * engine keys trust decisions off the usage type, and an attestation-signing key used to sign a
+   * presentation request would be the wrong key in the wrong role. In that exchange the issuer is
+   * the Relying Party — `interop-findings.md` A22.
+   */
+  importAccessCertificate(input: {
     readonly engineTenantRef: string;
     readonly name: string;
     readonly privateKeyJwk: Readonly<Record<string, unknown>>;

@@ -167,7 +167,13 @@ export class PolicyRepository {
 
 type VersionRow = typeof presentationPolicyVersions.$inferSelect;
 
-const mapVersion = (row: VersionRow): PresentationPolicyVersion => ({
+/**
+ * Exported because the **issuance** side reads presentation policy versions too: a policy used as a
+ * §7.3 eligibility gate has to be compiled into a presentation configuration on the issuer's own
+ * engine tenant (`interop-findings.md` A22). A second mapper is how the two views of the same row
+ * drift, and a drift here would be a DCQL query that no longer matches the published policy.
+ */
+export const mapVersion = (row: VersionRow): PresentationPolicyVersion => ({
   id: asId<"PresentationPolicyVersionId">(row.id),
   tenantId: asId<"TenantId">(row.tenantId),
   policyId: asId<"PresentationPolicyId">(row.policyId),

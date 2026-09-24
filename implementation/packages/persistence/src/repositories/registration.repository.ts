@@ -437,7 +437,9 @@ const mapService = (row: ServiceRow): RelyingPartyService => ({
   createdAt: row.createdAt,
 });
 
-const mapIntendedUse = (row: IntendedUseRow): IntendedUse => ({
+/** Exported for the same reason as `mapVersion`: the issuance side needs the registered credentials
+ * an eligibility presentation's `vct_values` are derived from. */
+export const mapIntendedUse = (row: IntendedUseRow): IntendedUse => ({
   id: asId<"IntendedUseId">(row.id),
   tenantId: asId<"TenantId">(row.tenantId),
   relyingPartyServiceId: asId<"RelyingPartyServiceId">(row.relyingPartyServiceId),

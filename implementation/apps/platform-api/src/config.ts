@@ -8,6 +8,10 @@ import { z } from "zod";
  * `PLATFORM_ADMIN_API_KEY` or engine credential must stop the process, not silently fall
  * back to a well-known value.
  */
+/** Compose passes an unset variable as `""`; for an optional setting that means "not set". */
+const unsetIfEmpty = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess((value) => (value === "" ? undefined : value), inner);
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3100),
@@ -36,6 +40,34 @@ const schema = z.object({
    * the tenant of the presenting token (ADR 0002 Decision 3).
    */
   ENGINE_TENANT_CREDENTIALS: z.string().min(1),
+  /** Engine trust list of wallet providers. Unset: no wallet attestation at the token endpoint. */
+  ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: z.string().min(1).optional(),
+  /**
+   * Issuer trust lists loaded into the engine, as `<trust anchor source ref>=<engine list id>`
+   * pairs separated by commas. The ref is the list's published URL, as a policy names it; the id is
+   * what `scripts/load-issuer-trust-list.mjs` created. A policy naming a source not listed here is
+   * refused — never verified without issuer trust (`docs/interop-findings.md` A30).
+   */
+  ENGINE_ISSUER_TRUST_LISTS: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const map: Record<string, string> = {};
+      for (const pair of value
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const at = pair.lastIndexOf("=");
+        const ref = pair.slice(0, at);
+        const id = pair.slice(at + 1);
+        if (at <= 0 || !id || !/^https:\/\//.test(ref)) {
+          ctx.addIssue({ code: "custom", message: `not an https-ref=id pair: ${pair}` });
+          return z.NEVER;
+        }
+        map[ref] = id;
+      }
+      return map;
+    }),
 
   /** Public base URL of this API, used for same-device return URLs. */
   PLATFORM_PUBLIC_URL: z.string().url(),
@@ -60,6 +92,133 @@ const schema = z.object({
     .default("false")
     .transform((v) => v === "true"),
   WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
+
+  // --- wallet-initiated issuance through a hosted form ------------------------------------
+  //
+  // All unset by default, and then the feature is simply off: no attribute provider is registered
+  // on the engine, and the hosted-form and engine routes refuse every request.
+
+  /**
+   * Where the engine reaches this API to ask for held claims — the compose-internal origin, never
+   * the public one: `http://platform-api:3100`. The engine's outbound URL policy must allow it.
+   */
+  ENGINE_ATTRIBUTE_PROVIDER_BASE_URL: unsetIfEmpty(z.string().url().optional()),
+  /** The key the engine presents on that call. A secret, shared with nothing else. */
+  ENGINE_ATTRIBUTE_PROVIDER_KEY: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * The hosted form's public origin. Where a browser is sent back after presenting to the form's
+   * identification step — built by the platform, never taken from a request.
+   */
+  HOSTED_FORM_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
+  /**
+   * A **hosted verifier**: a demonstration Relying Party page (`apps/demo-bank`) that asks a wallet to
+   * present and shows the outcome. It holds this one secret, accepted only for the presentation
+   * policies in `HOSTED_VERIFIER_POLICIES` (`tenantId:presentationPolicyId`, comma-separated), never a
+   * tenant key. The wallet's same-device return is sent to `HOSTED_VERIFIER_PUBLIC_URL`, built by the
+   * platform — the same rule as the hosted form's. All three unset: off.
+   */
+  HOSTED_VERIFIER_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  HOSTED_VERIFIER_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
+  HOSTED_VERIFIER_POLICIES: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const out: { tenantId: string; policyId: string }[] = [];
+      for (const entry of value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)) {
+        const [tenantId, policyId, extra] = entry.split(":");
+        if (!tenantId || !policyId || extra !== undefined) {
+          ctx.addIssue({ code: "custom", message: `not a tenantId:policyId entry: ${entry}` });
+          return z.NEVER;
+        }
+        out.push({ tenantId, policyId });
+      }
+      return out;
+    }),
+  /** The secret the hosted form presents when it submits. */
+  HOSTED_FORM_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * Signs the hand-back from the form to the engine's authorization endpoint, which the test gateway
+   * verifies before letting the browser through. Shared with the gateway and nothing else — it must
+   * differ from `HOSTED_FORM_SECRET`, or the form could mint its own passes.
+   */
+  HOSTED_FORM_AUTHORIZE_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * The issuance policies a hosted form may submit to, as `tenantId:policyId` entries separated by
+   * commas. A policy not listed here is refused: the form holds one secret, not a tenant's key. A third
+   * field, `:identifyPresentationPolicyId`, makes the form identify the person with a presentation
+   * first, and issue from it — the representation flow.
+   */
+  HOSTED_FORM_POLICIES: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const out: { tenantId: string; policyId: string; identifyPolicyId?: string }[] = [];
+      for (const entry of value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)) {
+        const [tenantId, policyId, identifyPolicyId, extra] = entry.split(":");
+        if (!tenantId || !policyId || identifyPolicyId === "" || extra !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            message: `not a tenantId:policyId[:identifyPresentationPolicyId] entry: ${entry}`,
+          });
+          return z.NEVER;
+        }
+        out.push({ tenantId, policyId, ...(identifyPolicyId ? { identifyPolicyId } : {}) });
+      }
+      return out;
+    }),
+  /**
+   * The name a wallet shows for the Credential Issuer, per engine tenant, as `engineTenantRef=name`
+   * pairs separated by `;` (a name may contain commas). Display only: the organisation's registered
+   * legal name is unchanged, and it is what the platform records. Unset: the legal name is shown.
+   */
+  ENGINE_ISSUER_DISPLAY_NAMES: z
+    .string()
+    .default("")
+    .transform((value) => {
+      const map: Record<string, string> = {};
+      for (const pair of value
+        .split(";")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const at = pair.indexOf("=");
+        if (at > 0 && pair.slice(at + 1).trim())
+          map[pair.slice(0, at)] = pair.slice(at + 1).trim();
+      }
+      return map;
+    }),
+  /**
+   * A logo for the Credential Issuer's display, per engine tenant, as `engineTenantRef=https-url`
+   * pairs. The wallet shows it beside every document from that issuer.
+   */
+  ENGINE_ISSUER_BRANDING: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const map: Record<string, { logoUri: string }> = {};
+      for (const pair of value
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean)) {
+        const at = pair.indexOf("=");
+        const ref = pair.slice(0, at);
+        const uri = pair.slice(at + 1);
+        if (at <= 0 || !/^https:\/\//.test(uri)) {
+          ctx.addIssue({
+            code: "custom",
+            message: `not an engineTenantRef=https-url pair: ${pair}`,
+          });
+          return z.NEVER;
+        }
+        map[ref] = { logoUri: uri };
+      }
+      return map;
+    }),
 });
 
 export type PlatformConfig = Readonly<z.infer<typeof schema>> & {
@@ -103,6 +262,35 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
       .map((i) => `  ${i.path.join(".") || "(root)"}: ${i.message}`)
       .join("\n");
     throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  const d = parsed.data;
+  if (
+    d.HOSTED_FORM_SECRET &&
+    d.HOSTED_FORM_AUTHORIZE_SECRET &&
+    d.HOSTED_FORM_SECRET === d.HOSTED_FORM_AUTHORIZE_SECRET
+  ) {
+    // The form holds the first; a pass through the gateway needs the second. Equal, the form could
+    // mint its own passes and the gateway's check would prove nothing.
+    throw new Error(
+      "Invalid environment configuration:\n  HOSTED_FORM_AUTHORIZE_SECRET must differ from HOSTED_FORM_SECRET",
+    );
+  }
+  if (
+    d.HOSTED_VERIFIER_SECRET &&
+    (d.HOSTED_VERIFIER_SECRET === d.HOSTED_FORM_SECRET ||
+      d.HOSTED_VERIFIER_SECRET === d.HOSTED_FORM_AUTHORIZE_SECRET)
+  ) {
+    // Each public process holds its own secret, so one compromised page opens only its own policies.
+    throw new Error(
+      "Invalid environment configuration:\n  HOSTED_VERIFIER_SECRET must differ from the hosted form's secrets",
+    );
+  }
+  if (
+    Boolean(d.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL) !== Boolean(d.ENGINE_ATTRIBUTE_PROVIDER_KEY)
+  ) {
+    throw new Error(
+      "Invalid environment configuration:\n  ENGINE_ATTRIBUTE_PROVIDER_BASE_URL and ENGINE_ATTRIBUTE_PROVIDER_KEY are set together or not at all",
+    );
   }
   return {
     ...parsed.data,

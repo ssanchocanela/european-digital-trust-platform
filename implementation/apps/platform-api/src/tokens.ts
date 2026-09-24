@@ -17,6 +17,7 @@ export const TRANSACTION_REPOSITORY = Symbol("TransactionRepository");
 export const AUDIT_REPOSITORY = Symbol("AuditRepository");
 export const API_KEY_REPOSITORY = Symbol("ApiKeyRepository");
 export const WEBHOOK_DELIVERY_REPOSITORY = Symbol("WebhookDeliveryRepository");
+export const LISTING_REPOSITORY = Symbol("ListingRepository");
 
 export const VERIFIER_PORT = Symbol("EudiVerifierPort");
 export const VERIFIER_PROVISIONING_PORT = Symbol("EudiVerifierProvisioningPort");
@@ -39,3 +40,5 @@ export const REGISTERED_CONNECTORS = Symbol("RegisteredConnectors");
 export const WEBHOOK_ENDPOINT_REPOSITORY = Symbol("WebhookEndpointRepository");
 /** Feature flag: PID-during-issuance. Off until a wallet test passes. */
 export const FEATURE_PID_DURING_ISSUANCE = Symbol("FeaturePidDuringIssuance");
+
+export const HOSTED_FORM_RETURNS = Symbol("HostedFormReturns");

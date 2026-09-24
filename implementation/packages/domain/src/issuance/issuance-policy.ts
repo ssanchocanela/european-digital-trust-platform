@@ -1,7 +1,7 @@
 import type { LocalisedText } from "@edtp/shared";
 import { PlatformError } from "@edtp/shared";
 import type { RetentionPolicy } from "../kernel/policies.js";
-import type { PolicyStatus } from "../kernel/policy-version.js";
+import type { PolicyContainerStatus, PolicyStatus } from "../kernel/policy-version.js";
 import { type CredentialType, declaredClaimPaths } from "./credential-type.js";
 
 /**
@@ -44,6 +44,27 @@ export interface StatusPolicy {
   readonly suspensionAllowed: boolean;
 }
 
+/**
+ * How often a Wallet Unit may present one issued credential — the provider's policy under ARF 3.0.0
+ * `AS-AP-10-070` (`ISSU_38`), published to the Wallet as `credential_reuse_policy`
+ * (`AS-AP-10-084`, `ISSU_50`; ETSI TS 119 472-3).
+ *
+ * Only **`LIMITED_TIME`** (the ARF's Method B, `ISSU_48`–`ISSU_50`): one credential, presented as
+ * often as needed, re-issued some time before it expires. Method A (once-only batches) is not offered
+ * because the wrapped engine cannot serve a batch to the pinned wallet — `interop-findings.md` A34 —
+ * and a policy the platform cannot honour must not be expressible.
+ *
+ * The privacy cost is real and is the reason Method A exists: every presentation of the same
+ * credential carries the same signature and salts, so Relying Parties can link them. `ISSU_38`
+ * requires the provider to judge that risk acceptable for the expected use; choosing this is that
+ * judgement, and it belongs in the policy's version history.
+ */
+export interface ReusePolicy {
+  readonly method: "LIMITED_TIME";
+  /** How long before expiry the Wallet Unit should ask for re-issuance. Positive, below validity. */
+  readonly reissueBeforeExpirySeconds: number;
+}
+
 export interface IssuancePolicyVersionInput {
   readonly credentialTypeId: string;
   readonly purpose: readonly LocalisedText[];
@@ -54,6 +75,8 @@ export interface IssuancePolicyVersionInput {
   readonly credentialValiditySeconds: number;
   readonly statusPolicy: StatusPolicy;
   readonly retentionPolicy: RetentionPolicy;
+  /** Absent: no policy is published and the Wallet applies its own default. */
+  readonly reusePolicy?: ReusePolicy;
   /**
    * Optional: require a PID presentation before issuing, reusing a verification policy.
    *
@@ -77,7 +100,15 @@ export interface IssuancePolicy {
   readonly tenantId: string;
   readonly credentialTypeId: string;
   readonly name: string;
-  readonly status: "ACTIVE" | "ARCHIVED";
+  /**
+   * The container's own lifecycle, `RETIRED` rather than `ARCHIVED`.
+   *
+   * It said `ARCHIVED` until 16 September 2026 while the kernel that governs every policy
+   * container said `RETIRED` — two names for one state, in a codebase where the verification
+   * side already used the kernel's. No row had ever held either value, because nothing could
+   * set one: the state was modelled and enforced and unreachable.
+   */
+  readonly status: PolicyContainerStatus;
   readonly createdAt: Date;
 }
 
@@ -180,12 +211,46 @@ export const validateIssuancePolicyVersion = (
         "way: an attestation that cannot be revoked must say so in its type.",
     });
   }
+  // A presentation gate is an *authorization* step: the Wallet is sent to an authorization server
+  // that runs an OpenID4VP presentation before it may collect anything. A pre-authorized code skips
+  // the authorization server by construction, so the two together describe a policy whose gate can
+  // never run — and the failure is silent: the offer is minted, the Wallet collects the credential,
+  // and the eligibility presentation the policy asked for simply does not happen.
+  //
+  // Observed on a live stack on 13 September 2026, which is the only reason it is caught here: the
+  // combination was accepted, provisioned, and produced an offer naming the built-in authorization
+  // server. Nothing in the engine's response said anything was wrong.
+  if (input.eligibilityPresentationPolicyId && input.flow === "PRE_AUTHORIZED_CODE") {
+    details.push({
+      path: "flow",
+      code: "gate_requires_authorization_code",
+      message:
+        "A policy gated on a presentation must use the AUTHORIZATION_CODE flow. A pre-authorized " +
+        "code bypasses the authorization server, so the eligibility presentation would never run " +
+        "and the credential would be issued without it.",
+    });
+  }
+
   if (input.statusPolicy.suspensionAllowed && !input.statusPolicy.statusListEnabled) {
     details.push({
       path: "statusPolicy.suspensionAllowed",
       code: "suspension_requires_status_list",
       message: "Suspension needs a status list.",
     });
+  }
+
+  if (input.reusePolicy) {
+    const lead = input.reusePolicy.reissueBeforeExpirySeconds;
+    if (!Number.isInteger(lead) || lead <= 0 || lead >= input.credentialValiditySeconds) {
+      details.push({
+        path: "reusePolicy.reissueBeforeExpirySeconds",
+        code: "reuse_reissue_lead_invalid",
+        message:
+          "The re-issuance lead must be a positive number of seconds below the credential's " +
+          "validity. The Wallet refuses a non-positive one, and one at or above the validity would " +
+          "have it re-issue continuously.",
+      });
+    }
   }
 
   if (input.credentialValiditySeconds <= 0) {

@@ -104,9 +104,11 @@ IP, then a 10-second block (the only rule the free plan allows). Tested on 24 Se
 
 See `infra/demo-vm/README.md`, including how to get back in after a fail-closed stop.
 
+**W7 built and installed (24 September).** A release build signed with our key, "EDTP TEST 7",
+`.edtptest7`, with the PID row "PID (demo)", installed alongside W6 (which keeps "PID - FNMT"). Not yet
+exercised on the phone.
+
 Still open:
-- The W6 wallet still labels the PID row "PID - FNMT", which is compiled in. A W7 with "PID (demo)" is
-  optional.
 
 **Next — batch once-only issuance upstream.** Decided: file the issue
 (`docs/upstream/eudiplo-batch-attestation-proof.md`, with the user for review), and if the maintainers

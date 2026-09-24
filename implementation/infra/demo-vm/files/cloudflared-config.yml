@@ -1,9 +1,22 @@
 # /etc/cloudflared/config.yml on the demonstration VM (ADR 0010). The credential file sits beside it,
-# root-only, and is never committed. SSH only until the stack is deployed; the demo hostnames are
-# added then. Default-deny: anything unmatched is a 404 at the edge.
+# root-only, and is never committed. Default-deny: anything unmatched is a 404 at the edge.
+#
+# The engine and the platform are reached THROUGH the filtering gateway (3010, 3011), never directly:
+# its allow-list is what keeps the Management API off the internet (CLAUDE.md §6.20). The operator
+# console (3200) is not here at all.
 tunnel: b7f28b3b-a6e0-453f-8e12-7882008dcf63
 credentials-file: /etc/cloudflared/b7f28b3b-a6e0-453f-8e12-7882008dcf63.json
 ingress:
   - hostname: edtp-ssh.murcata.es
     service: ssh://localhost:22
+  - hostname: edtp-engine.murcata.es
+    service: http://127.0.0.1:3010
+  - hostname: edtp-platform.murcata.es
+    service: http://127.0.0.1:3011
+  - hostname: edtp-start.murcata.es
+    service: http://127.0.0.1:3201
+  - hostname: edtp-pid.murcata.es
+    service: http://127.0.0.1:3202
+  - hostname: edtp-banco.murcata.es
+    service: http://127.0.0.1:3203
   - service: http_status:404

@@ -25,7 +25,16 @@ Design: [`docs/demo-hosting-proposal.md`](../../docs/demo-hosting-proposal.md).
    **Done 24 September 2026**: the public port 22 is closed. SSH works only this way:
    `ssh -F ~/.edtp/demo-vm/ssh_config edtp-demo` (the config lives outside the repository). The first
    connection of a session asks for an Access login in the browser.
-4. Deploy the stack. **Every deployment is confirmed by the user first** (ADR 0010).
+4. Deploy the stack. **Every deployment is confirmed by the user first** (ADR 0010). The first
+   deployment, on 24 September 2026, **migrated the laptop's state** (decided: option A). Both databases
+   were dumped and restored, the configuration was carried over with the public URLs, and so were the
+   TEST CAs. That keeps every issued credential, key, trust list and policy. It is also the one
+   deviation from ADR 0010 §3.3: these secrets were not generated on the VM; they are rotated when the
+   VM is rebuilt. `registration/` (`hash_pid`, the PKCS#12) was **not** copied; the console mounts an
+   empty one. The stack runs as
+   `docker compose -f docker-compose.yml -f infra/demo-vm/docker-compose.demo.yml up -d`, with
+   `EDTP_IMAGE` pinned to a `demo-image` build. `./negative-checks.sh --local` checks it before any name
+   moves, and `./negative-checks.sh` checks it publicly after.
 5. Move the `murcata.es` hostnames from `edtp-dev` to `edtp-demo`.
 
 Secrets for the stack are generated on the VM and stay there.

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.3/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": {
+    "includes": [
+      "**/*.ts",
+      "**/*.mjs",
+      "**/*.json",
+      "!**/dist",
+      "!**/node_modules",
+      // Generated from the schema and reviewed as SQL; formatting it would obscure the diff.
+      "!packages/persistence/migrations"
+    ]
+  },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 96 },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "warn",
+        "noConsole": { "level": "warn", "options": { "allow": ["info", "warn", "error"] } }
+      },
+      "style": { "useImportType": "error", "noNonNullAssertion": "warn" },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "off",
+        // `AppModule.withDependencies` is NestJS's dynamic-module idiom: a static factory
+        // returning a module descriptor. There is nothing to instantiate, which is the point.
+        "noStaticOnlyClass": "off"
+      },
+      "correctness": {
+        // These two report TypeScript parameter properties and NestJS decorated route
+        // parameters as unused even when they are used — verified on `ApiKeyGuard` and on route
+        // handlers that pass `tenantId` straight to `assertTenantMatches`, and on controller
+        // fields reached through `this.`. Around 60 false positives and no true ones, so the
+        // rules are noise in this codebase. `tsc` remains the real check for unused code, and
+        // unused *imports* and *variables* stay enabled.
+        "noUnusedFunctionParameters": "off",
+        "noUnusedPrivateClassMembers": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": { "quoteStyle": "double", "trailingCommas": "all", "semicolons": "always" },
+    "parser": {
+      // NestJS uses TypeScript's legacy parameter decorators (`@Inject()`, `@Param()`,
+      // `@Body()`). Without this Biome cannot parse the HTTP layer at all.
+      "unsafeParameterDecoratorsEnabled": true
+    }
+  }
+}

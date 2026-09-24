@@ -13,6 +13,7 @@ import {
   renderOpenWallet,
   renderRequest,
   renderWaiting,
+  selectBrand,
 } from "./page.js";
 
 /**
@@ -51,7 +52,10 @@ const schema = z.object({
   HOSTED_FORM_SECRET: z.string().min(32),
   /** Where the browser goes back to: the engine's public origin, as the wallet knows it. */
   ENGINE_PUBLIC_URL: z.string().url(),
-  /** Which look each engine tenant's pages wear, as `tenant=brand` pairs: `pid-1=fnmt;rpi-1=corpme`. */
+  /**
+   * Which look each engine tenant's pages wear, as `tenant=brand` pairs: `pid-1=fnmt;rpi-1=corpme`.
+   * Unset or unknown: the neutral `demo` brand.
+   */
   HOSTED_FORM_BRANDS: z
     .string()
     .default("")
@@ -65,6 +69,13 @@ const schema = z.object({
           ),
       ),
     ),
+  /**
+   * The one hostname a client's brand may be shown on (ADR 0010). It sits behind Cloudflare Access, so
+   * a real organisation's look is never on a public page. When it is set, a request on any other host
+   * gets the neutral brand whatever `HOSTED_FORM_BRANDS` says. Unset (laptop sessions): no host
+   * restriction.
+   */
+  HOSTED_FORM_BRANDED_HOST: z.string().min(1).optional(),
 });
 
 type Config = Readonly<z.infer<typeof schema>>;
@@ -246,8 +257,17 @@ const main = (): void => {
     process.exit(1);
   }
   const config = parsed.data;
-  const brandOf = (tenant: string): Brand =>
-    BRANDS[config.HOSTED_FORM_BRANDS[tenant] ?? "fnmt"] ?? (BRANDS["fnmt"] as Brand);
+  const brandOf = (request: Request, tenant: string): Brand =>
+    selectBrand(
+      config.HOSTED_FORM_BRANDS,
+      tenant,
+      request.hostname,
+      config.HOSTED_FORM_BRANDED_HOST,
+    );
+  // A client's images are served only while a client brand is configured. The issuer logo in the
+  // wallet is one of them, and the wallet fetches it without logging in, so it can only be withheld by
+  // not serving it.
+  const activeBrands = new Set(Object.values(config.HOSTED_FORM_BRANDS));
 
   const app = express();
   app.disable("x-powered-by");
@@ -255,6 +275,7 @@ const main = (): void => {
 
   // The images, and nothing else static. The emblems are the Credential Issuers' logos in the wallet.
   for (const name of IMAGES) {
+    if (!activeBrands.has(name.split("-")[0] ?? "")) continue;
     const image = readFileSync(join(ASSETS, name));
     app.get(`/assets/${name}`, (_request, response) => {
       response.setHeader("content-type", "image/png");
@@ -320,7 +341,7 @@ const main = (): void => {
   app.get("/", async (request, response) => {
     secureHeaders(response);
     const s = requestState(request.query);
-    const brand = brandOf(str(request.query, "tenant"));
+    const brand = brandOf(request, str(request.query, "tenant"));
     if (!s) return invalid(response, brand);
     const definition = await definitionFor(config, s.tenant, s.requestUri).catch(
       () => undefined,
@@ -341,7 +362,7 @@ const main = (): void => {
   app.post("/confirm", async (request, response) => {
     secureHeaders(response);
     const s = requestState(request.body);
-    const brand = brandOf(str(request.body, "tenant"));
+    const brand = brandOf(request, str(request.body, "tenant"));
     const policyId = str(request.body, "policy");
     if (!s || !UUID.test(policyId)) return invalid(response, brand);
     const definition = await definitionFor(config, s.tenant, s.requestUri).catch(
@@ -372,7 +393,7 @@ const main = (): void => {
   app.post("/identificarse", async (request, response) => {
     secureHeaders(response);
     const s = requestState(request.body);
-    const brand = brandOf(str(request.body, "tenant"));
+    const brand = brandOf(request, str(request.body, "tenant"));
     const policyId = str(request.body, "policy");
     if (!s || !UUID.test(policyId)) return invalid(response, brand);
     const started = await platform(
@@ -394,7 +415,7 @@ const main = (): void => {
   app.get("/continuar", async (request, response) => {
     secureHeaders(response);
     const s = requestState(request.query);
-    const brand = brandOf(str(request.query, "tenant"));
+    const brand = brandOf(request, str(request.query, "tenant"));
     const presentationId = str(request.query, "presentation");
     if (!s || !UUID.test(presentationId)) return invalid(response, brand);
     const definition = await definitionFor(config, s.tenant, s.requestUri).catch(
@@ -441,7 +462,7 @@ const main = (): void => {
   app.post("/solicitar", async (request, response) => {
     secureHeaders(response);
     const s = requestState(request.body);
-    const brand = brandOf(str(request.body, "tenant"));
+    const brand = brandOf(request, str(request.body, "tenant"));
     const policyId = str(request.body, "policy");
     const presentationId = str(request.body, "presentation");
     if (!s || !UUID.test(policyId) || !UUID.test(presentationId))
@@ -470,7 +491,7 @@ const main = (): void => {
       .status(404)
       .send(
         renderMessage(
-          brandOf(str(request.query, "tenant")),
+          brandOf(request, str(request.query, "tenant")),
           "No encontrado",
           "Esta página no existe.",
         ),

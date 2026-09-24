@@ -23,8 +23,11 @@ export interface FixedClaim {
 export interface Brand {
   readonly key: string;
   readonly organisation: string;
-  readonly logo: string;
+  /** An image under `assets/`, or absent for the neutral brand, which draws a text mark instead. */
+  readonly logo?: string;
   readonly logoAlt: string;
+  /** Whether this is a real organisation's look — shown only behind the login (ADR 0010). */
+  readonly client: boolean;
   readonly colour: string;
   readonly colourDark: string;
   readonly service: string;
@@ -33,8 +36,24 @@ export interface Brand {
 }
 
 export const BRANDS: Readonly<Record<string, Brand>> = {
+  /**
+   * The neutral look, and the default. Public demonstrations use it: no real organisation's name, logo
+   * or colours (ADR 0010).
+   */
+  demo: {
+    key: "demo",
+    organisation: "EDTP Demo",
+    logoAlt: "EDTP Demo",
+    client: false,
+    colour: "#2f4858",
+    colourDark: "#1f3140",
+    service: "Credenciales de demostración",
+    serviceSub: "Emisión de credenciales",
+    crumbs: "Inicio › Credenciales",
+  },
   fnmt: {
     key: "fnmt",
+    client: true,
     organisation: "FNMT-RCM",
     logo: "assets/fnmt-logo.png",
     logoAlt: "FNMT — Real Casa de la Moneda",
@@ -46,6 +65,7 @@ export const BRANDS: Readonly<Record<string, Brand>> = {
   },
   corpme: {
     key: "corpme",
+    client: true,
     organisation: "Colegio de Registradores (CORPME)",
     logo: "assets/corpme-logo.png",
     logoAlt: "Registradores de España",
@@ -55,6 +75,23 @@ export const BRANDS: Readonly<Record<string, Brand>> = {
     serviceSub: "Certificados de representación",
     crumbs: "Inicio › Sede electrónica › Representación",
   },
+};
+
+/**
+ * The look for one engine tenant's page. A client's brand is shown only on the one host allowed to
+ * carry it, which sits behind Cloudflare Access (ADR 0010 §2). Anywhere else, and for any brand not
+ * known, the neutral one. `brandedHost` unset keeps laptop sessions as they were: no host restriction.
+ */
+export const selectBrand = (
+  configured: Readonly<Record<string, string>>,
+  tenant: string,
+  host: string,
+  brandedHost: string | undefined,
+): Brand => {
+  const neutral = BRANDS["demo"] as Brand;
+  const brand = BRANDS[configured[tenant] ?? "demo"] ?? neutral;
+  if (!brand.client) return brand;
+  return !brandedHost || host === brandedHost ? brand : neutral;
 };
 
 export const escapeHtml = (value: string): string =>
@@ -404,6 +441,8 @@ ${head}
   header { background:#fff; border-bottom:1px solid var(--line); }
   header .inner { max-width:960px; margin:0 auto; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
   header img { height:56px; width:auto; display:block; }
+  header .mark { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; color:var(--brand); }
+  header .mark span { width:40px; height:40px; border-radius:8px; background:var(--brand); color:#fff; display:grid; place-items:center; font-size:20px; }
   header .service { color:var(--brand); font-weight:600; font-size:15px; text-align:right; }
   main { max-width:960px; margin:0 auto; padding:24px 16px 48px; }
   .crumbs { font-size:13px; color:var(--muted); margin-bottom:12px; }
@@ -436,10 +475,10 @@ ${head}
 </style>
 </head>
 <body>
-  <div class="demo" role="note"><strong>Entorno de demostración.</strong> No es un servicio de ${escapeHtml(brand.organisation)}. Use únicamente datos ficticios.</div>
+  <div class="demo" role="note"><strong>Entorno de demostración.</strong> ${brand.client ? `No es un servicio de ${escapeHtml(brand.organisation)}.` : "No es un servicio real."} Use únicamente datos ficticios.</div>
   <div class="topbar"></div>
   <header><div class="inner">
-    <img src="${escapeHtml(brand.logo)}" alt="${escapeHtml(brand.logoAlt)}">
+    ${brand.logo ? `<img src="${escapeHtml(brand.logo)}" alt="${escapeHtml(brand.logoAlt)}">` : `<div class="mark" aria-label="${escapeHtml(brand.logoAlt)}"><span>D</span>${escapeHtml(brand.organisation)}</div>`}
     <div class="service">${escapeHtml(brand.service)}<br><span style="font-weight:400;color:#4d4d4d">${escapeHtml(brand.serviceSub)}</span></div>
   </div></header>
   <main>${main}</main>

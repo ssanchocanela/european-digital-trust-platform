@@ -29,6 +29,9 @@ services:
 
   pid-form:
     <<: *platform-image
+    environment:
+      # A client's look only on the Access-protected host (ADR 0010 §2); anywhere else, neutral.
+      HOSTED_FORM_BRANDED_HOST: edtp-cliente.murcata.es
 
   demo-bank:
     <<: *platform-image

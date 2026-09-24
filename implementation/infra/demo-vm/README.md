@@ -37,4 +37,18 @@ Design: [`docs/demo-hosting-proposal.md`](../../docs/demo-hosting-proposal.md).
    moves, and `./negative-checks.sh` checks it publicly after.
 5. Move the `murcata.es` hostnames from `edtp-dev` to `edtp-demo`.
 
-Secrets for the stack are generated on the VM and stay there.
+## Branding profiles (ADR 0010 §2)
+
+`profiles/generic.env` is the public default. `profiles/fnmt-corpme.env` is a client profile; switch it
+on only with the organisations' written permission. On the VM:
+
+    ~/edtp/implementation/infra/demo-vm/demo-profile.sh fnmt-corpme   # reverts by itself after 4 hours
+    ~/edtp/implementation/infra/demo-vm/demo-profile.sh generic       # back now
+    journalctl -t edtp-profile                                        # who switched what, when
+
+A client's look is served only on `edtp-cliente.murcata.es`, which sits behind Cloudflare Access. The
+form shows the neutral brand on every other host (`selectBrand`, `tests/unit/form-brands.test.ts`). The
+client emblems are served only while a client profile is on. The PID's content stays neutral in both
+profiles (`issuing_authority`, the type's label): a profile changes presentation, not what is attested.
+
+Secrets for the stack are generated on the VM and stay there, except the migrated ones (step 4).

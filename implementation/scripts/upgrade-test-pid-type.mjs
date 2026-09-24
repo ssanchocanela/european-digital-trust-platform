@@ -24,7 +24,10 @@
  *
  *   PLATFORM_TENANT_API_KEY=… node scripts/upgrade-test-pid-type.mjs \
  *     <issuancePolicyId> <fromVersion> [--name <type name>] [--display <wallet label>] \
- *     [--trust-anchor <https url>]
+ *     [--trust-anchor <https url>] [--issuing-authority <name>]
+ *
+ * `--issuing-authority` replaces the fixed `issuing_authority` value, which is attestation content (the
+ * Rulebook's mandatory metadata, section 2.4). The public demonstration keeps it neutral (ADR 0010).
  */
 
 import { readFileSync } from "node:fs";
@@ -48,6 +51,7 @@ const fromVersion = Number(fromVersionRaw);
 const typeName = option("--name") ?? "PID (Rulebook v1.1, synthetic, TEST ONLY)";
 const walletLabel = option("--display");
 const trustAnchor = option("--trust-anchor");
+const issuingAuthority = option("--issuing-authority");
 
 const die = (message) => {
   process.stderr.write(`${message}\n`);
@@ -130,6 +134,7 @@ const main = async () => {
   const fixedClaims = {
     ...(from.authenticSource.parameters?.fixedClaims ?? {}),
     attestation_legal_category: "PID",
+    ...(issuingAuthority ? { issuing_authority: issuingAuthority } : {}),
     ...(trustAnchor ? { trust_anchor: trustAnchor } : {}),
   };
   const version = await api(

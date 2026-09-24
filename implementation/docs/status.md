@@ -73,6 +73,17 @@ Since then:
   can now be switched on with `demo-profile.sh fnmt-corpme`, with the organisation's written permission
   first.
 
+**The portal is live (24 September): `https://demo.murcata.es`** (image `4a74c71ba437`). It has four
+cards:
+- test PID;
+- representation credential;
+- Banco Demo;
+- **Tienda Demo's age check** (`https://edtp-banco.murcata.es/edad`). It returns `over_18` only; its
+  policy `eb1f5c2b` was created on the VM.
+
+`/operador` is behind Access (`302` to login) and also refuses without Access's identity header. The
+negative checks now probe the portal too: 32 of 32 are `404`.
+
 Still open:
 - The W6 wallet still labels the PID row "PID - FNMT", which is compiled in. A W7 with "PID (demo)" is
   optional.

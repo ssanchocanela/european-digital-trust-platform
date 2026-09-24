@@ -1,8 +1,7 @@
 # Permanent demonstration environment — proposal
 
-**Status: proposal, not built.** Written 24 September 2026. The choices in §10 are decided; building it
-still waits on ADR 0010. Nothing here is provisioned. If
-accepted, the decision goes into ADR 0010, and the documents it changes are listed in §9.
+**Status: proposal, not built.** Written 24 September 2026. The choices in §10 are decided. Nothing is
+provisioned yet: building starts with ADR 0010, and the documents that change are listed in §9.
 
 Today every demonstration depends on one laptop. A Cloudflare tunnel is opened by hand for each test
 session, the home router has to cooperate, and the stack stops existing when the laptop sleeps. This

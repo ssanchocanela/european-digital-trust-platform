@@ -1,0 +1,9 @@
+# /etc/cloudflared/config.yml on the demonstration VM (ADR 0010). The credential file sits beside it,
+# root-only, and is never committed. SSH only until the stack is deployed; the demo hostnames are
+# added then. Default-deny: anything unmatched is a 404 at the edge.
+tunnel: b7f28b3b-a6e0-453f-8e12-7882008dcf63
+credentials-file: /etc/cloudflared/b7f28b3b-a6e0-453f-8e12-7882008dcf63.json
+ingress:
+  - hostname: edtp-ssh.murcata.es
+    service: ssh://localhost:22
+  - service: http_status:404

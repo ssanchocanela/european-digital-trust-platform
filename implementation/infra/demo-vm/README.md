@@ -16,7 +16,10 @@ Design: [`docs/demo-hosting-proposal.md`](../../docs/demo-hosting-proposal.md).
    SSH from that one address, and the server. `cloud-init.yaml` hardens the server and installs Docker
    and `cloudflared`, which is installed but not started. **Done 24 September 2026.**
 2. **A person** creates the VM's own tunnel, `edtp-demo` (separate from the laptop's `edtp-dev`), and
-   places its credential on the VM. That credential never goes through this repository or cloud-init.
+   the route `edtp-ssh.murcata.es`. The credential is copied to `/etc/cloudflared/` on the VM, root-only;
+   it never goes through this repository or cloud-init. The config and the systemd unit are in `files/`.
+   (`cloudflared service install` did not create a unit from a config file here, so the unit is ours.)
+   **Done 24 September 2026**: 4 connections, `fra` and `prg`.
 3. SSH through the tunnel behind Cloudflare Access. Then `./close-bootstrap-ssh.sh` leaves the firewall
    with no inbound rules.
 4. Deploy the stack. **Every deployment is confirmed by the user first** (ADR 0010).

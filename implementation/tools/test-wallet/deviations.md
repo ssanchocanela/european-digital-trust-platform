@@ -235,6 +235,12 @@ representation credentials from `rpi-1`. The two go into upstream's own two slot
 at the second URL with the same settings; nothing is added. More than two is refused. W6 was rebuilt
 this way on 24 September 2026, with the same suffix, so it updates in place and keeps its documents.
 
+**W7** (24 September 2026) is the build for the generic, permanent demonstration environment (ADR
+0010). It has the same deviations and the same two issuers as W6, but the row label is "PID (demo)",
+the suffix is `.edtptest7`, the name is "EDTP TEST 7", and it is a **release** build signed with our
+`OU=TEST ONLY` key, so no HTTP bodies are logged. It is installed alongside W6, which keeps "PID - FNMT"
+for client demonstrations.
+
 **Offers are unaffected.** A credential offer from any issuer still works, because upstream uses the
 first configured issuer's settings for an issuer it does not know.
 

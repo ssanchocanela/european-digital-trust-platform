@@ -39,6 +39,9 @@
     },
     {
       "path": "./apps/pid-form"
+    },
+    {
+      "path": "./apps/demo-bank"
     }
   ]
 }

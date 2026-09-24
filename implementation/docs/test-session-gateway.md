@@ -146,6 +146,15 @@ platform's `/v1/presentations/{id}/return` (already on the allow-list) into the 
 in the return request chooses it. The form then shows what the attestation will state and submits
 with the presentation id. No new public path. `tests/unit/hosted-form-identify.test.ts`.
 
+**The demonstration bank — a fifth public hostname (`edtp-banco.murcata.es`, `apps/demo-bank`).** A
+fictional Relying Party page, "Banco Demo", for presenting the representation credentials. It holds
+one secret, `HOSTED_VERIFIER_SECRET` — distinct from the form's; the platform refuses to start if they
+match — accepted only for `HOSTED_VERIFIER_POLICIES`, via `/v1/hosted-verifications`. The wallet's
+return comes back through the platform's `/v1/presentations/{id}/return`, which sends the browser to
+the bank's `/resultado` by the same rule as the form: destination built from configuration, looked up by
+presentation id. The negative checks probe its host with the form's list, which now includes
+`/v1/hosted-verifications`. `tests/unit/demo-bank.test.ts`; `security-limitations.md` P7.
+
 **What the gate does not do:** make the engine's `/authorize` safe on its own. Without the gateway —
 the engine exposed directly — the form is skipped, and the platform then has no values for that
 session, so nothing is issued. That is the failure mode, not a design.

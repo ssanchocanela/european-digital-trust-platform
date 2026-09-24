@@ -177,7 +177,7 @@ negative_checks() {
   local engine_paths=(/api/docs-json /api/tenant /api/key-chain /api/verifier/config /api/oauth2/token /health /storage/x /docs /docs-json /)
   local platform_paths=(/v1/tenants /v1/presentations /health /openapi)
   # The hosted form serves itself and two images; nothing of the platform or the engine behind it.
-  local form_paths=(/v1/hosted-forms /v1/tenants /internal/engine/pid-1/attributes /api/tenant /health)
+  local form_paths=(/v1/hosted-forms /v1/hosted-verifications /v1/tenants /internal/engine/pid-1/attributes /api/tenant /health)
 
   # Each path is retried once on a transport-level failure, and only on that: a 200 or a 401 is an
   # answer and is a failure on the first try. Retrying a real answer would be how a reachable
@@ -212,6 +212,21 @@ negative_checks() {
     for path in "${form_paths[@]}"; do
       code="$(probe "$form$path")"
       printf '    %s  %s%s\n' "$code" "form" "$path"
+      [ "$code" = "404" ] || failures=$((failures + 1))
+    done
+  fi
+  # The demonstration bank: a public page holding one narrow secret. Nothing of the platform's may be
+  # reachable through it — the same probes as the form's.
+  if [ -f "$RUN_DIR/bank.host" ]; then
+    local bank
+    bank="$(cat "$RUN_DIR/bank.host")"
+    if ! await_tunnel "$bank" "bank host"; then
+      echo "    000  bank (not answering: is the demo-bank container up?)"
+      return 1
+    fi
+    for path in "${form_paths[@]}"; do
+      code="$(probe "$bank$path")"
+      printf '    %s  %s%s\n' "$code" "bank" "$path"
       [ "$code" = "404" ] || failures=$((failures + 1))
     done
   fi
@@ -266,6 +281,7 @@ case "${1:-up}" in
       echo "$EDTP_PLATFORM_HOST" > "$RUN_DIR/platform.host"
       echo "$EDTP_START_HOST" > "$RUN_DIR/start.host"
       [ -n "${EDTP_FORM_HOST:-}" ] && echo "$EDTP_FORM_HOST" > "$RUN_DIR/form.host"
+      [ -n "${EDTP_BANK_HOST:-}" ] && echo "$EDTP_BANK_HOST" > "$RUN_DIR/bank.host"
       echo "    engine → $EDTP_ENGINE_HOST, platform → $EDTP_PLATFORM_HOST, start → $EDTP_START_HOST"
     else
       step "Opening tunnels"

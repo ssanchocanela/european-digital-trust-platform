@@ -41,6 +41,17 @@ The portrait is not included: it is not yet mandatory, and `PID_03a` restricts i
 the identity first and folds residence/contact and document data away. Applied by
 `scripts/upgrade-test-pid-type.mjs`; **not yet issued to a phone**.
 
+**A demonstration bank for the representation credentials (24 September).** `apps/demo-bank`, "Banco
+Demo" — fictional, generic look, demonstration band — asks the wallet for a Power of Representation, a
+Power of Attorney or an Employee Authorisation to authorise a fictitious company transfer, and shows the
+outcome and the verified claims. Platform side: `/v1/hosted-verifications`, one narrow secret, return
+destination set by the platform (P7). Smoke-tested locally (presentation created, `303` return to the
+bank, waiting page, `401`/`403` on a wrong secret or policy). **Not yet run on the phone**, and it needs a
+DNS route first: `cloudflared --config ~/.edtp/edtp-dev-tunnel.yml tunnel route dns edtp-dev
+edtp-banco.murcata.es` (the ingress is already in the tunnel config). Presenting twice there is the reuse
+test for the PoX: those already in the wallet were stored under the wallet's own `RotatingBatch` default,
+new ones under the published `LIMITED_TIME` policy — reusable either way.
+
 **Next — batch once-only issuance upstream.** Decided: file the issue
 (`docs/upstream/eudiplo-batch-attestation-proof.md`, with the user for review), and if the maintainers
 accept it, prepare the PR from a personal fork outside this repository (CLAUDE.md §1 exception). The

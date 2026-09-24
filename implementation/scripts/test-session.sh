@@ -66,6 +66,10 @@ case "${1:-}" in
       FORM_ENGINE_URL="$(sed -n 's/^EDTP_ENGINE_HOST=//p' "$HOME/.edtp/named-tunnel.env" | tail -1)"
       [ -n "$FORM_ENGINE_URL" ] && ENGINE_PUBLIC_URL="$FORM_ENGINE_URL" docker compose up -d --force-recreate pid-form >/dev/null
     fi
+    # The demonstration bank, likewise behind its own hostname and probed by the negative checks.
+    if grep -q '^HOSTED_VERIFIER_POLICIES=.' .env 2>/dev/null && [ -f "$HOME/.edtp/named-tunnel.env" ]; then
+      docker compose up -d --force-recreate demo-bank >/dev/null
+    fi
 
     step "Opening the tunnel"
     ./scripts/test-session-tunnel.sh up
@@ -80,6 +84,7 @@ case "${1:-}" in
     # The hosted PID form, when this deployment is configured for it. Recreated with the same
     # ENGINE_PUBLIC_URL, because it sends the browser back to the engine's public origin.
     grep -q '^HOSTED_FORM_POLICIES=.' .env 2>/dev/null && SERVICES="$SERVICES pid-form"
+    grep -q '^HOSTED_VERIFIER_POLICIES=.' .env 2>/dev/null && SERVICES="$SERVICES demo-bank"
     # shellcheck disable=SC2086
     docker compose up -d --force-recreate $SERVICES >/dev/null
     sleep 10
@@ -215,7 +220,7 @@ case "${1:-}" in
     # local test fails for a reason that has nothing to do with what is being tested.
     docker compose up -d --force-recreate eudiplo platform-api operator-console test-start >/dev/null
     # The hosted form is a public process: up only while a session is.
-    docker compose stop pid-form >/dev/null 2>&1 || true
+    docker compose stop pid-form demo-bank >/dev/null 2>&1 || true
     sleep 8
     echo "    engine is emitting: $(docker compose logs eudiplo --tail=40 2>/dev/null |
       sed -n 's/.*Public URL: *//p' | tail -1 | tr -d '\r')"

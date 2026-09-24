@@ -179,6 +179,9 @@ services:
       HOSTED_FORM_AUTHORIZE_SECRET: ${HOSTED_FORM_AUTHORIZE_SECRET:-}
       HOSTED_FORM_POLICIES: ${HOSTED_FORM_POLICIES:-}
       HOSTED_FORM_PUBLIC_URL: ${HOSTED_FORM_PUBLIC_URL:-}
+      HOSTED_VERIFIER_SECRET: ${HOSTED_VERIFIER_SECRET:-}
+      HOSTED_VERIFIER_POLICIES: ${HOSTED_VERIFIER_POLICIES:-}
+      HOSTED_VERIFIER_PUBLIC_URL: ${HOSTED_VERIFIER_PUBLIC_URL:-}
       ENGINE_ISSUER_BRANDING: ${ENGINE_ISSUER_BRANDING:-}
       ENGINE_ISSUER_DISPLAY_NAMES: ${ENGINE_ISSUER_DISPLAY_NAMES:-}
       JOB_INTERVAL_MS: "15000"
@@ -291,6 +294,25 @@ services:
       ENGINE_PUBLIC_URL: ${ENGINE_PUBLIC_URL:-http://localhost:3000}
     ports:
       - "127.0.0.1:3202:3202"
+
+  # The demonstration bank (apps/demo-bank): a fictional Relying Party page for presenting the
+  # representation credentials. Public during a session, like the hosted form, and holding one narrow
+  # secret the platform accepts only for HOSTED_VERIFIER_POLICIES. Started by test-session.sh.
+  demo-bank:
+    image: edtp-v0-platform-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "apps/demo-bank/dist/main.js"]
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DEMO_BANK_PORT: "3203"
+      PLATFORM_API_BASE_URL: http://platform-api:3100
+      HOSTED_VERIFIER_SECRET: ${HOSTED_VERIFIER_SECRET:-}
+      DEMO_BANK_POLICIES: ${DEMO_BANK_POLICIES:-}
+    ports:
+      - "127.0.0.1:3203:3203"
 
 volumes:
   platform-db-data:

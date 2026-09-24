@@ -734,6 +734,25 @@ one credential was presented twice: ARF Method B (`ISSU_48`–`ISSU_50`), chosen
 Not shown: re-issuance before expiry, which in a wallet-initiated flow with a web-form authorization
 step cannot run unattended; nor anything about an unmodified wallet.
 
+### 8.1o Sixteenth wallet run — **Banco Demo: a representation credential presented twice to a relying party page**
+
+24 September 2026, **W6** — a **modified wallet** — on the named tunnel with a fifth hostname,
+`edtp-banco.murcata.es` (`apps/demo-bank`). Negative checks passed on all five hosts (26 probes, all
+`404`). The phone needed Private DNS: the home router cached the new name as nonexistent, which is also
+why the session's probes now resolve over DNS-over-HTTPS.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 0 · PID | the PID re-issued under the Rulebook model | issuance **`ISSUED`**, policy **v7** |
+| 1 · Present | on the bank page, *Poder de representación*; the wallet opened on the same device, presented, and returned to the bank | presentation **`VERIFIED`**; the page showed "Operación autorizada" with the verified claims |
+| 2 · Present again | the same credential, straight after | presentation **`VERIFIED`** |
+
+The same Power of Representation, presented twice: the representation credentials are not
+single-use. This one was issued before the reuse policy existed, so the wallet stored it under its own
+default for non-PID documents (`RotatingBatch`, one credential, reused). New ones carry the published
+`LIMITED_TIME` policy. Either way, **the presentations are linkable** (A34). Banco Demo is fictional and
+the operation is fictitious.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

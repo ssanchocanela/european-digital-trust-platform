@@ -45,12 +45,11 @@ the identity first and folds residence/contact and document data away. Applied b
 Demo" — fictional, generic look, demonstration band — asks the wallet for a Power of Representation, a
 Power of Attorney or an Employee Authorisation to authorise a fictitious company transfer, and shows the
 outcome and the verified claims. Platform side: `/v1/hosted-verifications`, one narrow secret, return
-destination set by the platform (P7). Smoke-tested locally (presentation created, `303` return to the
-bank, waiting page, `401`/`403` on a wrong secret or policy). **Not yet run on the phone**, and it needs a
-DNS route first: `cloudflared --config ~/.edtp/edtp-dev-tunnel.yml tunnel route dns edtp-dev
-edtp-banco.murcata.es` (the ingress is already in the tunnel config). Presenting twice there is the reuse
-test for the PoX: those already in the wallet were stored under the wallet's own `RotatingBatch` default,
-new ones under the published `LIMITED_TIME` policy — reusable either way.
+destination set by the platform (P7). **Run on the phone**: one Power of Representation presented
+twice, both `VERIFIED` (§8.1o) — the representation credentials are reusable. The PID was re-issued under
+v7 first. *Poder notarial* and *Autorización de empleado* at the bank: not yet run. If the phone cannot
+open a new hostname, the home router is caching it as nonexistent: use Private DNS (`one.one.one.one`)
+or mobile data.
 
 **Next — batch once-only issuance upstream.** Decided: file the issue
 (`docs/upstream/eudiplo-batch-attestation-proof.md`, with the user for review), and if the maintainers

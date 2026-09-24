@@ -105,8 +105,12 @@ IP, then a 10-second block (the only rule the free plan allows). Tested on 24 Se
 See `infra/demo-vm/README.md`, including how to get back in after a fail-closed stop.
 
 **W7 built and installed (24 September).** A release build signed with our key, "EDTP TEST 7",
-`.edtptest7`, with the PID row "PID (demo)", installed alongside W6 (which keeps "PID - FNMT"). Not yet
-exercised on the phone.
+`.edtptest7`, with the PID row "PID (demo)", installed alongside W6 (which keeps "PID - FNMT"). Exercised on
+the phone the same day, against the permanent environment:
+- the list showed "PID (demo)" and the "Registro Demo" credentials, with no logos;
+- PID v8 `ISSUED`;
+- an Employee Authorisation (v4) `ISSUED` after a PID identification `VERIFIED`;
+- Banco Demo accepted it (`VERIFIED`).
 
 Still open:
 

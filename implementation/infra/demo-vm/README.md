@@ -37,6 +37,34 @@ Design: [`docs/demo-hosting-proposal.md`](../../docs/demo-hosting-proposal.md).
    moves, and `./negative-checks.sh` checks it publicly after.
 5. Move the `murcata.es` hostnames from `edtp-dev` to `edtp-demo`.
 
+## Deploying: the `deploy-demo` workflow
+
+`.github/workflows/deploy-demo.yml`, run on demand with one input: the 12-hex commit tag of a
+`demo-image` build. A moving tag such as `main` is refused.
+
+1. **Approval.** The run waits on the GitHub environment `demo`, whose required reviewer is the
+   repository owner, and which only admits `main`. Anyone can request a deployment, Claude included;
+   nothing proceeds unapproved.
+2. **Access.** The runner reaches `edtp-ssh.murcata.es` through the VM's tunnel with a Cloudflare Access
+   **service token**. The SSH application's policy includes a *Service Auth* rule for that token.
+   `cloudflared` is pinned to 2026.9.1 and checked against its SHA-256.
+3. **The key.** The deploy key's `authorized_keys` entry forces `deploy.sh`, with no port, agent or X11
+   forwarding and no pty. The host key is pinned (`DEMO_KNOWN_HOSTS`, alias `edtp-demo-vm`).
+4. **On the VM.** `deploy.sh` does the following:
+   - pulls `main` and the image;
+   - switches `EDTP_IMAGE` and waits for `platform-api` to become healthy;
+   - runs the negative checks on loopback;
+   - **if they fail, rolls back** to the previous image and alerts. If the rollback fails too, it stops
+     the tunnel.
+
+   Every deployment is appended to `/var/lib/edtp-status/deploys.log`.
+
+The environment secrets are `DEMO_DEPLOY_KEY`, `DEMO_KNOWN_HOSTS`, `CF_ACCESS_CLIENT_ID` and
+`CF_ACCESS_CLIENT_SECRET`. The deploy key and its known_hosts line are kept locally in
+`~/.edtp/demo-vm/`, never here.
+
+    gh workflow run deploy-demo -f tag=<12-hex>      # then approve it in GitHub
+
 ## The portal and the age check
 
 `demo.murcata.es` (`apps/demo-portal`) shows one card per demonstration, with a status dot and a QR of

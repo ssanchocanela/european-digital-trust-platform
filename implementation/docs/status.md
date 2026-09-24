@@ -51,8 +51,12 @@ v7 first. *Poder notarial* and *Autorización de empleado* at the bank: both `VE
 open a new hostname, the home router is caching it as nonexistent: use Private DNS (`one.one.one.one`)
 or mobile data.
 
-**Proposed — a permanent demonstration environment** (`docs/demo-hosting-proposal.md`, choices
-decided — Hetzner, Cloudflare Access, 4-hour client profile, our own Android phones — not built). An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
+**The permanent demonstration environment — ADR 0010 accepted, the VM exists (24 September).**
+`edtp-demo`: Hetzner `cx23`, `fsn1`, Ubuntu 24.04, hardened by cloud-init (`infra/demo-vm/`), with Docker
+and `cloudflared` installed. **Its firewall still opens SSH to one address for bootstrap**, and closes
+once the VM's own tunnel carries SSH. Next, done by a person: create the `edtp-demo` Cloudflare tunnel
+and a Cloudflare Access application. Then deploy — **each deployment confirmed by the user** — and move
+the hostnames. An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
 demonstrations use generic branding; the client-branded ones (FNMT, CORPME) are a profile switched on
 per demonstration, behind a username and password. Open questions are in its §10. If adopted, it
 becomes ADR 0010 and replaces the session-only exposure rule.

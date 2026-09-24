@@ -1,0 +1,48 @@
+#cloud-config
+# First boot of the demonstration VM (ADR 0010). OS hardening and Docker only: nothing of the platform
+# is deployed here, and no secret travels in this file, which is committed.
+#
+# - one unprivileged operator user, `edtp`, with key-only SSH and passwordless sudo;
+# - root login and password authentication off;
+# - unattended security upgrades on (the Ubuntu default, made explicit);
+# - Docker Engine and the Compose plugin from Ubuntu's archive;
+# - cloudflared from Cloudflare's apt repository, installed but NOT started: the tunnel credential is
+#   placed by hand later, never through cloud-init.
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - unattended-upgrades
+  - curl
+  - jq
+  - git
+users:
+  - name: edtp
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_PUBLIC_KEY__
+ssh_pwauth: false
+disable_root: true
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-edtp.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      AllowUsers edtp
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+runcmd:
+  - systemctl enable --now docker
+  - systemctl restart ssh
+  - mkdir -p --mode=0755 /usr/share/keyrings
+  - curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg
+  - echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+  - apt-get update && apt-get install -y cloudflared
+  - touch /var/lib/edtp-bootstrap-done

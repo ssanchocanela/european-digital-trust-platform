@@ -313,7 +313,12 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     client-credentials secret. Never tunnel a whole port: use the default-deny path allow-list in
     [`docs/test-session-gateway.md`](docs/test-session-gateway.md), run its negative checks before any
     wallet interaction, and treat a `401` on an `/api/*` probe as a failure — it proves the endpoint
-    is reachable. A tunnel is hand-started, open only during a session, synthetic data only.
+    is reachable. A tunnel **from a laptop** is hand-started, open only during a session, synthetic
+    data only. The **permanent demonstration environment** is the one exception
+    ([ADR 0010](docs/adr/0010-permanent-demonstration-environment.md), accepted 24 September 2026). It
+    runs its own tunnel from its VM, always on, with the same allow-list, plus edge rate limits,
+    scheduled negative checks and a nightly reset. **Every deployment to it is confirmed by the user
+    first.**
 21. **Gate (a) is one mechanism, and G1 and G8 are one fix.** ETSI TS 119 472-3 V1.1.1 routes all of
     it through a single JWS: the metadata **shall** be signed (`ISS-MDATA-4.2.1-01`), the signing
     certificate **shall be the access certificate** (`-02`), it travels in the `x5c` protected header
@@ -457,7 +462,7 @@ migrations up from an empty database.
 | Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
-| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment (PROPOSED)**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
+| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
 
 Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
 checkpoint**: Q1 → **Path A** — enrol a real access certificate at the reference RP Registration

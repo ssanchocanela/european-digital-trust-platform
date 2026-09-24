@@ -1,8 +1,8 @@
 # ADR 0010 — Permanent demonstration environment
 
-- **Status:** PROPOSED. Awaiting approval; nothing is provisioned until then.
+- **Status:** ACCEPTED, 24 September 2026.
 - **Date:** 24 September 2026
-- **Supersedes, on acceptance:** the session-only exposure rule in `CLAUDE.md` §6.20 and
+- **Supersedes:** the session-only exposure rule in `CLAUDE.md` §6.20 and
   [`test-session-gateway.md`](../test-session-gateway.md), **for the demonstration environment only**.
   Test sessions from a laptop keep that rule.
 - **Numbered 0010**, the next free number. 0006 stays reserved for the hosted Relying Party Instance
@@ -120,7 +120,7 @@ controls have to carry more weight.
 - **Negative.** The hosted form and the bank can be used by anyone within the rate limits. They create
   engine sessions and platform transactions, all synthetic, purged by TTL and by the nightly reset.
 - **Negative.** A small running cost, and a VM to keep patched.
-- **Changes on acceptance, not before:**
+- **Changed on acceptance:**
   - `CLAUDE.md` §6.20: the session-only rule holds for laptop sessions; the demonstration environment
     follows this ADR;
   - `test-session-gateway.md`: a permanent deployment target;
@@ -130,8 +130,8 @@ controls have to carry more weight.
 
 ## Open
 
-1. Whether a standing authorization covers running `deploy-demo` after each merge to `main`, or each
-   deployment is confirmed.
+1. ~~Standing authorization for `deploy-demo`~~ — **decided: every deployment is confirmed by the
+   user first.**
 2. Whether a second client justifies separate engine tenants per client (`demo-hosting-proposal.md`
    §4, alternative).
 3. Legal confirmation of the EUPL obligations before the first APK upload.

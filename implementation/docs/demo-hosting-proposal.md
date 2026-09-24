@@ -1,8 +1,8 @@
 # Permanent demonstration environment — proposal
 
 **Status: proposal, not built.** Written 24 September 2026. The choices in §10 are decided and recorded
-in [ADR 0010](adr/0010-permanent-demonstration-environment.md), **PROPOSED**. Nothing is provisioned
-until it is accepted; the documents that change are listed in §9.
+in [ADR 0010](adr/0010-permanent-demonstration-environment.md), **ACCEPTED** on 24 September 2026. The
+documents it changes are listed in §9.
 
 Today every demonstration depends on one laptop. A Cloudflare tunnel is opened by hand for each test
 session, the home router has to cooperate, and the stack stops existing when the laptop sleeps. This

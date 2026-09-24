@@ -43,6 +43,22 @@ const schema = z.object({
   /** Background job cadence. */
   JOB_INTERVAL_MS: z.coerce.number().int().min(1_000).max(600_000).default(15_000),
   WEBHOOK_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+
+  /**
+   * PID-during-issuance: require a PID presentation as the authorization step of an issuance,
+   * reusing a verification policy. **Off by default until a wallet test passes.**
+   *
+   * The engine supports it natively (`Oid4VpAuthorizationServerConfig`), so the platform side is a
+   * wiring decision rather than a build — but it has never been exercised end to end, and turning on
+   * an unverified flow by default would mean shipping something whose behaviour nobody has observed.
+   *
+   * Note what enabling it does to the platform's role: the issuer becomes a **Relying Party** for the
+   * duration of the PID presentation. See `docs/issuer-trust-model.md`.
+   */
+  FEATURE_PID_DURING_ISSUANCE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(500).max(30_000).default(5_000),
 });
 

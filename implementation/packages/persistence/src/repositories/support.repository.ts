@@ -1,9 +1,22 @@
 import { createHash } from "node:crypto";
-import type { AuditEventId, PresentationId, TenantId, WebhookDeliveryId } from "@edtp/shared";
-import { asId, redact } from "@edtp/shared";
+import type { WebhookEndpoint } from "@edtp/domain";
+import {
+  type AuditEventId,
+  asId,
+  redact,
+  type TenantId,
+  type WebhookDeliveryId,
+  type WebhookEndpointId,
+} from "@edtp/shared";
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import type { Database } from "../db.js";
-import { apiKeys, auditEvents, webhookDeliveries } from "../schema.js";
+import {
+  apiKeys,
+  auditEvents,
+  webhookDeliveries,
+  webhookEndpointSecrets,
+  webhookEndpoints,
+} from "../schema.js";
 
 /**
  * Development API keys.
@@ -146,10 +159,21 @@ export class AuditRepository {
 export const DELIVERY_QUEUE_STATUSES = ["PENDING", "DELIVERED", "FAILED"] as const;
 export type DeliveryQueueStatus = (typeof DELIVERY_QUEUE_STATUSES)[number];
 
+export const DELIVERY_SUBJECT_TYPES = ["presentation", "issuance"] as const;
+export type DeliverySubjectType = (typeof DELIVERY_SUBJECT_TYPES)[number];
+
 export interface WebhookDeliveryRecord {
   readonly id: WebhookDeliveryId;
   readonly tenantId: TenantId;
-  readonly presentationId: PresentationId;
+  /**
+   * The callback destination, and therefore the signing secret.
+   *
+   * Milestone 1 resolved the secret by walking presentation -> Relying Party Service, which could not
+   * serve an issuance. Naming the endpoint directly makes the lookup one hop for any subject.
+   */
+  readonly webhookEndpointId: WebhookEndpointId;
+  readonly subjectType: DeliverySubjectType;
+  readonly subjectId: string;
   readonly eventId: string;
   readonly url: string;
   readonly payload: Record<string, unknown>;
@@ -175,7 +199,11 @@ export class WebhookDeliveryRepository {
       .values({
         id: record.id,
         tenantId: record.tenantId,
-        presentationId: record.presentationId,
+        webhookEndpointId: record.webhookEndpointId,
+        subjectType: record.subjectType,
+        subjectId: record.subjectId,
+        // Kept in step for the rows the 0002 backfill covers, so a reader of either column agrees.
+        presentationId: record.subjectType === "presentation" ? record.subjectId : null,
         eventId: record.eventId,
         url: record.url,
         payload: record.payload,
@@ -203,7 +231,11 @@ export class WebhookDeliveryRepository {
     return rows.map((r) => ({
       id: asId<"WebhookDeliveryId">(r.id),
       tenantId: asId<"TenantId">(r.tenantId),
-      presentationId: asId<"PresentationId">(r.presentationId),
+      // Non-null after migration 0002; a row without one is refused by the delivery path rather
+      // than signed with something else.
+      webhookEndpointId: asId<"WebhookEndpointId">(r.webhookEndpointId ?? ""),
+      subjectType: (r.subjectType ?? "presentation") as DeliverySubjectType,
+      subjectId: r.subjectId ?? r.presentationId ?? "",
       eventId: r.eventId,
       url: r.url,
       payload: r.payload as Record<string, unknown>,
@@ -248,5 +280,62 @@ export class WebhookDeliveryRepository {
         updatedAt: at,
       })
       .where(eq(webhookDeliveries.id, id));
+  }
+}
+
+/**
+ * Webhook endpoints: the shared callback destination for verification and issuance.
+ *
+ * The secret lives in its own table, so a `SELECT *` on an endpoint cannot return it and only the
+ * delivery path ever asks for it.
+ */
+export class WebhookEndpointRepository {
+  constructor(private readonly db: Database) {}
+
+  async create(input: {
+    readonly endpoint: WebhookEndpoint;
+    readonly secret: string;
+  }): Promise<WebhookEndpoint> {
+    await this.db.insert(webhookEndpoints).values({
+      id: input.endpoint.id,
+      tenantId: input.endpoint.tenantId,
+      name: input.endpoint.name,
+      callbackUrlAllowList: input.endpoint.callbackUrlAllowList,
+      createdAt: input.endpoint.createdAt,
+    });
+    await this.db.insert(webhookEndpointSecrets).values({
+      endpointId: input.endpoint.id,
+      secret: input.secret,
+    });
+    return input.endpoint;
+  }
+
+  async find(tenantId: TenantId, id: WebhookEndpointId): Promise<WebhookEndpoint | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(webhookEndpoints)
+      .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.tenantId, tenantId)))
+      .limit(1);
+    if (!row) return undefined;
+    return {
+      id: asId<"WebhookEndpointId">(row.id),
+      tenantId: asId<"TenantId">(row.tenantId),
+      name: row.name,
+      callbackUrlAllowList: row.callbackUrlAllowList as readonly string[],
+      createdAt: row.createdAt,
+    };
+  }
+
+  /**
+   * The signing secret. The only method that reads it, and it is never returned upward except to
+   * sign — which is why it is not part of `WebhookEndpoint`.
+   */
+  async findSecret(endpointId: WebhookEndpointId): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ secret: webhookEndpointSecrets.secret })
+      .from(webhookEndpointSecrets)
+      .where(eq(webhookEndpointSecrets.endpointId, endpointId))
+      .limit(1);
+    return row?.secret;
   }
 }

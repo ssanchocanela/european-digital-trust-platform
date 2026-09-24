@@ -19,7 +19,7 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 |---|---|---|
 | Phase 0 — investigation, no product code | `implementation/platform-v0` | **STOP**, summary, await approval ← *complete* |
 | Milestone 1 — foundations + Verification as a Service | `implementation/platform-v0` | PR 1, then **STOP** ← *complete* |
-| Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 |
+| Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 ← *complete* |
 
 ### Milestone 2 starts with an investigation, and with a checkpoint of its own
 
@@ -49,6 +49,15 @@ Verify against the pinned release `Wallet/Demo_Version=2026.09.42-Demo_Build=42`
 
 **Then STOP and report**, before building the issuance flow. If it is a blocker, say so plainly and
 state what a real test needs; do not design around it silently and do not simulate success (§8).
+
+**Done, 11 September 2026 — and it is a blocker (B7).** Issuer trust is ETSI LoTE-based, resolved
+per `VerificationContext`; for a non-qualified EAA the pinned build has no trust list, no
+classification and an `ENFORCE` default, so `evaluateIssuerTrust` throws. The mechanism is absent by
+design. Full record, the smallest wallet modification, and the finding that *Check Registration
+Certificates* is one **runtime preference (default off)** gating **both** the issuer and verifier
+registration checks: [`docs/milestone-2-issuer-trust.md`](docs/milestone-2-issuer-trust.md). Test M2
+issuance with that switch in **both** positions and report both — one build suffices, since it is a
+preference.
 
 Commit in small, reviewable steps. **Never commit secrets** — only `.env.example`.
 
@@ -266,11 +275,53 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     PostgreSQL's `detail`, which embeds the offending values. And an unhandled throw logs its
     message and a capped stack — through the redactor, which strips denied keys — because a 500
     that logs only `{"errorName":"Error"}` cannot be diagnosed. Both found by running the stack.
-16. **The dev environment collapses three ARF trust domains.** The seven WRPAC, WRPRC and PIDProviders
-    anchors are byte-identical. The `TrustResolver` must keep the domains separate regardless, and
-    must support both ETSI TS 119 612 Trusted Lists and ETSI TS 119 602 LoTEs — `EW-PIO-01-029`
-    (`OIA_15b`).
-
+16. **Issuer trust is two separate gates, and neither is satisfied.** (a) ARF §6.6.2.2, pre-issuance
+    provider authentication: the engine publishes the registration certificate as `issuer_info` but
+    produces **no `signed_metadata`**, which the pinned wallet requires — so a Wallet cannot
+    authenticate the provider. (b) ARF §6.3.2.4, attestation signature trust: anchors come from the
+    **Rulebook**, optionally from an ETSI TS 119 602 list that is **not** a Topic 31 notified list —
+    which is why the platform may publish one, `TEST` only. `CredentialType.rulebook` is trust
+    configuration, not a label. Never claim either gate.
+    [`docs/issuer-trust-model.md`](docs/issuer-trust-model.md).
+17. **On the issuance side, four engine payload shapes are accepted-then-wrong.** `usageType` is
+    `attestation` not `signing`; `credentialClaims` is a tagged union (`{type: "inline", claims}`);
+    `registrationCertificate` needs `enabled` *and* `mode: "import"`; `authorizationServers` is a
+    discriminated union on `type` and an entry without it is silently ignored; the id `built-in` is
+    reserved. A test asserting only "the call succeeded" would pass on four of them.
+    `docs/interop-findings.md` A14.
+18. **The engine tenant must be created with every role it will ever need.** Roles cannot be widened
+    afterwards — `PATCH /api/tenant/{id}` rejects a `roles` key — and a tenant cannot grant its
+    clients roles it lacks. `docs/interop-findings.md` A16.
+19. **The dev environment collapses *four* ARF trust domains**, not three: `PubEAAProviders` carries
+    the same seven byte-identical anchors as `PIDProviders` and `WRPACProviders`. The lists also roll
+    over, so anything reading one must honour `NextUpdate` — `verify-access-certificate-chain.sh`
+    fetches live and reports freshness.
+20. **A tunnel in front of the engine publishes its Management API.** The engine serves the Protocol
+    API unprefixed and the Management API under `/api` **on the same port**, so exposing port 3000 for
+    a phone exposes `POST /api/key-chain/import` and every tenant route, protected only by a
+    client-credentials secret. Never tunnel a whole port: use the default-deny path allow-list in
+    [`docs/test-session-gateway.md`](docs/test-session-gateway.md), run its negative checks before any
+    wallet interaction, and treat a `401` on an `/api/*` probe as a failure — it proves the endpoint
+    is reachable. A tunnel is hand-started, open only during a session, synthetic data only.
+21. **Gate (a) is one mechanism, and G1 and G8 are one fix.** ETSI TS 119 472-3 V1.1.1 routes all of
+    it through a single JWS: the metadata **shall** be signed (`ISS-MDATA-4.2.1-01`), the signing
+    certificate **shall be the access certificate** (`-02`), it travels in the `x5c` protected header
+    (`ISS-MDATA-ACC_CERT-4.2.2-01/-02`), and `issuer_info` sits at the **top level of the signed
+    payload** (`ISS-MDATA-REG_CERT-4.2.3-02`). So the access certificate has no separate home — it *is*
+    the signer — and the registration certificate the engine publishes today is in the unsigned
+    document, which is the wrong place. Three consequences: the **Q1a chain check gates gate (a) too**
+    (the wallet validates that chain with `VerificationContext.WalletRelyingPartyAccessCertificate`,
+    the same anchors as a verifier's); the metadata signing key must be **`access`**-usage, not the
+    attestation key; and **`RPRC_22a`/`RPRC_23` are untestable until the metadata is signed**, because
+    `IssuerCreator` applies the issuer registration-certificate check only under `RequireSigned`, so
+    WD-2 silently switches it off whatever the wallet's *Check Registration Certificates* preference
+    says. Obtain the access certificate at registration regardless: PID-during-issuance uses one, and
+    that path works.
+22. **The EDTP test wallet is a modified build, and its identity is deliberate.** `applicationId`
+    `eu.europa.ec.euidi.edtptest`, our own signing key (`OU=TEST ONLY`), a banner on every screen, and
+    `BuildConfig.EDTP_DEVIATIONS` naming what is compiled in. Every deviation defaults to upstream
+    behaviour and `build.sh` **refuses** a deviation flag it cannot honestly honour. Never write "the
+    Reference Wallet" about a result from it, and never commit or publish the APK.
 ---
 
 ## 7. Trust environment
@@ -380,6 +431,10 @@ migrations up from an empty database.
 | | |
 |---|---|
 | Phase 0 findings, blockers, open questions | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) |
+| Test wallet: build tooling, deviation register, install + first PID sheet | [`tools/test-wallet/`](tools/test-wallet/) — and [`docs/test-wallet-plan.md`](docs/test-wallet-plan.md) for the W0 investigation it was built from |
+| Public exposure for a phone test, and the G7 evaluation | [`docs/test-session-gateway.md`](docs/test-session-gateway.md) — the allow-list governs both deployments; [`docs/test-session-vm.md`](docs/test-session-vm.md) is the disposable-VM alternative, recommended for any recorded result |
+| Certificates, when they arrive; then the first VaaS run | [`docs/certificate-intake-runbook.md`](docs/certificate-intake-runbook.md), [`docs/vaas-official-wallet-run-sheet.md`](docs/vaas-official-wallet-run-sheet.md) |
+| Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
 | ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |

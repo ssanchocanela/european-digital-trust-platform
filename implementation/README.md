@@ -1,6 +1,6 @@
 # European Digital Trust Platform — V0
 
-Platform foundations and **Verification as a Service**. Milestone 1.
+Platform foundations, **Verification as a Service** and **Issuance as a Service**. Milestones 1 and 2.
 
 **V0 is not production-ready, and no ARF or Technical Specification conformance is claimed.** The
 shortcuts are enumerated in [`docs/security-limitations.md`](docs/security-limitations.md) and the
@@ -52,9 +52,9 @@ git config core.hooksPath .githooks
 | Command | What it does |
 |---|---|
 | `pnpm build` | Compile every package and the app |
-| `pnpm test` | Unit tests (146) — pure logic, always runnable |
-| `pnpm test:integration` | Integration tests (69) — real PostgreSQL, real repositories and services, fake verifier port |
-| `pnpm test:adapter` | Adapter contract tests (10) — **skipped** unless an engine container is reachable; **all 10 verified passing** against EUDIPLO v7.6.0 on 11 September 2026 |
+| `pnpm test` | Unit tests (186) — pure logic, always runnable |
+| `pnpm test:integration` | Integration tests (70) — real PostgreSQL, real repositories and services, fake ports |
+| `pnpm test:adapter` | Adapter contract tests (21) — **skipped** unless an engine container is reachable; **all 21 verified passing** against EUDIPLO v7.6.0 on 11 September 2026 |
 | `pnpm boundaries` | Fails if the engine leaks outside `packages/eudiplo-adapter` |
 | `pnpm confidentiality` | Fails if any committed path or citation touches `sources/` |
 | `pnpm db:generate` | Regenerate the migration SQL from the schema |
@@ -101,6 +101,11 @@ implementation/
 | [`docs/security-limitations.md`](docs/security-limitations.md) | Every V0 shortcut, and what closing it takes |
 | [`docs/eudiplo-integration.md`](docs/eudiplo-integration.md) | The exact engine contract, verified against its source |
 | [`docs/reference-wallet-testing.md`](docs/reference-wallet-testing.md) | How to attempt a wallet test, and what blocks it |
+| [`docs/issuer-trust-model.md`](docs/issuer-trust-model.md) | The two issuer-trust gates (ARF §6.6.2.2 and §6.3.2.4), and why neither is satisfied |
+| [`docs/registration-session-plan.md`](docs/registration-session-plan.md) | One PID login, both roles: the exact data and endpoint sequence |
+| [`docs/conformance-suite-evaluation.md`](docs/conformance-suite-evaluation.md) | OpenID Foundation suites: feasibility, not yet run |
+| [`docs/milestone-2-issuer-trust.md`](docs/milestone-2-issuer-trust.md) | The Milestone 2 gate investigation: how the pinned wallet trusts an issuer |
+| [`docs/upstream/`](docs/upstream/) | Upstream issues **drafted, not filed** |
 | [`docs/traceability.md`](docs/traceability.md) | Behaviour → ARF HLR → specification, with honest status |
 | [`docs/phase-0-findings.md`](docs/phase-0-findings.md) | The investigation: blockers, open questions, decisions |
 | [`docs/interop-findings.md`](docs/interop-findings.md) | Divergences between implementations and the specification |

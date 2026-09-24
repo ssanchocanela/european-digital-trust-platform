@@ -1,10 +1,19 @@
 import type { NormalisedClaims, PresentationTransaction } from "@edtp/domain";
 import type {
+  DeliverySubjectType,
   RegistrationRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
+  WebhookEndpointRepository,
 } from "@edtp/persistence";
-import type { Clock, CorrelationId, WebhookDeliveryId, WebhookEventId } from "@edtp/shared";
+import type {
+  Clock,
+  CorrelationId,
+  WebhookDeliveryId,
+  WebhookEndpointId,
+  WebhookEventId,
+} from "@edtp/shared";
+import { asId } from "@edtp/shared";
 import type { Logger } from "../logging/logger.js";
 import {
   backoffDelayMs,
@@ -13,6 +22,25 @@ import {
   signWebhookPayload,
   TIMESTAMP_HEADER,
 } from "./signing.js";
+
+/**
+ * Any event, for any subject.
+ *
+ * The generic entry point. `enqueueResult` below is the presentation-specific convenience that builds
+ * the result payload; issuance uses this one directly. Both end up in the same queue, signed by the
+ * same code, retried on the same schedule.
+ */
+export interface EnqueueEventInput {
+  readonly tenantId: import("@edtp/shared").TenantId;
+  readonly webhookEndpointId: WebhookEndpointId;
+  readonly subjectType: DeliverySubjectType;
+  readonly subjectId: string;
+  readonly url: string;
+  readonly eventId: WebhookEventId;
+  readonly deliveryId: WebhookDeliveryId;
+  readonly payload: Record<string, unknown>;
+  readonly at: Date;
+}
 
 export interface EnqueueResultInput {
   readonly transaction: PresentationTransaction;
@@ -53,6 +81,7 @@ export class WebhookService {
     private readonly deliveries: WebhookDeliveryRepository,
     private readonly transactions: TransactionRepository,
     private readonly registration: RegistrationRepository,
+    private readonly endpoints: WebhookEndpointRepository,
     private readonly clock: Clock,
     private readonly logger: Logger,
     private readonly options: WebhookServiceOptions,
@@ -66,6 +95,33 @@ export class WebhookService {
    * signature covers the body and a rebuilt payload would not verify. The `eventId` is
    * unique in the queue, so enqueueing twice is a no-op and a receiver can deduplicate.
    */
+  /**
+   * Queues any event for delivery.
+   *
+   * The payload is stored once; retries resend the identical bytes, because the signature covers the
+   * body and a rebuilt payload would not verify. `eventId` is unique in the queue, so enqueueing
+   * twice is a no-op and a receiver can deduplicate.
+   */
+  async enqueueEvent(input: EnqueueEventInput): Promise<void> {
+    await this.deliveries.enqueue(
+      {
+        id: input.deliveryId,
+        tenantId: input.tenantId,
+        webhookEndpointId: input.webhookEndpointId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        eventId: input.eventId,
+        url: input.url,
+        payload: input.payload,
+        attempt: 0,
+        maxAttempts: this.options.maxAttempts,
+        status: "PENDING",
+        nextAttemptAt: input.at,
+      },
+      input.at,
+    );
+  }
+
   async enqueueResult(input: EnqueueResultInput): Promise<void> {
     const { transaction: tx } = input;
     if (!tx.callbackUrl) return;
@@ -83,21 +139,34 @@ export class WebhookService {
       ...(tx.failureCode ? { failureCode: tx.failureCode } : {}),
     };
 
-    await this.deliveries.enqueue(
-      {
-        id: input.deliveryId,
+    // The endpoint is resolved from the Relying Party Service, which is where a presentation's
+    // callback destination is configured. Everything after this point is subject-agnostic.
+    const endpointId = await this.registration.findWebhookEndpointId(
+      tx.tenantId,
+      tx.relyingPartyServiceId,
+    );
+    if (!endpointId) {
+      // Refused rather than signed with something else. A presentation whose Service has no endpoint
+      // cannot have had a callback URL accepted in the first place, so this is a configuration change
+      // mid-flight; the result stays readable through the API.
+      this.logger.warn("no webhook endpoint is configured; result will not be delivered", {
         tenantId: tx.tenantId,
         presentationId: tx.id,
-        eventId: input.eventId,
-        url: tx.callbackUrl,
-        payload: payload as unknown as Record<string, unknown>,
-        attempt: 0,
-        maxAttempts: this.options.maxAttempts,
-        status: "PENDING",
-        nextAttemptAt: input.at,
-      },
-      input.at,
-    );
+      });
+      return;
+    }
+
+    await this.enqueueEvent({
+      tenantId: tx.tenantId,
+      webhookEndpointId: endpointId,
+      subjectType: "presentation",
+      subjectId: tx.id,
+      url: tx.callbackUrl,
+      eventId: input.eventId,
+      deliveryId: input.deliveryId,
+      payload: payload as unknown as Record<string, unknown>,
+      at: input.at,
+    });
   }
 
   /**
@@ -115,24 +184,21 @@ export class WebhookService {
     let failed = 0;
 
     for (const record of due) {
-      // The signing secret belongs to the Relying Party Service, so the transaction is
-      // the route to it. A delivery whose transaction or secret has gone is retried
-      // rather than dropped: the cause is almost always a configuration change mid-flight,
-      // and silently discarding a customer's result notification would be worse.
-      const tx = await this.transactions.find(record.tenantId, record.presentationId);
-      const secret = tx
-        ? await this.registration.findWebhookSecret(record.tenantId, tx.relyingPartyServiceId)
+      // One lookup, whatever the subject: the row names its endpoint, the endpoint holds the
+      // secret. A delivery whose secret has gone is retried rather than dropped — the cause is
+      // almost always a configuration change mid-flight, and silently discarding a customer's
+      // notification would be worse.
+      const secret = record.webhookEndpointId
+        ? await this.endpoints.findSecret(record.webhookEndpointId)
         : undefined;
 
-      if (!tx || !secret) {
+      if (!secret) {
         await this.deliveries.recordFailure(
           record.id,
           record.attempt,
           record.maxAttempts,
           new Date(now.getTime() + backoffDelayMs(record.attempt)),
-          tx
-            ? "no signing secret is configured for the Relying Party Service"
-            : "the presentation transaction for this delivery no longer exists",
+          "no signing secret is configured for this webhook endpoint",
           now,
         );
         failed += 1;
@@ -164,13 +230,18 @@ export class WebhookService {
         }
 
         await this.deliveries.markDelivered(record.id, now);
-        await this.transactions.setDeliveryStatus(
-          record.tenantId,
-          record.presentationId,
-          "PENDING",
-          "DELIVERED",
-          now,
-        );
+        // Presentation transactions track delivery separately from their outcome. An issuance
+        // records nothing here: its delivery state lives on the queue row, which is enough, and
+        // writing it back would mean a delivery failure touching an issuance's record.
+        if (record.subjectType === "presentation") {
+          await this.transactions.setDeliveryStatus(
+            record.tenantId,
+            asId<"PresentationId">(record.subjectId),
+            "PENDING",
+            "DELIVERED",
+            now,
+          );
+        }
         delivered += 1;
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : "delivery failed";
@@ -184,18 +255,21 @@ export class WebhookService {
           now,
         );
         if (record.attempt + 1 >= record.maxAttempts) {
-          await this.transactions.setDeliveryStatus(
-            record.tenantId,
-            record.presentationId,
-            "PENDING",
-            "FAILED",
-            now,
-          );
-          // A failed delivery never changes the verification outcome: the result remains
-          // readable through the API, and `deliveryStatus` records that the push failed.
+          if (record.subjectType === "presentation") {
+            await this.transactions.setDeliveryStatus(
+              record.tenantId,
+              asId<"PresentationId">(record.subjectId),
+              "PENDING",
+              "FAILED",
+              now,
+            );
+          }
+          // A failed delivery never changes the verification or issuance outcome: the result
+          // remains readable through the API, and the queue row records that the push failed.
           this.logger.warn("webhook delivery exhausted its attempts", {
             correlationId,
-            presentationId: record.presentationId,
+            subjectType: record.subjectType,
+            subjectId: record.subjectId,
             attempts: record.attempt + 1,
           });
         }

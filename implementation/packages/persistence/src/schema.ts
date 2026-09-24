@@ -116,6 +116,38 @@ export const relyingParties = pgTable(
   ],
 );
 
+/**
+ * A tenant-scoped callback destination: signing secret and URL allow-list.
+ *
+ * Milestone 1 kept both on `relying_party_services`, which could not serve issuance — an issuance has
+ * no Relying Party Service, so the delivery queue could not resolve a secret for it. Signing and SSRF
+ * protection are shared infrastructure, so they live here and both sides reference them.
+ *
+ * The secret is in its own table, not a column here, so a `SELECT *` on the endpoint cannot return
+ * it. It is read only by the delivery path, only to sign.
+ */
+export const webhookEndpoints = pgTable(
+  "webhook_endpoints",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** HTTPS only, matched exactly. An arbitrary per-request URL is refused. */
+    callbackUrlAllowList: jsonb("callback_url_allow_list").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [index("webhook_endpoints_tenant_idx").on(t.tenantId)],
+);
+
+export const webhookEndpointSecrets = pgTable("webhook_endpoint_secrets", {
+  endpointId: uuid("endpoint_id")
+    .primaryKey()
+    .references(() => webhookEndpoints.id, { onDelete: "cascade" }),
+  secret: text("secret").notNull(),
+});
+
 export const relyingPartyServices = pgTable(
   "relying_party_services",
   {
@@ -133,7 +165,18 @@ export const relyingPartyServices = pgTable(
     /** HTTPS allow-list for callbacks. An unlisted URL is refused (SSRF protection). */
     callbackUrlAllowList: jsonb("callback_url_allow_list").notNull(),
     /** Per-service HMAC secret for outbound webhook signing. */
-    webhookSecret: text("webhook_secret").notNull(),
+    /**
+     * The callback destination. Nullable only so the migration can backfill it; every row created
+     * after 0002 has one.
+     */
+    webhookEndpointId: uuid("webhook_endpoint_id").references(() => webhookEndpoints.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * Superseded by `webhook_endpoint_id`. Retained, not dropped, so migration 0002 is reversible and
+     * so an operator can confirm the backfill before the column goes. Nothing reads it.
+     */
+    webhookSecret: text("webhook_secret"),
     createdAt: ts("created_at").notNull(),
   },
   (t) => [
@@ -467,6 +510,17 @@ export const auditEvents = pgTable(
  *
  * `payload` is the normalised result only — never presentation content.
  */
+/**
+ * The delivery queue, now subject-agnostic.
+ *
+ * Milestone 1 keyed each row to a presentation and resolved the signing secret by walking
+ * presentation -> Relying Party Service. That walk is what could not serve issuance. A row now names
+ * its `webhook_endpoint_id` directly, so the secret is one lookup away whatever the subject is, and
+ * `subject_type` + `subject_id` identify what the event is about.
+ *
+ * `presentation_id` is retained and nullable for the same reason as `webhook_secret` above: migration
+ * 0002 backfills from it, and keeping it makes the change reversible.
+ */
 export const webhookDeliveries = pgTable(
   "webhook_deliveries",
   {
@@ -474,9 +528,22 @@ export const webhookDeliveries = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
-    presentationId: uuid("presentation_id")
-      .notNull()
-      .references(() => presentationTransactions.id, { onDelete: "cascade" }),
+    /**
+     * The callback destination, and therefore the signing secret. One lookup, whatever the subject.
+     *
+     * Nullable only so migration 0002 can backfill; every row enqueued after it has one, and the
+     * delivery path refuses to send without it rather than signing with something else.
+     */
+    webhookEndpointId: uuid("webhook_endpoint_id").references(() => webhookEndpoints.id, {
+      onDelete: "restrict",
+    }),
+    /** `presentation` or `issuance`. What the event is about. */
+    subjectType: text("subject_type"),
+    subjectId: uuid("subject_id"),
+    /** Superseded by `subject_type` + `subject_id`. Retained so 0002 is reversible. */
+    presentationId: uuid("presentation_id").references(() => presentationTransactions.id, {
+      onDelete: "cascade",
+    }),
     /** Stable across retries, so a receiver can deduplicate. */
     eventId: uuid("event_id").notNull(),
     url: text("url").notNull(),
@@ -492,6 +559,7 @@ export const webhookDeliveries = pgTable(
   (t) => [
     uniqueIndex("webhook_deliveries_event_key").on(t.eventId),
     index("webhook_deliveries_due_idx").on(t.status, t.nextAttemptAt),
+    index("webhook_deliveries_subject_idx").on(t.subjectType, t.subjectId),
   ],
 );
 
@@ -503,3 +571,287 @@ export const webhookDeliveries = pgTable(
  * it runs that file — so the very first migration would fail on a fresh database. Ownership
  * belongs to exactly one of the two.
  */
+
+// ---------------------------------------------------------------------------------------
+// Milestone 2 — Issuance as a Service
+//
+// The same five data classes hold. **Content still has no table:** attribute values fetched
+// from an authentic source exist between the connector call and the engine call and are never
+// written here. `issued_credentials` is metadata and a status reference, nothing more.
+// ---------------------------------------------------------------------------------------
+
+/**
+ * An Organisation's registration as an Attestation Provider, and its engine tenant.
+ *
+ * One engine tenant per provider and environment, for the same reason ADR 0002 Decision 3 gives
+ * on the verification side: the engine scopes key material and registrar configuration to its
+ * tenant, while ARF scopes them to the provider.
+ */
+export const attestationProviders = pgTable(
+  "attestation_providers",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "restrict" }),
+    registrarAssignedIdentifier: text("registrar_assigned_identifier").notNull(),
+    registrar: text("registrar"),
+    /** Opaque reference to the engine key chain holding the attestation-signing key. */
+    signingKeyBindingRef: text("signing_key_binding_ref"),
+    /** The registration certificate published in the Credential Issuer metadata (gate a). */
+    registrationCertificateJwt: text("registration_certificate_jwt"),
+    registrationCertificateNotAfter: ts("registration_certificate_not_after"),
+    engineTenantRef: text("engine_tenant_ref"),
+    /** The same shared endpoint type the verification side uses. */
+    webhookEndpointId: uuid("webhook_endpoint_id").references(() => webhookEndpoints.id, {
+      onDelete: "restrict",
+    }),
+    trustEnvironment: text("trust_environment").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("attestation_providers_identifier_key").on(
+      t.registrarAssignedIdentifier,
+      t.trustEnvironment,
+    ),
+    index("attestation_providers_tenant_idx").on(t.tenantId),
+  ],
+);
+
+/**
+ * A platform-owned credential type.
+ *
+ * `rulebook_*` is trust configuration, not documentation: ARF §6.3.2.4 makes the Rulebook the
+ * source of trust anchors for verifying a non-qualified EAA's signature, so a type whose Rulebook
+ * is unknown cannot be issued.
+ */
+export const credentialTypes = pgTable(
+  "credential_types",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    attestationProviderId: uuid("attestation_provider_id")
+      .notNull()
+      .references(() => attestationProviders.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    format: text("format").notNull(),
+    vct: text("vct"),
+    doctype: text("doctype"),
+    rulebookIdentifier: text("rulebook_identifier").notNull(),
+    rulebookVersion: text("rulebook_version").notNull(),
+    rulebookPublicationUri: text("rulebook_publication_uri"),
+    rulebookAnchorSource: text("rulebook_anchor_source").notNull(),
+    /** Claim definitions: paths, display text, value types. Never values. */
+    claims: jsonb("claims").notNull(),
+    display: jsonb("display").notNull(),
+    validitySeconds: integer("validity_seconds").notNull(),
+    statusMechanism: text("status_mechanism").notNull(),
+    requiresKeyBinding: boolean("requires_key_binding").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    index("credential_types_tenant_idx").on(t.tenantId),
+    index("credential_types_provider_idx").on(t.attestationProviderId),
+  ],
+);
+
+export const issuancePolicies = pgTable(
+  "issuance_policies",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    credentialTypeId: uuid("credential_type_id")
+      .notNull()
+      .references(() => credentialTypes.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    status: text("status").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [index("issuance_policies_tenant_idx").on(t.tenantId)],
+);
+
+/** Immutable once published, like its verification-side counterpart. */
+export const issuancePolicyVersions = pgTable(
+  "issuance_policy_versions",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    policyId: uuid("policy_id")
+      .notNull()
+      .references(() => issuancePolicies.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    status: text("status").notNull(),
+    credentialTypeId: uuid("credential_type_id")
+      .notNull()
+      .references(() => credentialTypes.id, { onDelete: "restrict" }),
+    purpose: jsonb("purpose").notNull(),
+    eligibilityRule: jsonb("eligibility_rule").notNull(),
+    authenticSource: jsonb("authentic_source").notNull(),
+    holderBinding: text("holder_binding").notNull(),
+    flow: text("flow").notNull(),
+    credentialValiditySeconds: integer("credential_validity_seconds").notNull(),
+    statusPolicy: jsonb("status_policy").notNull(),
+    retentionPolicy: jsonb("retention_policy").notNull(),
+    /** The §7.3 stretch goal: require a PID presentation first, reusing a verification policy. */
+    eligibilityPresentationPolicyId: uuid("eligibility_presentation_policy_id").references(
+      () => presentationPolicies.id,
+      { onDelete: "restrict" },
+    ),
+    createdAt: ts("created_at").notNull(),
+    publishedAt: ts("published_at"),
+  },
+  (t) => [
+    uniqueIndex("issuance_policy_versions_key").on(t.policyId, t.version),
+    index("issuance_policy_versions_tenant_idx").on(t.tenantId),
+  ],
+);
+
+/**
+ * Issuance transaction metadata.
+ *
+ * `subject_reference` is a **lookup key** for the authentic source, not attribute values — the
+ * business client says who to ask about, and the platform asks. `authentic_source_kind` records
+ * whether the values came from a real source or a fixture, so an attestation issued from test data
+ * can never be mistaken for one issued from a real source.
+ */
+export const issuanceTransactions = pgTable(
+  "issuance_transactions",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    policyId: uuid("policy_id")
+      .notNull()
+      .references(() => issuancePolicies.id, { onDelete: "restrict" }),
+    policyVersion: integer("policy_version").notNull(),
+    credentialTypeId: uuid("credential_type_id")
+      .notNull()
+      .references(() => credentialTypes.id, { onDelete: "restrict" }),
+    state: text("state").notNull(),
+    businessReference: text("business_reference"),
+    subjectReference: text("subject_reference").notNull(),
+    authenticSourceKind: text("authentic_source_kind"),
+    eligibilityReason: text("eligibility_reason"),
+    engineSessionRef: text("engine_session_ref"),
+    engineTenantRef: text("engine_tenant_ref"),
+    sentWithoutRegistrationCertificate: boolean("sent_without_registration_certificate"),
+    callbackUrl: text("callback_url"),
+    deliveryStatus: text("delivery_status").notNull(),
+    failureCode: text("failure_code"),
+    failureMessage: text("failure_message"),
+    providerSideFailure: boolean("provider_side_failure"),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => [
+    index("issuance_transactions_tenant_idx").on(t.tenantId),
+    index("issuance_transactions_state_idx").on(t.state),
+    index("issuance_transactions_expiry_idx").on(t.expiresAt),
+  ],
+);
+
+export const issuanceTransactionTransitions = pgTable(
+  "issuance_transaction_transitions",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    issuanceTransactionId: uuid("issuance_transaction_id")
+      .notNull()
+      .references(() => issuanceTransactions.id, { onDelete: "cascade" }),
+    fromState: text("from_state").notNull(),
+    toState: text("to_state").notNull(),
+    at: ts("at").notNull(),
+  },
+  (t) => [index("issuance_transitions_transaction_idx").on(t.issuanceTransactionId)],
+);
+
+/**
+ * An issued attestation — **metadata only**.
+ *
+ * No attribute values, no credential, no SD-JWT. `engine_session_ref` is the awkward but necessary
+ * field: the engine exposes status mutation only as a session-keyed call and its status-mapping
+ * table has no foreign key to the session, so revocation survives a session purge only if the
+ * platform kept the reference. It is internal, never returned and never logged — the revocation
+ * index is an `ISSU_35` unique element.
+ */
+export const issuedCredentials = pgTable(
+  "issued_credentials",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    issuanceTransactionId: uuid("issuance_transaction_id")
+      .notNull()
+      .references(() => issuanceTransactions.id, { onDelete: "restrict" }),
+    credentialTypeId: uuid("credential_type_id")
+      .notNull()
+      .references(() => credentialTypes.id, { onDelete: "restrict" }),
+    issuancePolicyId: uuid("issuance_policy_id")
+      .notNull()
+      .references(() => issuancePolicies.id, { onDelete: "restrict" }),
+    issuancePolicyVersion: integer("issuance_policy_version").notNull(),
+    status: text("status").notNull(),
+    issuedAt: ts("issued_at").notNull(),
+    expiresAt: ts("expires_at").notNull(),
+    engineSessionRef: text("engine_session_ref").notNull(),
+    statusListUri: text("status_list_uri"),
+    statusListIndex: integer("status_list_index"),
+    statusChangedAt: ts("status_changed_at"),
+  },
+  (t) => [
+    index("issued_credentials_tenant_idx").on(t.tenantId),
+    index("issued_credentials_status_idx").on(t.status),
+    uniqueIndex("issued_credentials_transaction_key").on(t.issuanceTransactionId),
+  ],
+);
+
+/**
+ * A published list of the platform's own trust anchors, per ETSI TS 119 602.
+ *
+ * The optional half of ARF §6.3.2.4, and **not** a notified list under Topic 31. `TEST` only in V0,
+ * enforced in the domain rather than here, and labelled inside the signed payload itself.
+ */
+export const trustAnchorPublications = pgTable(
+  "trust_anchor_publications",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    trustEnvironment: text("trust_environment").notNull(),
+    schemeOperatorName: text("scheme_operator_name").notNull(),
+    publicationUri: text("publication_uri").notNull(),
+    sequenceNumber: integer("sequence_number").notNull(),
+    issuedAt: ts("issued_at").notNull(),
+    nextUpdate: ts("next_update").notNull(),
+    anchors: jsonb("anchors").notNull(),
+    signingKeyRef: text("signing_key_ref").notNull(),
+    /**
+     * Must be `trustList`. Stored so the invariant survives a round-trip: without it, a row read
+     * back from the database would be a bare reference again and the domain check would have
+     * nothing to act on.
+     */
+    signingKeyUsage: text("signing_key_usage").notNull(),
+    /** The signed list as served. Public by construction; no secret is stored here. */
+    signedList: text("signed_list"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("trust_anchor_publications_seq_key").on(t.tenantId, t.sequenceNumber),
+    index("trust_anchor_publications_tenant_idx").on(t.tenantId),
+  ],
+);

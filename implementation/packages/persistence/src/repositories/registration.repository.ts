@@ -15,6 +15,7 @@ import type {
   RelyingPartyId,
   RelyingPartyServiceId,
   TenantId,
+  WebhookEndpointId,
 } from "@edtp/shared";
 import { asId, PlatformError } from "@edtp/shared";
 import { and, eq } from "drizzle-orm";
@@ -130,6 +131,7 @@ export class RegistrationRepository {
   async createRelyingPartyService(
     service: RelyingPartyService,
     webhookSecret: string,
+    webhookEndpointId?: WebhookEndpointId,
   ): Promise<RelyingPartyService> {
     await this.db.insert(relyingPartyServices).values({
       id: service.id,
@@ -139,7 +141,10 @@ export class RegistrationRepository {
       serviceTradeName: service.serviceTradeName,
       description: service.description,
       callbackUrlAllowList: service.callbackUrlAllowList,
-      webhookSecret,
+      // The legacy column is never written: the secret lives on the webhook endpoint. Migration
+      // 0002 superseded it, 0004 cleared the historical values, and a follow-up drops the column.
+      webhookSecret: null,
+      webhookEndpointId: webhookEndpointId ?? null,
       createdAt: service.createdAt,
     });
     return service;
@@ -158,16 +163,17 @@ export class RegistrationRepository {
   }
 
   /** The HMAC secret used to sign outbound callbacks for this service. */
-  async findWebhookSecret(
+  /** The Relying Party Service's callback destination. The route a presentation takes to a secret. */
+  async findWebhookEndpointId(
     tenantId: TenantId,
     id: RelyingPartyServiceId,
-  ): Promise<string | undefined> {
+  ): Promise<WebhookEndpointId | undefined> {
     const [row] = await this.db
-      .select({ secret: relyingPartyServices.webhookSecret })
+      .select({ endpointId: relyingPartyServices.webhookEndpointId })
       .from(relyingPartyServices)
       .where(and(eq(relyingPartyServices.tenantId, tenantId), eq(relyingPartyServices.id, id)))
       .limit(1);
-    return row?.secret;
+    return row?.endpointId ? asId<"WebhookEndpointId">(row.endpointId) : undefined;
   }
 
   // --- intended uses -------------------------------------------------------

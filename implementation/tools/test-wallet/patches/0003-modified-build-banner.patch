@@ -1,0 +1,96 @@
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt
+index 62a09f4..5ca2e25 100644
+--- a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt
+@@ -201,6 +201,10 @@ fun ContentScreen(
+                         )
+                 ) {
+ 
++                    // EDTP addition. Renders nothing unless this is the `edtptest` flavour. Placed
++                    // here, in the scaffold every screen uses, so it cannot be navigated away from.
++                    EdtpModifiedBuildBanner()
++
+                     Box(modifier = Modifier.weight(1f)) {
+                         bodyContent(
+                             screenPaddings(
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
+new file mode 100644
+index 0000000..0aae78e
+--- /dev/null
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
+@@ -0,0 +1,75 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.uilogic.component.content
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import eu.europa.ec.uilogic.BuildConfig
++
++/**
++ * States, on every screen, that this is a modified build and which deviations are compiled in.
++ *
++ * Renders nothing in an unmodified build, so this file is inert unless the `edtptest` flavour is
++ * selected: `BuildConfig.EDTP_BUILD` is false in every other flavour.
++ *
++ * It is deliberately placed in [ContentScreen], which every screen in the app uses, rather than on
++ * individual screens. A banner that can be navigated away from would make a screenshot ambiguous
++ * about which build produced it, and the whole point is that no result from this build can be
++ * mistaken for one from the official Reference Wallet.
++ *
++ * The deviation text comes from the build, not from a constant here, so the banner cannot drift
++ * from what was actually compiled.
++ */
++@Composable
++fun EdtpModifiedBuildBanner(modifier: Modifier = Modifier) {
++    if (!BuildConfig.EDTP_BUILD) {
++        return
++    }
++
++    Text(
++        text = "EDTP TEST WALLET · MODIFIED REFERENCE BUILD · NOT THE OFFICIAL EUDI WALLET" +
++                " · deviations: ${BuildConfig.EDTP_DEVIATIONS}",
++        modifier = modifier
++            .fillMaxWidth()
++            .background(BANNER_BACKGROUND)
++            .padding(horizontal = 8.dp, vertical = 4.dp),
++        color = Color.White,
++        fontSize = 10.sp,
++        lineHeight = 13.sp,
++        fontWeight = FontWeight.Bold,
++        textAlign = TextAlign.Center,
++    )
++}
++
++/**
++ * Fixed rather than taken from the theme. The banner has to be conspicuous in both light and dark
++ * themes, and a themed colour would let a future theme change quietly make it blend in.
++ */
++private val BANNER_BACKGROUND = Color(0xFF8A1C1C)

@@ -26,3 +26,16 @@ export const REGISTRATION_SERVICE = Symbol("RegistrationService");
 export const POLICY_SERVICE = Symbol("PolicyService");
 export const PRESENTATION_SERVICE = Symbol("PresentationService");
 export const WEBHOOK_SERVICE = Symbol("WebhookService");
+
+// --- Milestone 2: Issuance as a Service -------------------------------------------------
+export const ISSUANCE_REPOSITORY = Symbol("IssuanceRepository");
+export const ISSUER_PORT = Symbol("EudiIssuerPort");
+export const ISSUER_PROVISIONING_PORT = Symbol("EudiIssuerProvisioningPort");
+export const ISSUANCE_SERVICE = Symbol("IssuanceService");
+/** Names only, for policy validation at publication time. */
+export const REGISTERED_EVALUATORS = Symbol("RegisteredEvaluators");
+export const REGISTERED_CONNECTORS = Symbol("RegisteredConnectors");
+/** The shared callback destination repository, used by both verification and issuance. */
+export const WEBHOOK_ENDPOINT_REPOSITORY = Symbol("WebhookEndpointRepository");
+/** Feature flag: PID-during-issuance. Off until a wallet test passes. */
+export const FEATURE_PID_DURING_ISSUANCE = Symbol("FeaturePidDuringIssuance");

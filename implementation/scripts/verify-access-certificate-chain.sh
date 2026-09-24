@@ -78,8 +78,28 @@ written = 0
 lote = payload["LoTE"]
 scheme = lote["ListAndSchemeInformation"]
 print("  scheme:      ", scheme.get("SchemeName", [{}])[0].get("value", "?"))
-print("  issued:      ", scheme.get("ListIssueDateTime", "?"))
-print("  next update: ", scheme.get("NextUpdate", "?"))
+issued = scheme.get("ListIssueDateTime", "?")
+next_update = scheme.get("NextUpdate", "?")
+print("  issued:      ", issued)
+print("  next update: ", next_update)
+
+# Freshness. The dev lists roll over -- PubEAAProviders had NextUpdate 2026-09-12 -- and a stale
+# list must not be trusted silently: a rotated-out anchor would still appear valid here while a
+# Wallet, which refetches, would refuse the certificate. So say so loudly.
+import datetime
+try:
+    nu = datetime.datetime.fromisoformat(str(next_update).replace("Z", "+00:00"))
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if nu < now:
+        print(f"  !! STALE: this list's NextUpdate ({next_update}) has passed.")
+        print("  !! Anchors may have rotated. Re-fetch before trusting this result.")
+    else:
+        remaining = nu - now
+        print(f"  freshness:    OK, {remaining.days}d {remaining.seconds // 3600}h until NextUpdate")
+        if remaining.days < 2:
+            print("  !! NOTE: this list rolls over within 48 hours. Re-check after it does.")
+except (ValueError, TypeError):
+    print("  !! Could not parse NextUpdate; treat freshness as unknown.")
 
 for entity in lote.get("TrustedEntitiesList", []):
     for service in entity.get("TrustedEntityServices", []):

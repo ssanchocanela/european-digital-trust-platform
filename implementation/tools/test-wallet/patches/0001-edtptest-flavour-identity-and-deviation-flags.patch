@@ -1,0 +1,80 @@
+diff --git a/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt b/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
+index df2645f..71fd6e1 100644
+--- a/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
++++ b/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
+@@ -31,10 +31,31 @@ enum class FlavorDimension {
+ enum class AppFlavor(
+     val dimension: FlavorDimension,
+     val applicationIdSuffix: String? = null,
+-    val applicationNameSuffix: String? = null
++    val applicationNameSuffix: String? = null,
++    /**
++     * EDTP addition. Replaces the `appName` manifest placeholder outright, rather than appending
++     * to it as [applicationNameSuffix] does, because a modified build must not carry a name that
++     * reads as a variant of the official wallet.
++     */
++    val applicationNameOverride: String? = null
+ ) {
+     Dev(FlavorDimension.contentType, applicationIdSuffix = ".dev"),
+-    Demo(FlavorDimension.contentType)
++    Demo(FlavorDimension.contentType),
++
++    /**
++     * EDTP modification — a test build of the European Digital Trust Platform, NOT the official
++     * EUDI Reference Wallet.
++     *
++     * Identity only: a distinct applicationId so it installs alongside the official wallet, a
++     * distinct name, and a banner on every screen. Behaviour is upstream's. The deviations in the
++     * EDTP wallet deviation register (WD-1, WD-2, WD-3) are **not** compiled in here, and
++     * `BuildConfig.EDTP_DEVIATIONS` reports what is active so no screenshot or log is ambiguous.
++     */
++    EdtpTest(
++        FlavorDimension.contentType,
++        applicationIdSuffix = ".edtptest",
++        applicationNameOverride = "EDTP Test Wallet — modified reference build"
++    )
+ }
+ 
+ fun Project.configureFlavors(
+@@ -47,6 +68,15 @@ fun Project.configureFlavors(
+         "version.properties"
+     ).orEmpty()
+ 
++    // EDTP addition. Which entries of the wallet deviation register are compiled into this build,
++    // as a comma-separated list, or "none". Written to version.properties by build.sh so it is
++    // read the same way as the version and needs no new mechanism. Absent means upstream
++    // behaviour, which is the default for every deviation.
++    val edtpDeviations = getProperty<String>(
++        "EDTP_DEVIATIONS",
++        "version.properties"
++    ).orEmpty().ifBlank { "none" }
++
+     commonExtension.apply {
+         flavorDimensions += FlavorDimension.contentType.name
+         productFlavors {
+@@ -60,10 +90,25 @@ fun Project.configureFlavors(
+                         }
+                     }
+                     manifestPlaceholders["appNameSuffix"] = it.applicationNameSuffix.orEmpty()
++                    // EDTP addition. A flavour placeholder overrides the one in defaultConfig, so
++                    // this replaces the app name for this flavour only and leaves the others alone.
++                    it.applicationNameOverride?.let { overriddenName ->
++                        manifestPlaceholders["appName"] = overriddenName
++                    }
+                     addConfigField(
+                         "APP_VERSION",
+                         version
+                     )
++                    // EDTP addition. Every build states what it is and what deviates, in a field
++                    // the UI reads, so the banner cannot drift from the build.
++                    addConfigField(
++                        "EDTP_BUILD",
++                        it == AppFlavor.EdtpTest
++                    )
++                    addConfigField(
++                        "EDTP_DEVIATIONS",
++                        edtpDeviations
++                    )
+                     flavorConfigurationBlock(this, it)
+                 }
+             }

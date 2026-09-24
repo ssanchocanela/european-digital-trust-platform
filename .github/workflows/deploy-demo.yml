@@ -1,0 +1,65 @@
+# Deploys one published platform image to the demonstration VM (ADR 0010 §3.6).
+#
+# - Runs only after the user approves it: the `demo` environment has the repository owner as its
+#   required reviewer. Anyone, Claude included, can request a deployment; nothing reaches the VM
+#   without that approval.
+# - Reaches the VM through its own Cloudflare tunnel, with an Access service token. The VM has no
+#   inbound ports.
+# - Uses a deploy key whose authorized_keys entry forces one command, `deploy <tag>`
+#   (infra/demo-vm/deploy.sh). The key opens no shell.
+# - The VM script pulls the image, waits for the platform to become healthy, runs the negative checks,
+#   and rolls back to the previous image if they fail.
+#
+# Environment `demo` secrets: DEMO_DEPLOY_KEY, DEMO_KNOWN_HOSTS, CF_ACCESS_CLIENT_ID,
+# CF_ACCESS_CLIENT_SECRET.
+name: deploy-demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy: the 12-hex commit tag from demo-image (not a branch name)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-demo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: demo
+    timeout-minutes: 15
+    env:
+      TAG: ${{ inputs.tag }}
+      IMAGE: ghcr.io/${{ github.repository_owner }}/edtp-platform
+    steps:
+      - name: Validate the tag
+        run: |
+          [[ "$TAG" =~ ^[0-9a-f]{12}$ ]] || { echo "tag must be 12 hex digits"; exit 1; }
+          docker manifest inspect "${IMAGE,,}:$TAG" >/dev/null || { echo "no such image"; exit 1; }
+
+      - name: Install cloudflared (pinned, checksum-verified)
+        run: |
+          curl -sfL -o cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-linux-amd64
+          echo "03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc  cloudflared" | sha256sum -c -
+          sudo install -m 755 cloudflared /usr/local/bin/cloudflared
+
+      - name: Deploy
+        env:
+          DEPLOY_KEY: ${{ secrets.DEMO_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEMO_KNOWN_HOSTS }}
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o HostKeyAlias=edtp-demo-vm \
+            -o ProxyCommand="cloudflared access ssh --hostname %h" \
+            edtp@edtp-ssh.murcata.es "deploy $TAG"

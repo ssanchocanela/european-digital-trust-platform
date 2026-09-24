@@ -392,6 +392,14 @@ export const createIssuancePolicyVersionSchema = z
       statusListEnabled: z.boolean().default(true),
       suspensionAllowed: z.boolean().default(false),
     }),
+    /** ARF `ISSU_38`/`ISSU_50`: how often one credential may be presented. Absent: none published. */
+    reusePolicy: z
+      .object({
+        method: z.literal("LIMITED_TIME"),
+        reissueBeforeExpirySeconds: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
     retentionPolicy: z
       .object({
         transactionLifetimeSeconds: z.number().int().positive().default(300),

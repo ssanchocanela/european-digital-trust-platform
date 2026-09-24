@@ -735,6 +735,8 @@ export const issuancePolicyVersions = pgTable(
     credentialValiditySeconds: integer("credential_validity_seconds").notNull(),
     statusPolicy: jsonb("status_policy").notNull(),
     retentionPolicy: jsonb("retention_policy").notNull(),
+    /** How often one issued credential may be presented; null publishes no policy. Migration 0011. */
+    reusePolicy: jsonb("reuse_policy"),
     /** The §7.3 stretch goal: require a PID presentation first, reusing a verification policy. */
     eligibilityPresentationPolicyId: uuid("eligibility_presentation_policy_id").references(
       () => presentationPolicies.id,

@@ -757,6 +757,32 @@ const PROOF_TYPES_SUPPORTED = ["attestation"] as const;
  */
 const KEY_ATTESTATIONS_REQUIRED = { key_storage: ["iso_18045_basic"] } as const;
 
+/**
+ * The provider's reuse policy, as the engine publishes it: `credential_reuse_policy` in the
+ * configuration's `credential_metadata` (ETSI TS 119 472-3; ARF `ISSU_50`).
+ *
+ * Exact on purpose. The wallet's library parses a known policy id strictly, and a malformed option
+ * fails the **whole** metadata document, as `key_attestations_required` did (A28). So: id
+ * `arf_annex_ii`, `details` `["limited_time"]` — underscore, which is what `eudi-lib-jvm-openid4vci-kt`
+ * 0.13.1 reads, where the engine would also take a hyphen — and a positive lead in **seconds**.
+ * Wallet Core 0.30.2 then stores the document under `LimitedTime`, one credential, presented as often
+ * as needed. Absent from the plan: nothing is published and the wallet chooses (A34).
+ */
+const credentialReusePolicy = (plan: IssuancePlan): Record<string, unknown> =>
+  plan.reusePolicy
+    ? {
+        credentialReusePolicy: {
+          id: "arf_annex_ii",
+          options: [
+            {
+              details: ["limited_time"],
+              reissue_trigger_lifetime_left: plan.reusePolicy.reissueBeforeExpirySeconds,
+            },
+          ],
+        },
+      }
+    : {};
+
 const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string, unknown> => {
   if (plan.credential.format === "dc+sd-jwt") {
     return {
@@ -769,6 +795,7 @@ const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string,
       credential_signing_alg_values_supported: ["ES256"],
       proofTypesSupported: [...PROOF_TYPES_SUPPORTED],
       keyAttestationsRequired: { key_storage: [...KEY_ATTESTATIONS_REQUIRED.key_storage] },
+      ...credentialReusePolicy(plan),
     };
   }
   return {
@@ -778,6 +805,7 @@ const buildIssuerMetadataCredentialConfig = (plan: IssuancePlan): Record<string,
     credential_signing_alg_values_supported: ["ES256"],
     proofTypesSupported: [...PROOF_TYPES_SUPPORTED],
     keyAttestationsRequired: { key_storage: [...KEY_ATTESTATIONS_REQUIRED.key_storage] },
+    ...credentialReusePolicy(plan),
   };
 };
 

@@ -510,6 +510,7 @@ export class IssuanceConfigurationController {
         credentialValiditySeconds: input.credentialValiditySeconds,
         statusPolicy: input.statusPolicy,
         retentionPolicy: input.retentionPolicy,
+        ...(input.reusePolicy ? { reusePolicy: input.reusePolicy } : {}),
         ...(input.eligibilityPresentationPolicyId
           ? { eligibilityPresentationPolicyId: input.eligibilityPresentationPolicyId }
           : {}),
@@ -535,6 +536,7 @@ export class IssuanceConfigurationController {
         credentialValiditySeconds: input.credentialValiditySeconds,
         statusPolicy: input.statusPolicy,
         retentionPolicy: input.retentionPolicy,
+        ...(input.reusePolicy ? { reusePolicy: input.reusePolicy } : {}),
         ...(input.eligibilityPresentationPolicyId
           ? { eligibilityPresentationPolicyId: input.eligibilityPresentationPolicyId }
           : {}),

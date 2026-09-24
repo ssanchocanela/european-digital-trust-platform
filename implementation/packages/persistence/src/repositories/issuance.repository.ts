@@ -623,6 +623,7 @@ export class IssuanceRepository {
       credentialValiditySeconds: input.body.credentialValiditySeconds,
       statusPolicy: input.body.statusPolicy,
       retentionPolicy: input.body.retentionPolicy,
+      reusePolicy: input.body.reusePolicy ?? null,
       eligibilityPresentationPolicyId: input.body.eligibilityPresentationPolicyId ?? null,
       createdAt: input.at,
       publishedAt: input.publish ? input.at : null,
@@ -969,6 +970,9 @@ export class IssuanceRepository {
       credentialValiditySeconds: row.credentialValiditySeconds,
       statusPolicy: row.statusPolicy as IssuancePolicyVersion["statusPolicy"],
       retentionPolicy: row.retentionPolicy as IssuancePolicyVersion["retentionPolicy"],
+      ...(row.reusePolicy
+        ? { reusePolicy: row.reusePolicy as NonNullable<IssuancePolicyVersion["reusePolicy"]> }
+        : {}),
       ...(row.eligibilityPresentationPolicyId
         ? { eligibilityPresentationPolicyId: row.eligibilityPresentationPolicyId }
         : {}),

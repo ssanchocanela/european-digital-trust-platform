@@ -44,6 +44,27 @@ export interface StatusPolicy {
   readonly suspensionAllowed: boolean;
 }
 
+/**
+ * How often a Wallet Unit may present one issued credential — the provider's policy under ARF 3.0.0
+ * `AS-AP-10-070` (`ISSU_38`), published to the Wallet as `credential_reuse_policy`
+ * (`AS-AP-10-084`, `ISSU_50`; ETSI TS 119 472-3).
+ *
+ * Only **`LIMITED_TIME`** (the ARF's Method B, `ISSU_48`–`ISSU_50`): one credential, presented as
+ * often as needed, re-issued some time before it expires. Method A (once-only batches) is not offered
+ * because the wrapped engine cannot serve a batch to the pinned wallet — `interop-findings.md` A34 —
+ * and a policy the platform cannot honour must not be expressible.
+ *
+ * The privacy cost is real and is the reason Method A exists: every presentation of the same
+ * credential carries the same signature and salts, so Relying Parties can link them. `ISSU_38`
+ * requires the provider to judge that risk acceptable for the expected use; choosing this is that
+ * judgement, and it belongs in the policy's version history.
+ */
+export interface ReusePolicy {
+  readonly method: "LIMITED_TIME";
+  /** How long before expiry the Wallet Unit should ask for re-issuance. Positive, below validity. */
+  readonly reissueBeforeExpirySeconds: number;
+}
+
 export interface IssuancePolicyVersionInput {
   readonly credentialTypeId: string;
   readonly purpose: readonly LocalisedText[];
@@ -54,6 +75,8 @@ export interface IssuancePolicyVersionInput {
   readonly credentialValiditySeconds: number;
   readonly statusPolicy: StatusPolicy;
   readonly retentionPolicy: RetentionPolicy;
+  /** Absent: no policy is published and the Wallet applies its own default. */
+  readonly reusePolicy?: ReusePolicy;
   /**
    * Optional: require a PID presentation before issuing, reusing a verification policy.
    *
@@ -214,6 +237,20 @@ export const validateIssuancePolicyVersion = (
       code: "suspension_requires_status_list",
       message: "Suspension needs a status list.",
     });
+  }
+
+  if (input.reusePolicy) {
+    const lead = input.reusePolicy.reissueBeforeExpirySeconds;
+    if (!Number.isInteger(lead) || lead <= 0 || lead >= input.credentialValiditySeconds) {
+      details.push({
+        path: "reusePolicy.reissueBeforeExpirySeconds",
+        code: "reuse_reissue_lead_invalid",
+        message:
+          "The re-issuance lead must be a positive number of seconds below the credential's " +
+          "validity. The Wallet refuses a non-positive one, and one at or above the validity would " +
+          "have it re-issue continuously.",
+      });
+    }
   }
 
   if (input.credentialValiditySeconds <= 0) {

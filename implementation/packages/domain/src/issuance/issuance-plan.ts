@@ -8,6 +8,7 @@ import type {
   HolderBindingMode,
   IssuanceFlowKind,
   IssuancePolicyVersion,
+  ReusePolicy,
 } from "./issuance-policy.js";
 
 /**
@@ -94,6 +95,8 @@ export interface IssuancePlan {
   readonly statusListEnabled: boolean;
   readonly suspensionAllowed: boolean;
   readonly retentionInstructions: RetentionPolicy;
+  /** How often one credential may be presented; absent publishes no policy (`ISSU_38`). */
+  readonly reusePolicy?: ReusePolicy;
   readonly providerContext: PlanAttestationProviderContext;
   /** The claim paths to fetch from the authentic source. Exactly the declared ones. */
   readonly claimPathsToFetch: readonly string[];
@@ -189,6 +192,7 @@ export const compileIssuancePolicy = (input: IssuanceCompilerInput): IssuancePla
     statusListEnabled: policyVersion.statusPolicy.statusListEnabled,
     suspensionAllowed: policyVersion.statusPolicy.suspensionAllowed,
     retentionInstructions: policyVersion.retentionPolicy,
+    ...(policyVersion.reusePolicy ? { reusePolicy: policyVersion.reusePolicy } : {}),
     providerContext,
     claimPathsToFetch: credentialType.claims.map((c) => c.path.join(".")),
     ...(policyVersion.eligibilityPresentationPolicyId

@@ -3,6 +3,8 @@ import {
   defaultRetentionPolicy,
   type IssuancePlan,
   type IssuancePolicyVersion,
+  type ReusePolicy,
+  validateIssuancePolicyVersion,
 } from "@edtp/domain";
 import type { EngineClient } from "@edtp/eudiplo-adapter";
 import { EudiploIssuerAdapter } from "@edtp/eudiplo-adapter";
@@ -38,8 +40,9 @@ const recordingClient = (calls: Call[]): EngineClient =>
 
 const at = new Date("2026-09-16T12:00:00Z");
 
-const plan = (): IssuancePlan => {
+const plan = (reusePolicy?: ReusePolicy): IssuancePlan => {
   const version: IssuancePolicyVersion = {
+    ...(reusePolicy ? { reusePolicy } : {}),
     policyId: "policy-1",
     version: 1,
     status: "PUBLISHED",
@@ -103,10 +106,13 @@ const plan = (): IssuancePlan => {
   });
 };
 
-const provision = async (options?: { walletProviderTrustListId?: string }) => {
+const provision = async (
+  options?: { walletProviderTrustListId?: string },
+  reusePolicy?: ReusePolicy,
+) => {
   const calls: Call[] = [];
   const adapter = new EudiploIssuerAdapter(recordingClient(calls), options);
-  const p = plan();
+  const p = plan(reusePolicy);
   await adapter.provisionCredentialConfiguration({
     engineTenantRef: p.providerContext.engineTenantRef,
     plan: p,
@@ -154,5 +160,77 @@ describe("wallet attestation at the token endpoint", () => {
     expect(issuer.walletProviderTrustLists).toEqual([
       { trustListId: "eudi-dev-wallet-providers" },
     ]);
+  });
+});
+
+/**
+ * How often one credential may be presented — the provider's policy, ARF `ISSU_38`, published as
+ * `credential_reuse_policy` (`ISSU_50`). Without it the pinned wallet stores a PID as once-only and,
+ * since the engine cannot serve it a batch (A34), as ONE once-only credential. The shape is pinned
+ * because the wallet's library parses a known policy id strictly and a malformed option fails the
+ * whole metadata document (A28).
+ */
+describe("credential_reuse_policy", () => {
+  const limitedTime: ReusePolicy = { method: "LIMITED_TIME", reissueBeforeExpirySeconds: 600 };
+
+  it("publishes nothing when the policy states nothing", async () => {
+    const { credential } = await provision();
+    const config = (credential.config ?? {}) as Record<string, unknown>;
+    expect(config.credentialReusePolicy).toBeUndefined();
+  });
+
+  it("publishes Method B in the exact shape the wallet parses", async () => {
+    const { credential } = await provision(undefined, limitedTime);
+    const config = (credential.config ?? {}) as Record<string, unknown>;
+    expect(config.credentialReusePolicy).toEqual({
+      id: "arf_annex_ii",
+      // Underscore: `eudi-lib-jvm-openid4vci-kt` 0.13.1 reads `limited_time`; the engine also takes
+      // `limited-time`, which the wallet would refuse. Seconds, positive.
+      options: [{ details: ["limited_time"], reissue_trigger_lifetime_left: 600 }],
+    });
+  });
+
+  it("refuses a re-issuance lead that is not below the credential's validity", () => {
+    const p = plan();
+    const input = (lead: number) => ({
+      credentialTypeId: "type-1",
+      purpose: p.purpose,
+      eligibilityRule: { evaluator: "AlwaysEligible", parameters: {} },
+      authenticSource: { connector: "fixture", parameters: {} },
+      holderBinding: "KEY_BOUND" as const,
+      flow: "PRE_AUTHORIZED_CODE" as const,
+      credentialValiditySeconds: 3_600,
+      statusPolicy: { statusListEnabled: false, suspensionAllowed: false },
+      retentionPolicy: defaultRetentionPolicy(),
+      reusePolicy: { method: "LIMITED_TIME" as const, reissueBeforeExpirySeconds: lead },
+    });
+    const context = {
+      credentialType: {
+        id: "type-1",
+        tenantId: "11111111-1111-1111-1111-111111111111",
+        attestationProviderId: "provider-1",
+        name: "Employee badge",
+        format: "dc+sd-jwt" as const,
+        vct: "urn:edtp:employee-badge:1",
+        rulebook: {
+          identifier: "urn:edtp:rulebook:badge",
+          version: "1.0",
+          anchorSource: "RULEBOOK_ONLY" as const,
+        },
+        claims: [],
+        display: [{ lang: "en", value: "Employee badge" }],
+        validitySeconds: 86_400,
+        statusMechanism: "NONE" as const,
+        requiresKeyBinding: true,
+        createdAt: at,
+      },
+      registeredEvaluators: ["AlwaysEligible"],
+      registeredConnectors: ["fixture"],
+      at,
+    };
+    expect(() => validateIssuancePolicyVersion(input(600), context)).not.toThrow();
+    for (const lead of [0, 3_600, 7_200]) {
+      expect(() => validateIssuancePolicyVersion(input(lead), context)).toThrow();
+    }
   });
 });

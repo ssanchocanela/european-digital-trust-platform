@@ -18,23 +18,14 @@ presentation `VERIFIED`, issuance `ISSUED`. Personal data from the PID; organisa
 fixed and fictitious. PoX types at **v2** with Spanish names; `rpi-1` advertises only them. Record:
 [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1m; gate and return: `test-session-gateway.md` §1e.
 
-**Next action (agreed 24 September, for 25 September): remove the one-use limitation.** The user
-observed that a PID we issue behaves as **single-use** — one credential, one presentation, and more
-uses need more issuance. The goal is that the credentials this platform issues are **not** limited to
-one use. Not yet investigated; where to look, in order:
-
-1. **What the wallet asked for and got.** The wallet declares reuse policies per issuer in
-   `WalletCoreConfigImpl` (`withSupportedCredentialReusePolicies`: `RotatingBatch`, `OnceOnly`,
-   `LimitedTime`), and chooses among them from what the issuer offers. Find which one it applied to our
-   documents, and why — likely from the issuer metadata's batch capability (`batch_credential_issuance`)
-   and the credential configuration, which the adapter builds (`buildIssuerMetadataCredentialConfig`).
-2. **What the engine issues per request.** One credential or a batch; whether the engine and our
-   issuer configuration can advertise and serve a batch, or a multi-use policy.
-3. **Decide with the baseline in mind.** ARF §6.6.3 and the unlinkability HLRs favour once-only or
-   batch issuance for PID *precisely* to prevent tracking across presentations. So a multi-use PID has
-   a privacy cost that must be recorded (`knowledge-alignment.md` or `interop-findings.md`), not
-   silently accepted. A batch of several one-use credentials may give "more uses" without that cost.
-   Check the exact HLR identifiers in the register before citing any.
+**The one-use limitation is removed (24 September).** A PID was spent by its first presentation: the
+pinned wallet stores a PID as once-only, and the engine cannot serve it a batch (A34 — a key
+attestation must carry exactly one key). An issuance policy version now carries an optional
+`reusePolicy` (ARF Method B, limited-time), published as `credential_reuse_policy`; Wallet Core applies
+it with no wallet change. PID at **v4**, PoX at **v3**; one PID presented twice, both `VERIFIED`
+(§8.1n). The linkability cost is recorded in A34. The better fix, once-only batches, needs EUDIPLO to
+accept a multi-key attestation proof: draft issue in `docs/upstream/eudiplo-batch-attestation-proof.md`,
+**not filed** — awaiting review.
 
 **Always open a form session with `GATEWAY_PINNED_WALLET_COMPAT=true`** — without it the list fails
 (A29 item 3); the script now refuses.

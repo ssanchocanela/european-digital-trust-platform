@@ -711,6 +711,29 @@ wallet, about CORPME (the branding is a demonstration and the band says so), or 
 authority to act for anyone: the organisation, position and powers are fictitious. No registration
 certificate (B3).
 
+### 8.1n Fifteenth wallet run — **one PID, presented twice: the reuse policy published by the issuer**
+
+24 September 2026, **W6** unchanged — a **modified wallet**, with **no wallet change for this run**.
+Named tunnel, gateway in demo compatibility mode; negative checks passed (19 probes, all `404`).
+
+Before: the PID arrived as one once-only credential and its first presentation spent it (A34). The
+PID policy is now at **v4**, identical to v3 but for `reusePolicy: LIMITED_TIME` (re-issue one day
+before its seven-day expiry), which the issuer metadata publishes as
+`credential_reuse_policy: {id: "arf_annex_ii", options: [{details: ["limited_time"],
+reissue_trigger_lifetime_left: 86400}]}`.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 1 · Re-issue | the old PID deleted; a new one requested from the list | issuance **`ISSUED`**, policy v4 |
+| 2 · First presentation | the identification policy, `SAME_DEVICE` via `adb` | **`VERIFIED`** |
+| 3 · Second presentation | the same, straight after | first attempt: the wallet reported `InvalidJarJwt` — the stale-deep-link replay seen with W5/W6, not the PID; resent after a force-stop: **`VERIFIED`** |
+
+Since the engine serves one credential per request with this wallet (A34), a second `VERIFIED` means the
+one credential was presented twice: ARF Method B (`ISSU_48`–`ISSU_50`), chosen by the provider
+(`ISSU_38`). **Its privacy cost stands**: the two presentations are linkable by signature and salts.
+Not shown: re-issuance before expiry, which in a wallet-initiated flow with a web-form authorization
+step cannot run unattended; nor anything about an unmodified wallet.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

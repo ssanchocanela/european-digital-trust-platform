@@ -44,6 +44,9 @@ describe("demonstration portal", () => {
       links: [],
     });
     expect(op).toContain("op@example.test");
+    // Cloudflare's Email Obfuscation would otherwise replace it with "[email protected]", decoded by a
+    // script the page's CSP rightly blocks.
+    expect(op).toContain("<!--email_off-->op@example.test<!--/email_off-->");
     expect(renderForbidden()).toContain("Acceso restringido");
   });
 });

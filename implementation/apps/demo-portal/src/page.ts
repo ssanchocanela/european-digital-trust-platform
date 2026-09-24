@@ -77,7 +77,7 @@ export const renderOperator = (view: OperatorView): string =>
     `
     <nav class="crumbs"><a href="./">Demostraciones</a> › <strong>Operador</strong></nav>
     <h1>Vista de operador</h1>
-    <p class="lead">Sesión de ${escapeHtml(view.who)} (Cloudflare Access).</p>
+    <p class="lead">Sesión de <!--email_off-->${escapeHtml(view.who)}<!--/email_off--> (Cloudflare Access).</p>
     <section class="card">
       <h2>Perfil de marca</h2>
       <p>Activo: <strong>${escapeHtml(view.profile)}</strong>${view.clientProfileOn ? " — vuelve solo a genérico a las 4 horas de activarse." : ""}</p>

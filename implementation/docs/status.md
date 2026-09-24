@@ -59,15 +59,15 @@ and `cloudflared` installed. Its own tunnel `edtp-demo` runs as a service. SSH w
 five demo hostnames moved to the VM's tunnel, and the public negative checks pass (26 of 26 are `404`).
 **Laptop sessions no longer own those hostnames.**
 
-**Step 2 deployed (24 September): the public environment is generic.** The image is `41731e237b12`
+**Step 2 deployed (24 September): the public environment is generic.** The image is `b9e53af89eac`
 and the `generic` profile is on. The issuers are "PID Demo Issuer" and "Registro Demo" with no logo.
 PID policy **v8** has the label "PID (demo)" and the issuing authority "EDTP PID Demo Issuer (TEST
 ONLY)". The form shows the neutral "EDTP Demo" look. The negative checks pass.
 
 Since then:
 - Cloudflare's cache kept serving the FNMT/CORPME images for hours after the origin had stopped. The
-  cache was purged, and all four now answer `404`. The next deployment serves them `no-store`
-  (committed, not yet deployed).
+  cache was purged, and all four now answer `404`. They are served `no-store` since image
+  `b9e53af89eac`, deployed on 24 September.
 - **`edtp-cliente.murcata.es` is behind Access** (an unauthenticated request gets `302` to the login)
   and is **in the VM tunnel**. It was added only after the protection was seen working. A client profile
   can now be switched on with `demo-profile.sh fnmt-corpme`, with the organisation's written permission

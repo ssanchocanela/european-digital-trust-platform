@@ -73,7 +73,7 @@ Since then:
   can now be switched on with `demo-profile.sh fnmt-corpme`, with the organisation's written permission
   first.
 
-**The portal is live (24 September): `https://demo.murcata.es`** (image `4a74c71ba437`). It has four
+**The portal is live (24 September): `https://demo.murcata.es`** (image `c9d6bf384402`). It has four
 cards:
 - test PID;
 - representation credential;

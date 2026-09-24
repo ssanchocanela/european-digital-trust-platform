@@ -36,6 +36,9 @@ services:
   demo-bank:
     <<: *platform-image
 
+  demo-portal:
+    <<: *platform-image
+
   gateway:
     <<: *platform-image
     command: ["node", "apps/test-gateway/dist/main.js"]

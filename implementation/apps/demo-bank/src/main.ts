@@ -2,6 +2,8 @@ import express, { type Response } from "express";
 import { z } from "zod";
 import {
   type CredentialChoice,
+  renderAgeHome,
+  renderAgeResult,
   renderFailure,
   renderHome,
   renderOpenWallet,
@@ -33,7 +35,10 @@ const schema = z.object({
   DEMO_BANK_BIND_HOST: z.string().min(1).default("0.0.0.0"),
   PLATFORM_API_BASE_URL: z.string().url(),
   HOSTED_VERIFIER_SECRET: z.string().min(32),
-  /** The presentation policy for each choice: `por=<id>,poa=<id>,poe=<id>`. */
+  /**
+   * The presentation policy for each choice: `por=<id>,poa=<id>,poe=<id>`, and `edad=<id>` for Tienda
+   * Demo's age check (`/edad`).
+   */
   DEMO_BANK_POLICIES: z
     .string()
     .min(1)
@@ -145,6 +150,9 @@ const main = (): void => {
   const choices = CHOICES.filter((c) => config.DEMO_BANK_POLICIES[c.key]);
   const choiceForPolicy = (policyId: string) =>
     choices.find((c) => config.DEMO_BANK_POLICIES[c.key] === policyId);
+  // Tienda Demo: an age check, derived from the PID's date of birth. The result carries `over_18`
+  // only; the date never reaches this process (ADR 0005 Decision 5).
+  const agePolicy = config.DEMO_BANK_POLICIES["edad"];
 
   const app = express();
   app.disable("x-powered-by");
@@ -161,9 +169,30 @@ const main = (): void => {
     response.send(renderHome(choices));
   });
 
+  app.get("/edad", (_request, response) => {
+    secureHeaders(response);
+    if (!agePolicy) {
+      response.status(404).send(renderFailure("No encontrado", "Esta página no existe."));
+      return;
+    }
+    response.send(renderAgeHome());
+  });
+
   app.post("/verificar", async (request, response) => {
     secureHeaders(response);
     const key = typeof request.body?.tipo === "string" ? request.body.tipo : "";
+    if (key === "edad" && agePolicy) {
+      const started = await platform(
+        config,
+        "POST",
+        `/v1/hosted-verifications/${encodeURIComponent(agePolicy)}`,
+      ).catch(() => undefined);
+      const walletUri = started?.json["walletUri"];
+      if (started?.status !== 201 || typeof walletUri !== "string")
+        return unavailable(response);
+      response.send(renderOpenWallet(walletUri, "PID", "shop"));
+      return;
+    }
     const choice = choices.find((c) => c.key === key);
     const policyId = choice ? config.DEMO_BANK_POLICIES[choice.key] : undefined;
     if (!choice || !policyId) {
@@ -186,8 +215,9 @@ const main = (): void => {
     const policyId = typeof request.query["policy"] === "string" ? request.query["policy"] : "";
     const presentationId =
       typeof request.query["presentation"] === "string" ? request.query["presentation"] : "";
+    const isAge = Boolean(agePolicy) && policyId === agePolicy;
     const choice = choiceForPolicy(policyId);
-    if (!choice || !UUID.test(presentationId)) {
+    if ((!choice && !isAge) || !UUID.test(presentationId)) {
       response
         .status(400)
         .send(
@@ -203,10 +233,23 @@ const main = (): void => {
     if (!outcome || outcome.status !== 200) return unavailable(response);
     const status = String(outcome.json["status"] ?? "");
     if (IN_PROGRESS.has(status)) {
-      response.send(renderWaiting());
+      response.send(renderWaiting(isAge ? "shop" : "bank"));
       return;
     }
-    if (status === "VERIFIED") {
+    if (isAge) {
+      if (status === "VERIFIED") {
+        const claims = (outcome.json["claims"] as Record<string, unknown>) ?? {};
+        response.send(renderAgeResult(claims["over_18"] === true));
+        return;
+      }
+      const [title, body] = FAILURES[status] ?? [
+        "No se ha podido comprobar",
+        "La comprobación no ha terminado correctamente. Vuelva a intentarlo.",
+      ];
+      response.status(422).send(renderFailure(title, body, "shop"));
+      return;
+    }
+    if (status === "VERIFIED" && choice) {
       response.send(
         renderSuccess(choice.name, (outcome.json["claims"] as Record<string, unknown>) ?? {}),
       );

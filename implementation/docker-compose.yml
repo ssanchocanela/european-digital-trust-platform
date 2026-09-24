@@ -314,6 +314,21 @@ services:
     ports:
       - "127.0.0.1:3203:3203"
 
+  # The demonstration portal (apps/demo-portal): one card per demonstration, and an operator view that
+  # Cloudflare Access protects. Holds no secret. ADR 0010; it runs on the demonstration VM.
+  demo-portal:
+    image: edtp-v0-platform-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "apps/demo-portal/dist/main.js"]
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      DEMO_PORTAL_PORT: "3204"
+    ports:
+      - "127.0.0.1:3204:3204"
+
 volumes:
   platform-db-data:
   engine-db-data:

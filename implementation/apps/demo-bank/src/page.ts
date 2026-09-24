@@ -125,7 +125,11 @@ export const renderHome = (choices: readonly CredentialChoice[]): string =>
     </div>`,
   );
 
-export const renderOpenWallet = (walletUri: string, credentialName: string): string =>
+export const renderOpenWallet = (
+  walletUri: string,
+  credentialName: string,
+  site: Site = "bank",
+): string =>
   shell(
     "Abrir la cartera",
     `
@@ -134,15 +138,18 @@ export const renderOpenWallet = (walletUri: string, credentialName: string): str
       <p>Pulse el botón para abrir su cartera. Revise qué datos se le piden y compártalos. Al terminar, la cartera le devolverá aquí.</p>
       <div class="actions"><a class="button" href="${escapeHtml(walletUri)}">Abrir mi cartera</a></div>
     </div>`,
+    "",
+    site,
   );
 
-export const renderWaiting = (): string =>
+export const renderWaiting = (site: Site = "bank"): string =>
   shell(
     "Comprobando",
     `
     <h1>Comprobando su credencial…</h1>
     <div class="card"><p>Estamos verificando la credencial que ha presentado. Esta página se actualiza sola.</p></div>`,
     '<meta http-equiv="refresh" content="3">',
+    site,
   );
 
 export const renderSuccess = (
@@ -163,25 +170,52 @@ export const renderSuccess = (
     <div class="actions"><a class="button secondary" href="./">Autorizar otra operación</a></div>`,
   );
 
-export const renderFailure = (title: string, body: string): string =>
+export const renderFailure = (title: string, body: string, site: Site = "bank"): string =>
   shell(
     title,
     `
     <div class="ko" role="alert"><span aria-hidden="true">✕</span> ${escapeHtml(title)}</div>
     <div class="card"><p>${escapeHtml(body)}</p></div>
-    <div class="actions"><a class="button secondary" href="./">Volver a intentarlo</a></div>`,
+    <div class="actions"><a class="button secondary" href="${site === "shop" ? "edad" : "./"}">Volver a intentarlo</a></div>`,
+    "",
+    site,
   );
 
-const shell = (title: string, main: string, head = ""): string => `<!doctype html>
+/** The two fictional sites this process serves. Neither is a real business. */
+type Site = "bank" | "shop";
+const SITES = {
+  bank: {
+    name: "Banco Demo",
+    sub: "Banca Empresas",
+    mark: "B",
+    band: "Banco Demo no es un banco real y esta operación es ficticia.",
+    brand: "#0b3d5c",
+    brandDark: "#072a40",
+    accent: "#1b8a7a",
+  },
+  shop: {
+    name: "Tienda Demo",
+    sub: "Productos para mayores de 18",
+    mark: "T",
+    band: "Tienda Demo no es una tienda real y no vende nada.",
+    brand: "#5b2a86",
+    brandDark: "#3f1d5d",
+    accent: "#d98e04",
+  },
+} as const;
+
+const shell = (title: string, main: string, head = "", site: Site = "bank"): string => {
+  const s = SITES[site];
+  return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 ${head}
-<title>${escapeHtml(title)} — Banco Demo (demostración)</title>
+<title>${escapeHtml(title)} — ${s.name} (demostración)</title>
 <style>
-  :root { --brand:#0b3d5c; --brand-dark:#072a40; --accent:#1b8a7a; --line:#dfe4ea; --muted:#5b6770; --bg:#f3f5f8; }
+  :root { --brand:${s.brand}; --brand-dark:${s.brandDark}; --accent:${s.accent}; --line:#dfe4ea; --muted:#5b6770; --bg:#f3f5f8; }
   * { box-sizing:border-box; }
   body { margin:0; font-family:-apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:#1c2328; background:var(--bg); }
   .demo { background:#fff4ce; color:#5c4400; border-bottom:1px solid #f0d77a; font-size:14px; padding:8px 16px; text-align:center; }
@@ -220,9 +254,54 @@ ${head}
 </style>
 </head>
 <body>
-  <div class="demo" role="note"><strong>Entorno de demostración.</strong> Banco Demo no es un banco real y esta operación es ficticia. Use únicamente credenciales de prueba.</div>
-  <header><div class="bar"><div class="mark" aria-hidden="true">B</div><div class="brand">Banco Demo<small>Banca Empresas</small></div></div></header>
+  <div class="demo" role="note"><strong>Entorno de demostración.</strong> ${s.band} Use únicamente credenciales de prueba.</div>
+  <header><div class="bar"><div class="mark" aria-hidden="true">${s.mark}</div><div class="brand">${s.name}<small>${s.sub}</small></div></div></header>
   <main>${main}</main>
   <footer>Demostración de la European Digital Trust Platform. Ningún dato se guarda en esta página.</footer>
 </body>
 </html>`;
+};
+
+// --- Tienda Demo: the age check ----------------------------------------------------------------
+
+export const renderAgeHome = (): string =>
+  shell(
+    "Comprobación de edad",
+    `
+    <nav class="crumbs">Tienda Demo › Cesta › <strong>Comprobación de edad</strong></nav>
+    <h1>Confirme que es mayor de edad</h1>
+    <p class="lead">Su cesta incluye un producto para mayores de 18 años. Acredítelo con su cartera digital: la tienda recibe solo la respuesta «mayor de edad», <strong>nunca su fecha de nacimiento</strong>.</p>
+    <div class="op">
+      <div class="op-title">Su cesta</div>
+      <div class="kv"><span>Producto de ejemplo (+18)</span><strong>19,90 EUR</strong></div>
+    </div>
+    <form method="post" action="verificar" class="card">
+      <input type="hidden" name="tipo" value="edad">
+      <p>Se abrirá su cartera y le pedirá su fecha de nacimiento, del PID. La cartera la comparte con la plataforma de verificación, que solo devuelve a la tienda si es mayor de edad.</p>
+      <div class="actions"><button type="submit">Comprobar mi edad con la cartera</button></div>
+    </form>`,
+    "",
+    "shop",
+  );
+
+export const renderAgeResult = (overEighteen: boolean): string =>
+  overEighteen
+    ? shell(
+        "Edad comprobada",
+        `
+    <div class="ok" role="status"><span class="tick" aria-hidden="true">✓</span> Mayor de edad. Puede continuar con la compra.</div>
+    <h1>Edad comprobada</h1>
+    <div class="card">
+      <h2>Lo que ha recibido la tienda</h2>
+      <div class="kvs"><div class="kv"><span>Mayor de 18 años</span><strong>Sí</strong></div></div>
+      <p class="lead" style="margin-top:14px">Nada más: ni su fecha de nacimiento, ni su nombre, ni ningún otro dato de su PID.</p>
+    </div>
+    <div class="actions"><a class="button secondary" href="edad">Volver a comprobar</a></div>`,
+        "",
+        "shop",
+      )
+    : renderFailure(
+        "No se ha acreditado la mayoría de edad",
+        "La credencial es válida, pero no acredita que sea mayor de 18 años.",
+        "shop",
+      );

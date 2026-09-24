@@ -37,6 +37,16 @@ Design: [`docs/demo-hosting-proposal.md`](../../docs/demo-hosting-proposal.md).
    moves, and `./negative-checks.sh` checks it publicly after.
 5. Move the `murcata.es` hostnames from `edtp-dev` to `edtp-demo`.
 
+## The portal and the age check
+
+`demo.murcata.es` (`apps/demo-portal`) shows one card per demonstration, with a status dot and a QR of
+the page's address. It holds no secret. `/operador` is behind Cloudflare Access.
+
+Tienda Demo's age check lives in the bank's process at `/edad`, so no further public process holds the
+hosted-verifier secret. Its policy, "Comprobación de mayoría de edad (demo)", was created on the VM by
+`scripts/register-age-check.mjs`. It requests `birthdate` and returns only `over_18`. It has to be
+listed in both `HOSTED_VERIFIER_POLICIES` and `DEMO_BANK_POLICIES` (`edad=<id>`).
+
 ## Branding profiles (ADR 0010 §2)
 
 `profiles/generic.env` is the public default. `profiles/fnmt-corpme.env` is a client profile; switch it

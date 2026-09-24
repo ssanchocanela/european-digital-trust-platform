@@ -84,6 +84,10 @@ with the tunnel left open.
 
 ## 3. The demonstration portal
 
+**Built on 24 September 2026, not yet deployed.** The age check card uses Tienda Demo, `/edad` in the
+bank's process. The profile switch stays an SSH command, shown on the operator page; it is not a portal
+button.
+
 A new small app, `apps/demo-portal`, at `demo.murcata.es`. It is server-rendered with no script, the same
 pattern as `pid-form` and `demo-bank`.
 

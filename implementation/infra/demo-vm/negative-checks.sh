@@ -10,10 +10,11 @@
 set -uo pipefail
 if [ "${1:-}" = "--local" ]; then
   ENGINE=http://127.0.0.1:3010 PLATFORM=http://127.0.0.1:3011 FORM=http://127.0.0.1:3202 BANK=http://127.0.0.1:3203
+  PORTAL=http://127.0.0.1:3204
   CURL=(curl)
 else
   ENGINE=https://edtp-engine.murcata.es PLATFORM=https://edtp-platform.murcata.es
-  FORM=https://edtp-pid.murcata.es BANK=https://edtp-banco.murcata.es
+  FORM=https://edtp-pid.murcata.es BANK=https://edtp-banco.murcata.es PORTAL=https://demo.murcata.es
   CURL=(curl --doh-url "${EDTP_PROBE_DOH:-https://cloudflare-dns.com/dns-query}")
 fi
 engine_paths=(/api/docs-json /api/tenant /api/key-chain /api/verifier/config /api/oauth2/token /health /storage/x /docs /docs-json /)
@@ -33,7 +34,9 @@ probe engine "$ENGINE" "${engine_paths[@]}"
 probe platform "$PLATFORM" "${platform_paths[@]}"
 probe form "$FORM" "${page_paths[@]}"
 probe bank "$BANK" "${page_paths[@]}"
-total=$(( ${#engine_paths[@]} + ${#platform_paths[@]} + 2 * ${#page_paths[@]} ))
+# The portal holds no secret, but nothing of the platform's may be reachable through it either.
+[ "${EDTP_CHECK_PORTAL:-1}" = 1 ] && probe portal "$PORTAL" "${page_paths[@]}"
+total=$(( ${#engine_paths[@]} + ${#platform_paths[@]} + (2 + ${EDTP_CHECK_PORTAL:-1}) * ${#page_paths[@]} ))
 if [ "$failures" -gt 0 ]; then echo "NEGATIVE CHECKS FAILED: $failures of $total answered other than 404."; exit 1; fi
 if [ "$silent" -gt 0 ]; then echo "NEGATIVE CHECKS INCOMPLETE: $silent of $total did not answer."; exit 2; fi
 echo "Negative checks passed: all $total are 404."

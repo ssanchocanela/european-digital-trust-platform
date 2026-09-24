@@ -14,6 +14,16 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 cd "$ROOT"
 C=(docker compose -f docker-compose.yml -f infra/demo-vm/docker-compose.demo.yml)
 
+ALERTS="${HOME}/.edtp/alerts.env"
+[ -f "$ALERTS" ] && . "$ALERTS"
+on_error() {
+  logger -t edtp-nightly -p user.err "nightly reset FAILED at line $1"
+  [ -n "${ALERT_WEBHOOK_URL:-}" ] && curl -s -m 10 -o /dev/null -H "Title: EDTP demo" \
+    -H "Priority: high" -H "Tags: warning" -d "EDTP demo: nightly reset failed (line $1)." \
+    "$ALERT_WEBHOOK_URL" || true
+}
+trap 'on_error $LINENO' ERR
+
 logger -t edtp-nightly "nightly reset: start"
 "$HERE/demo-profile.sh" generic
 "${C[@]}" up -d --force-recreate operator-console test-start pid-form demo-bank demo-portal gateway >/dev/null 2>&1

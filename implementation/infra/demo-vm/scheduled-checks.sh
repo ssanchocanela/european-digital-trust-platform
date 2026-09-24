@@ -30,7 +30,10 @@ esac
 alert() {
   logger -t edtp-checks -p "$1" "$2"
   if [ -n "${ALERT_WEBHOOK_URL:-}" ]; then
-    curl -s -m 10 -o /dev/null -d "$2" "$ALERT_WEBHOOK_URL" || true
+    # Title, Priority and Tags are ntfy headers; any other webhook ignores them.
+    curl -s -m 10 -o /dev/null -H "Title: EDTP demo" \
+      -H "Priority: $([ "$1" = user.err ] && echo urgent || echo high)" -H "Tags: warning" \
+      -d "$2" "$ALERT_WEBHOOK_URL" || true
   fi
 }
 

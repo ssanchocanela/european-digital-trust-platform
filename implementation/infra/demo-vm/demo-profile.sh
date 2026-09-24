@@ -55,7 +55,7 @@ for entry in ${POLICIES//,/ }; do
   echo "    provisioned ${policy:0:8}: $code"
 done
 
-logger -t edtp-profile "profile=$PROFILE by=${SUDO_USER:-$USER}"
+logger -t edtp-profile "profile=$PROFILE by=${EDTP_PROFILE_REQUESTED_BY:-${SUDO_USER:-$USER}}"
 sudo systemctl stop edtp-profile-revert.timer edtp-profile-revert.service >/dev/null 2>&1 || true
 if [ "$PROFILE" != generic ]; then
   sudo systemd-run --quiet --unit edtp-profile-revert --uid "$(id -u)" --on-active=4h \

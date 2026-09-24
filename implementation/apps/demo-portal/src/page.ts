@@ -70,8 +70,25 @@ export interface ChecksStatus {
   readonly summary: string;
 }
 
+export interface ProfileState {
+  /** Profiles the operator may request, `generic` first. */
+  readonly profiles: readonly string[];
+  /** A request written and not yet applied. */
+  readonly pending?: { readonly profile: string; readonly by: string; readonly at: string };
+  /** How the last applied request ended. */
+  readonly last?: {
+    readonly profile: string;
+    readonly by: string;
+    readonly at: string;
+    readonly ok: boolean;
+  };
+  /** Feedback for the submission that produced this page. */
+  readonly notice?: { readonly ok: boolean; readonly text: string };
+}
+
 export interface OperatorView {
   readonly who: string;
+  readonly profileState?: ProfileState;
   readonly checks?: ChecksStatus;
   readonly profile: string;
   readonly clientProfileOn: boolean;
@@ -103,9 +120,7 @@ export const renderOperator = (view: OperatorView): string =>
     <section class="card">
       <h2>Perfil de marca</h2>
       <p>Activo: <strong>${escapeHtml(view.profile)}</strong>${view.clientProfileOn ? " — vuelve solo a genérico a las 4 horas de activarse." : ""}</p>
-      <p>Se cambia en el servidor, por SSH (ADR 0010). Un perfil de cliente requiere el permiso por escrito de la organización:</p>
-      <pre>ssh -F ~/.edtp/demo-vm/ssh_config edtp-demo \\
-  '~/edtp/implementation/infra/demo-vm/demo-profile.sh fnmt-corpme'   # o: generic</pre>
+      ${view.profileState ? profileForm(view.profileState) : ""}
     </section>
     <section class="card">
       <h2>Enlaces</h2>
@@ -116,6 +131,31 @@ export const renderOperator = (view: OperatorView): string =>
       <p>Pendiente: se publicará aquí, solo tras el login, como build <em>release</em> con los términos de la EUPL 1.2 y tras la confirmación legal (ADR 0010 §4).</p>
     </section>`,
   );
+
+const profileForm = (p: ProfileState): string => `
+      ${p.notice ? `<p class="${p.notice.ok ? "ok" : "ko"}">${escapeHtml(p.notice.text)}</p>` : ""}
+      ${
+        p.pending
+          ? `<p><strong>Solicitud pendiente:</strong> ${escapeHtml(p.pending.profile)}, de <!--email_off-->${escapeHtml(p.pending.by)}<!--/email_off-->. Se aplica en menos de un minuto; recargue la página.</p>`
+          : ""
+      }
+      ${
+        p.last
+          ? `<p class="lead">Último cambio: ${escapeHtml(p.last.profile)} — ${p.last.ok ? "aplicado" : "FALLÓ"} (${escapeHtml(p.last.at)}, <!--email_off-->${escapeHtml(p.last.by)}<!--/email_off-->).</p>`
+          : ""
+      }
+      <form method="post" action="operador" class="profile-form">
+        <label for="perfil">Cambiar a</label>
+        <select id="perfil" name="perfil">${p.profiles
+          .map(
+            (name) =>
+              `<option value="${escapeHtml(name)}">${escapeHtml(name === "generic" ? "genérico" : name)}</option>`,
+          )
+          .join("")}</select>
+        <label class="check"><input type="checkbox" name="permiso"> Tengo el permiso por escrito de la organización (obligatorio para un perfil de cliente)</label>
+        <button type="submit">Solicitar el cambio</button>
+      </form>
+      <p class="lead">Un perfil de cliente vuelve solo a genérico a las 4 horas. El cambio queda registrado con su usuario (ADR 0010 §2).</p>`;
 
 export const renderForbidden = (): string =>
   shell(
@@ -167,6 +207,11 @@ const shell = (title: string, main: string): string => `<!doctype html>
   .actions { margin-top:16px; }
   .button { display:inline-block; background:var(--brand); color:#fff; border-radius:6px; padding:11px 20px; font-size:15px; font-weight:600; text-decoration:none; }
   .button:hover { background:var(--brand-dark); }
+  .profile-form { display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; margin:8px 0 6px; }
+  .profile-form select { padding:8px; font-size:15px; }
+  .profile-form .check { flex-basis:100%; font-size:14px; color:var(--muted); }
+  .profile-form button { background:var(--brand); color:#fff; border:0; border-radius:6px; padding:10px 18px; font-size:15px; font-weight:600; cursor:pointer; }
+  p.ok { color:#0d5c50; font-weight:600; } p.ko { color:#8a1c1c; font-weight:600; }
   pre { background:#f6f8fa; border:1px solid var(--line); border-radius:6px; padding:10px; overflow-x:auto; font-size:13px; }
   footer { color:var(--muted); font-size:12px; text-align:center; padding:20px 16px 32px; }
   @media (max-width: 520px) { .card-body { flex-direction:column; } .qr { display:none; } }

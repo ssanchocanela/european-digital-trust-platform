@@ -1,0 +1,7 @@
+[Unit]
+Description=EDTP demo: apply a branding-profile request (ADR 0010)
+
+[Service]
+Type=oneshot
+User=edtp
+ExecStart=/home/edtp/edtp/implementation/infra/demo-vm/apply-profile-request.sh

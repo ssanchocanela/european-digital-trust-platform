@@ -717,14 +717,14 @@ certificate (B3).
 Named tunnel, gateway in demo compatibility mode; negative checks passed (19 probes, all `404`).
 
 Before: the PID arrived as one once-only credential and its first presentation spent it (A34). The
-PID policy is now at **v4**, identical to v3 but for `reusePolicy: LIMITED_TIME` (re-issue one day
+PID policy v4 was meant to be identical to v3 but for `reusePolicy: LIMITED_TIME` (re-issue one day
 before its seven-day expiry), which the issuer metadata publishes as
 `credential_reuse_policy: {id: "arf_annex_ii", options: [{details: ["limited_time"],
 reissue_trigger_lifetime_left: 86400}]}`.
 
 | Step | What happened | Evidence |
 |---|---|---|
-| 1 · Re-issue | the old PID deleted; a new one requested from the list | issuance **`ISSUED`**, policy v4 |
+| 1 · Re-issue | the old PID deleted; a new one requested from the list | issuance **`ISSUED`**, policy v4 — which, it turned out, copied v1 (no ID number) rather than v3; the reuse behaviour is unaffected. Corrected as **v5** afterwards |
 | 2 · First presentation | the identification policy, `SAME_DEVICE` via `adb` | **`VERIFIED`** |
 | 3 · Second presentation | the same, straight after | first attempt: the wallet reported `InvalidJarJwt` — the stale-deep-link replay seen with W5/W6, not the PID; resent after a force-stop: **`VERIFIED`** |
 

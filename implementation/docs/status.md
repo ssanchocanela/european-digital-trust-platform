@@ -22,8 +22,10 @@ fixed and fictitious. PoX types at **v2** with Spanish names; `rpi-1` advertises
 pinned wallet stores a PID as once-only, and the engine cannot serve it a batch (A34 — a key
 attestation must carry exactly one key). An issuance policy version now carries an optional
 `reusePolicy` (ARF Method B, limited-time), published as `credential_reuse_policy`; Wallet Core applies
-it with no wallet change. PID at **v4**, PoX at **v3**; one PID presented twice, both `VERIFIED`
-(§8.1n). The linkability cost is recorded in A34. The better fix, once-only batches, needs EUDIPLO to
+it with no wallet change. PID at **v5**, PoX at **v4**; one PID presented twice, both `VERIFIED`
+(§8.1n). (PID v4 and PoX v3 copied the **v1** by mistake — `GET …/issuance-policies/{id}` lists
+versions newest first, and a script took the last element as the latest. Superseded and withdrawn;
+name the version to copy, never infer it from list order.) The linkability cost is recorded in A34. The better fix, once-only batches, needs EUDIPLO to
 accept a multi-key attestation proof: draft issue in `docs/upstream/eudiplo-batch-attestation-proof.md`,
 **not filed** — awaiting review.
 

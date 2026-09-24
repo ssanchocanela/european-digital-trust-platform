@@ -88,8 +88,10 @@ negative checks now probe the portal too: 32 of 32 are `404`.
 - 305 gateway requests from one client: 300 passed, 5 got `429`, and a second client was unaffected;
 - 12 bank POSTs: 10 were processed, 2 got `429`.
 
-The Cloudflare edge rule (one on the free plan: 100 requests per 10 seconds per IP, then a block) is set
-up by a person. Security limitation P8.
+The Cloudflare edge rule "EDTP demo - flood" was created by a person: 100 requests per 10 seconds per
+IP, then a 10-second block (the only rule the free plan allows). Tested on 24 September: in a burst of
+130 requests to the portal, which has no limit of its own, 110 passed and then `429` with
+`retry-after: 9`; access was back after about 10 seconds. Security limitation P8.
 
 **Scheduled checks and nightly reset installed (24 September, image `bbbfbe5258f0`).**
 - The negative checks run every 15 minutes. **An exposure stops the tunnel**; the last result is shown

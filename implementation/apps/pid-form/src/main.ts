@@ -209,13 +209,14 @@ const refusalMessages = (
     : [];
   if (details.length === 0) return ["Revise los datos e inténtelo de nuevo."];
   return details.map((d) => {
-    // The Rulebook's "at least one of country, region or locality" (section 4.1), from the schema.
+    // The place of birth, from the schema: this provider requires its country (section 4.1 would
+    // accept region or locality alone).
     if (
       String(d.path ?? "").startsWith("/place_of_birth") ||
       /place_of_birth/.test(String((d as { message?: string }).message ?? ""))
     ) {
       if (d.code === "schema_minProperties" || d.code === "schema_required")
-        return "Indique al menos el país, la provincia o la localidad de nacimiento.";
+        return "Indique el país de nacimiento, con su código de dos letras (p. ej. ES).";
     }
     if (d.code === "schema_pattern" || d.code === "schema_enum" || d.code === "schema_const")
       return `El formato no es válido: ${labelOf(

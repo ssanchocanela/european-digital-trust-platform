@@ -90,8 +90,7 @@ const hidden = (fields: Readonly<Record<string, string>>): string =>
 const HINTS: Readonly<Record<string, string>> = {
   nationalities:
     "Código de país de dos letras (ISO 3166-1), p. ej. ES. Varios, separados por comas.",
-  "place_of_birth.country":
-    "Código de país de dos letras, p. ej. ES. Indique al menos uno: país, provincia o localidad.",
+  "place_of_birth.country": "Código de país de dos letras, p. ej. ES.",
   "address.country": "Código de país de dos letras, p. ej. ES.",
   personal_administrative_number: "DNI o NIE, sin espacios. Use un número ficticio.",
   phone_number: "Con prefijo internacional y solo cifras, p. ej. +34600000000.",

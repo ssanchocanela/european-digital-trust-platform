@@ -5,9 +5,9 @@
     "Every attribute and metadata item of sections 2.2-2.6 in its section 4.1 claim name and encoding,",
     "except `picture` (portrait): not yet mandatory (2.2, 24 months after the amending act), and",
     "AS-RP-03-01 (PID_03a) restricts its retention. Mandatory as CIR 2024/2977 makes them (2.2, 2.4),",
-    "plus personal_administrative_number, which the Rulebook leaves to each Member State and this",
-    "provider requires. birth_place is mandatory as a whole, and payloadSchema enforces 'at least one",
-    "of country, region or locality' (4.1), so no single member of it is."
+    "plus two this provider requires where the Rulebook does not: personal_administrative_number, left",
+    "to each Member State (2.3), and place_of_birth.country, where 4.1 asks for 'at least one of",
+    "country, region or locality'. Stricter than the Rulebook, never looser."
   ],
   "vct": "urn:eudi:pid:1",
   "claims": [
@@ -36,7 +36,7 @@
       "path": ["place_of_birth", "country"],
       "en": "Country of birth",
       "es": "País de nacimiento",
-      "mandatory": false,
+      "mandatory": true,
       "valueType": "string"
     },
     {
@@ -67,7 +67,6 @@
       "mandatory": true,
       "valueType": "string"
     },
-
     {
       "path": ["birth_family_name"],
       "en": "Family name at birth",
@@ -82,7 +81,13 @@
       "mandatory": false,
       "valueType": "string"
     },
-    { "path": ["sex"], "en": "Sex", "es": "Sexo", "mandatory": false, "valueType": "integer" },
+    {
+      "path": ["sex"],
+      "en": "Sex",
+      "es": "Sexo",
+      "mandatory": false,
+      "valueType": "integer"
+    },
     {
       "path": ["address", "formatted"],
       "en": "Full address",
@@ -146,7 +151,6 @@
       "mandatory": false,
       "valueType": "string"
     },
-
     {
       "path": ["document_number"],
       "en": "Document number",
@@ -219,58 +223,139 @@
       "issuing_country"
     ],
     "$defs": {
-      "alpha2": { "type": "string", "pattern": "^[A-Z]{2}$" },
+      "alpha2": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$"
+      },
       "date": {
         "type": "string",
         "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
       }
     },
     "properties": {
-      "vct": { "const": "urn:eudi:pid:1" },
-      "family_name": { "type": "string", "minLength": 1 },
-      "given_name": { "type": "string", "minLength": 1 },
-      "birthdate": { "$ref": "#/$defs/date" },
+      "vct": {
+        "const": "urn:eudi:pid:1"
+      },
+      "family_name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "given_name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "birthdate": {
+        "$ref": "#/$defs/date"
+      },
       "place_of_birth": {
         "type": "object",
         "minProperties": 1,
         "properties": {
-          "country": { "$ref": "#/$defs/alpha2" },
-          "region": { "type": "string", "minLength": 1 },
-          "locality": { "type": "string", "minLength": 1 }
-        }
+          "country": {
+            "$ref": "#/$defs/alpha2"
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locality": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["country"]
       },
       "nationalities": {
         "type": "array",
         "minItems": 1,
-        "items": { "$ref": "#/$defs/alpha2" }
+        "items": {
+          "$ref": "#/$defs/alpha2"
+        }
       },
-      "personal_administrative_number": { "type": "string", "minLength": 1 },
-      "birth_family_name": { "type": "string", "minLength": 1 },
-      "birth_given_name": { "type": "string", "minLength": 1 },
-      "sex": { "enum": [0, 1, 2, 3, 4, 5, 6, 9] },
+      "personal_administrative_number": {
+        "type": "string",
+        "minLength": 1
+      },
+      "birth_family_name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "birth_given_name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "sex": {
+        "enum": [0, 1, 2, 3, 4, 5, 6, 9]
+      },
       "address": {
         "type": "object",
         "minProperties": 1,
         "properties": {
-          "formatted": { "type": "string", "minLength": 1 },
-          "street_address": { "type": "string", "minLength": 1 },
-          "house_number": { "type": "string", "minLength": 1 },
-          "postal_code": { "type": "string", "minLength": 1 },
-          "locality": { "type": "string", "minLength": 1 },
-          "region": { "type": "string", "minLength": 1 },
-          "country": { "$ref": "#/$defs/alpha2" }
+          "formatted": {
+            "type": "string",
+            "minLength": 1
+          },
+          "street_address": {
+            "type": "string",
+            "minLength": 1
+          },
+          "house_number": {
+            "type": "string",
+            "minLength": 1
+          },
+          "postal_code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locality": {
+            "type": "string",
+            "minLength": 1
+          },
+          "region": {
+            "type": "string",
+            "minLength": 1
+          },
+          "country": {
+            "$ref": "#/$defs/alpha2"
+          }
         }
       },
-      "email": { "type": "string", "pattern": "^[^@\\s]+@[^@\\s]+$" },
-      "phone_number": { "type": "string", "pattern": "^\\+[0-9]{6,15}$" },
-      "document_number": { "type": "string", "minLength": 1 },
-      "date_of_issuance": { "$ref": "#/$defs/date" },
-      "date_of_expiry": { "$ref": "#/$defs/date" },
-      "issuing_authority": { "type": "string", "minLength": 1 },
-      "issuing_country": { "$ref": "#/$defs/alpha2" },
-      "issuing_jurisdiction": { "type": "string", "pattern": "^[A-Z]{2}(-[A-Z0-9]{1,3})?$" },
-      "trust_anchor": { "type": "string", "pattern": "^https://" },
-      "attestation_legal_category": { "const": "PID" }
+      "email": {
+        "type": "string",
+        "pattern": "^[^@\\s]+@[^@\\s]+$"
+      },
+      "phone_number": {
+        "type": "string",
+        "pattern": "^\\+[0-9]{6,15}$"
+      },
+      "document_number": {
+        "type": "string",
+        "minLength": 1
+      },
+      "date_of_issuance": {
+        "$ref": "#/$defs/date"
+      },
+      "date_of_expiry": {
+        "$ref": "#/$defs/date"
+      },
+      "issuing_authority": {
+        "type": "string",
+        "minLength": 1
+      },
+      "issuing_country": {
+        "$ref": "#/$defs/alpha2"
+      },
+      "issuing_jurisdiction": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}(-[A-Z0-9]{1,3})?$"
+      },
+      "trust_anchor": {
+        "type": "string",
+        "pattern": "^https://"
+      },
+      "attestation_legal_category": {
+        "const": "PID"
+      }
     }
   }
 }

@@ -23,7 +23,7 @@ const valid = {
   family_name: "PRUEBA",
   given_name: "FICTICIA",
   birthdate: "1990-01-01",
-  place_of_birth: { locality: "Madrid" },
+  place_of_birth: { country: "ES", locality: "Madrid" },
   nationalities: ["ES"],
   personal_administrative_number: "00000000T",
   issuing_authority: "FNMT-RCM (DEMO - TEST ONLY)",
@@ -52,11 +52,21 @@ describe("PID Rulebook model", () => {
     }
   });
 
-  it("accepts a place of birth given by locality alone", () => {
+  it("accepts a valid PID", () => {
     expect(check(valid)).not.toThrow();
   });
 
-  it("refuses a place of birth with none of country, region or locality", () => {
+  it("requires the country of birth and the ID number, stricter than the Rulebook", () => {
+    // Section 4.1 accepts any one of country, region or locality; this provider requires country.
+    expect(check({ ...valid, place_of_birth: { locality: "Madrid" } })).toThrow();
+    const { personal_administrative_number: _pan, ...noPan } = valid;
+    expect(check(noPan)).toThrow();
+    const mandatory = model.claims.filter((c) => c.mandatory).map((c) => c.path.join("."));
+    expect(mandatory).toContain("place_of_birth.country");
+    expect(mandatory).toContain("personal_administrative_number");
+  });
+
+  it("refuses a missing place of birth", () => {
     expect(check({ ...valid, place_of_birth: {} })).toThrow();
     const { place_of_birth: _omitted, ...without } = valid;
     expect(check(without)).toThrow();

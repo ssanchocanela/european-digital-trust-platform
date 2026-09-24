@@ -29,17 +29,17 @@ name the version to copy, never infer it from list order.) The linkability cost 
 accept a multi-key attestation proof: draft issue in `docs/upstream/eudiplo-batch-attestation-proof.md`,
 **not filed** — awaiting review.
 
-**The test PID now follows the PID Rulebook (24 September).** Policy **v6**, a new type from
+**The test PID now follows the PID Rulebook (24 September).** Policy **v7**, a new type from
 `scripts/pid/pid-rulebook-sd-jwt.json`: every attribute and metadata item of PID Rulebook v1.1 in its
 SD-JWT VC encoding (§4.1, catalog commit `36f8adcf`, identical to `main`), 28 claims, with a payload
-schema for what a claim list cannot say — alpha-2 codes, dates, the `sex` code list, and "at least one
-of country, region or locality" for the place of birth, which is no longer country-only. Mandatory as
-CIR 2024/2977 makes them, plus the ID number (our choice; the Rulebook leaves it to the Member State).
+schema for what a claim list cannot say — alpha-2 codes, dates, the `sex` code list. Mandatory as
+CIR 2024/2977 makes them, plus two **we** require where the Rulebook does not: the **ID number** (left
+to the Member State, §2.3) and the **country of birth** (§4.1 accepts any one of country, region or
+locality). Stricter than the Rulebook, never looser. (v6 had the country optional; superseded.)
 The portrait is not included: it is not yet mandatory, and `PID_03a` restricts its retention.
 `attestation_legal_category: "PID"` and `trust_anchor` (our TEST PID list) are fixed. The FNMT form shows
 the identity first and folds residence/contact and document data away. Applied by
-`scripts/upgrade-test-pid-type.mjs`; **not yet issued to a phone**. A PID with no country of birth
-cannot feed a PoX (`credential-catalogue.md`).
+`scripts/upgrade-test-pid-type.mjs`; **not yet issued to a phone**.
 
 **Next — batch once-only issuance upstream.** Decided: file the issue
 (`docs/upstream/eudiplo-batch-attestation-proof.md`, with the user for review), and if the maintainers

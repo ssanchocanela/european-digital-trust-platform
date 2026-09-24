@@ -42,9 +42,9 @@ conformance.
 | | |
 |---|---|
 | Provider and region | **Hetzner Cloud**, Falkenstein or Nuremberg (decided 24 September 2026). The reason is that it can be operated entirely by API and CLI (`hcloud`), and it is a plain Docker host with no platform to adapt to. An EU region is not a legal necessity with synthetic data; it forms the habit (`test-session-vm.md` §2) |
-| Size | 4 vCPU, 8 GB RAM, 80 GB disk. The engine, the platform, two Postgres containers, the hosted form, the bank and the portal |
+| Size | **The smallest shared x86 plan with 2 vCPU and 4 GB RAM** ("Regular Performance"). Measured on 24 September 2026, the whole stack at rest uses **~340 MiB**: engine 168, platform 51, both Postgres 59, form, bank, console and start page 68. The OS, `cloudflared`, the gateway and the portal keep it under 1 GB, and CPU is near zero. Images are built in GitHub Actions, not on the VM. Resizable in place if it ever runs short. ARM plans are cheaper but need multi-arch builds; start with x86 |
 | OS | Debian or Ubuntu LTS, with unattended security upgrades |
-| Cost | Roughly 10–20 € a month |
+| Cost | Read from Hetzner's current price table when the server is created. An earlier estimate here was wrong, and was made before the stack was measured |
 | Inbound | **No inbound ports.** `cloudflared` on the VM connects out, as the laptop does today, so the machine has no public listener to harden. SSH through Cloudflare Access or the provider's console only |
 | TLS | Cloudflare's edge certificate, as today. The wallet needs an OS-trusted chain, and this is one |
 | Hostnames | Kept on `murcata.es`, so attestations already issued keep a resolvable status list URI (the reason the named tunnel exists) |

@@ -279,7 +279,9 @@ const main = (): void => {
     const image = readFileSync(join(ASSETS, name));
     app.get(`/assets/${name}`, (_request, response) => {
       response.setHeader("content-type", "image/png");
-      response.setHeader("cache-control", "public, max-age=86400");
+      // Never cached: a client's emblem must stop being served the moment its profile reverts, and a
+      // CDN cache kept serving it for hours after the origin had stopped (ADR 0010 §2).
+      response.setHeader("cache-control", "no-store");
       response.setHeader("x-content-type-options", "nosniff");
       response.end(image);
     });

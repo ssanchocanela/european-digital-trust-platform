@@ -59,17 +59,19 @@ and `cloudflared` installed. Its own tunnel `edtp-demo` runs as a service. SSH w
 five demo hostnames moved to the VM's tunnel, and the public negative checks pass (26 of 26 are `404`).
 **Laptop sessions no longer own those hostnames.**
 
-**Branding is not yet as ADR 0010 decides.** The migration carried the FNMT and CORPME branding into
-the public environment. Step 1 was done at once: the issuers are now "PID Demo Issuer" and "Registro
-Demo", with no logos. Still public until step 2, which is a deployment the user must confirm:
-- the PID credential label "PID - FNMT";
-- the hosted form's FNMT and CORPME look.
+**Step 2 deployed (24 September): the public environment is generic.** The image is `41731e237b12`
+and the `generic` profile is on. The issuers are "PID Demo Issuer" and "Registro Demo" with no logo.
+PID policy **v8** has the label "PID (demo)" and the issuing authority "EDTP PID Demo Issuer (TEST
+ONLY)". The form shows the neutral "EDTP Demo" look. The negative checks pass.
 
-Step 2 also brings a neutral form brand, a generic PID type version, and the 4-hour client profile
-behind Access. An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
-demonstrations use generic branding; the client-branded ones (FNMT, CORPME) are a profile switched on
-per demonstration, behind a username and password. Open questions are in its §10. If adopted, it
-becomes ADR 0010 and replaces the session-only exposure rule.
+Still open:
+- **Cloudflare's cache** kept serving the FNMT/CORPME images for hours after the origin stopped. A
+  person must purge four URLs. The next deployment serves them `no-store`.
+- **`edtp-cliente.murcata.es` is not yet protected by Access.** It answers `404`, not a redirect to
+  login. It is deliberately **not** in the VM tunnel until Access protects it, so no client profile can
+  be used yet.
+- The W6 wallet still labels the PID row "PID - FNMT", which is compiled in. A W7 with "PID (demo)" is
+  optional.
 
 **Next — batch once-only issuance upstream.** Decided: file the issue
 (`docs/upstream/eudiplo-batch-attestation-proof.md`, with the user for review), and if the maintainers

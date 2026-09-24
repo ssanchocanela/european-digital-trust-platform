@@ -20,8 +20,11 @@ Design: [`docs/demo-hosting-proposal.md`](../../docs/demo-hosting-proposal.md).
    it never goes through this repository or cloud-init. The config and the systemd unit are in `files/`.
    (`cloudflared service install` did not create a unit from a config file here, so the unit is ours.)
    **Done 24 September 2026**: 4 connections, `fra` and `prg`.
-3. SSH through the tunnel behind Cloudflare Access. Then `./close-bootstrap-ssh.sh` leaves the firewall
-   with no inbound rules.
+3. SSH through the tunnel behind Cloudflare Access (application `EDTP demo SSH`, one-time PIN, the
+   operator's e-mail only). Then `./close-bootstrap-ssh.sh` leaves the firewall with no inbound rules.
+   **Done 24 September 2026**: the public port 22 is closed. SSH works only this way:
+   `ssh -F ~/.edtp/demo-vm/ssh_config edtp-demo` (the config lives outside the repository). The first
+   connection of a session asks for an Access login in the browser.
 4. Deploy the stack. **Every deployment is confirmed by the user first** (ADR 0010).
 5. Move the `murcata.es` hostnames from `edtp-dev` to `edtp-demo`.
 

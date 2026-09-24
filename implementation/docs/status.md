@@ -53,10 +53,10 @@ or mobile data.
 
 **The permanent demonstration environment — ADR 0010 accepted, the VM exists (24 September).**
 `edtp-demo`: Hetzner `cx23`, `fsn1`, Ubuntu 24.04, hardened by cloud-init (`infra/demo-vm/`), with Docker
-and `cloudflared` installed. **Its firewall still opens SSH to one address for bootstrap**, and closes
-once the VM's own tunnel carries SSH. Next, done by a person: create the `edtp-demo` Cloudflare tunnel
-and a Cloudflare Access application. Then deploy — **each deployment confirmed by the user** — and move
-the hostnames. An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
+and `cloudflared` installed. Its own tunnel `edtp-demo` runs as a service. SSH works only through
+`edtp-ssh.murcata.es`, behind Cloudflare Access; the Hetzner firewall has **no inbound rules**. Nothing
+of the stack is deployed yet. Next: the first deployment — **each deployment confirmed by the user** —
+then moving the demo hostnames. An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
 demonstrations use generic branding; the client-branded ones (FNMT, CORPME) are a profile switched on
 per demonstration, behind a username and password. Open questions are in its §10. If adopted, it
 becomes ADR 0010 and replaces the session-only exposure rule.

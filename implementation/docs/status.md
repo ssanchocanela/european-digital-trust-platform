@@ -91,6 +91,16 @@ negative checks now probe the portal too: 32 of 32 are `404`.
 The Cloudflare edge rule (one on the free plan: 100 requests per 10 seconds per IP, then a block) is set
 up by a person. Security limitation P8.
 
+**Scheduled checks and nightly reset installed (24 September, image `bbbfbe5258f0`).**
+- The negative checks run every 15 minutes. **An exposure stops the tunnel**; the last result is shown
+  on `/operador`.
+- The nightly reset runs at 03:30 Europe/Madrid: generic profile, application containers recreated,
+  images pruned. The databases and the engine are never touched.
+- A manual run of each passed.
+- Alerts go to the journal only, until an `ALERT_WEBHOOK_URL` is set in `~/.edtp/alerts.env` on the VM.
+
+See `infra/demo-vm/README.md`, including how to get back in after a fail-closed stop.
+
 Still open:
 - The W6 wallet still labels the PID row "PID - FNMT", which is compiled in. A W7 with "PID (demo)" is
   optional.

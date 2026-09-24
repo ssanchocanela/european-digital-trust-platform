@@ -60,7 +60,16 @@ Alerts go to the journal (`journalctl -t edtp-checks`). If `~/.edtp/alerts.env` 
 they are also POSTed there, for example to a push-notification topic. The message carries no path,
 address or secret.
 
-After a stop: find the cause, fix it, then `sudo systemctl start cloudflared` and run the checks by hand.
+**After a stop, SSH is gone too**, because it runs through the same tunnel. To get back in:
+- reopen port 22 to your address alone, with `EDTP_BOOTSTRAP_IP=<your IPv4> ./create-server.sh`, which
+  reuses what exists and only resets the firewall rule;
+- or use Hetzner's web console.
+
+Find the cause and fix it. Then run `sudo systemctl start cloudflared`, run the checks by hand, and close
+port 22 again with `./close-bootstrap-ssh.sh`.
+
+Installed on 24 September 2026. The first scheduled run and a manual nightly run both passed (32 of 32
+are `404`).
 
 ## Branding profiles (ADR 0010 §2)
 

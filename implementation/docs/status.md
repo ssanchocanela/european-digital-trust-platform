@@ -64,12 +64,16 @@ and the `generic` profile is on. The issuers are "PID Demo Issuer" and "Registro
 PID policy **v8** has the label "PID (demo)" and the issuing authority "EDTP PID Demo Issuer (TEST
 ONLY)". The form shows the neutral "EDTP Demo" look. The negative checks pass.
 
+Since then:
+- Cloudflare's cache kept serving the FNMT/CORPME images for hours after the origin had stopped. The
+  cache was purged, and all four now answer `404`. The next deployment serves them `no-store`
+  (committed, not yet deployed).
+- **`edtp-cliente.murcata.es` is behind Access** (an unauthenticated request gets `302` to the login)
+  and is **in the VM tunnel**. It was added only after the protection was seen working. A client profile
+  can now be switched on with `demo-profile.sh fnmt-corpme`, with the organisation's written permission
+  first.
+
 Still open:
-- **Cloudflare's cache** kept serving the FNMT/CORPME images for hours after the origin stopped. A
-  person must purge four URLs. The next deployment serves them `no-store`.
-- **`edtp-cliente.murcata.es` is not yet protected by Access.** It answers `404`, not a redirect to
-  login. It is deliberately **not** in the VM tunnel until Access protects it, so no client profile can
-  be used yet.
 - The W6 wallet still labels the PID row "PID - FNMT", which is compiled in. A W7 with "PID (demo)" is
   optional.
 

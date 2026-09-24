@@ -19,4 +19,9 @@ ingress:
     service: http://127.0.0.1:3202
   - hostname: edtp-banco.murcata.es
     service: http://127.0.0.1:3203
+  # The hosted form again, on the one hostname a client's look may appear on. It is behind Cloudflare
+  # Access (application "EDTP demo cliente"), and it was added only after Access was seen protecting
+  # it (ADR 0010 §2).
+  - hostname: edtp-cliente.murcata.es
+    service: http://127.0.0.1:3202
   - service: http_status:404

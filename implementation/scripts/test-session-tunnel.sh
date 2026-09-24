@@ -110,7 +110,7 @@ start_tunnel() {
       sleep "${TUNNEL_DNS_DELAY:-25}"
       local probe_waited=0 code="000"
       while [ "$probe_waited" -lt 60 ]; do
-        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$host/" || true)"
+        code="$(pcurl -s -o /dev/null -w '%{http_code}' --max-time 10 "$host/" || true)"
         [ "$code" != "000" ] && break
         sleep 5
         probe_waited=$((probe_waited + 5))
@@ -155,10 +155,18 @@ start_tunnel() {
 #
 # So wait for the tunnel to serve *something* first. Any HTTP status will do, including the 404 the
 # allow-list gives an unknown path: the point is that the edge is answering, not what it says.
+# Public hostnames are resolved over DNS-over-HTTPS, not through the local resolver. A home router
+# caches "no such name" for the zone's negative TTL (1800 s on murcata.es), so a hostname created
+# minutes ago — or probed once before its record existed — failed every check here while resolving
+# everywhere else. What matters is what the internet sees. Override with EDTP_PROBE_DOH, or set it
+# empty to use the local resolver.
+PROBE_DOH="${EDTP_PROBE_DOH-https://cloudflare-dns.com/dns-query}"
+pcurl() { curl ${PROBE_DOH:+--doh-url "$PROBE_DOH"} "$@"; }
+
 await_tunnel() {
   local host="$1" label="$2"
   for _ in $(seq 1 30); do
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$host/" || true)"
+    code="$(pcurl -s -o /dev/null -w '%{http_code}' --max-time 8 "$host/" || true)"
     case "$code" in
       000|502|503|504|530) sleep 2 ;;
       *) return 0 ;;
@@ -184,10 +192,10 @@ negative_checks() {
   # endpoint gets waved through.
   probe() {
     local url="$1" code
-    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
+    code="$(pcurl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
     if [ "$code" = "000" ]; then
       sleep 2
-      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
+      code="$(pcurl -s -o /dev/null -w '%{http_code}' --max-time 20 "$url" || true)"
     fi
     printf '%s' "$code"
   }

@@ -89,4 +89,7 @@ form shows the neutral brand on every other host (`selectBrand`, `tests/unit/for
 client emblems are served only while a client profile is on. The PID's content stays neutral in both
 profiles (`issuing_authority`, the type's label): a profile changes presentation, not what is attested.
 
+The VM's checkout (`~/edtp`) tracks **`main`** since PR #6 was merged (24 September 2026). Deploying
+still means pinning `EDTP_IMAGE` to a `demo-image` build, and it is always confirmed by the user.
+
 Secrets for the stack are generated on the VM and stay there, except the migrated ones (step 4).

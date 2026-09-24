@@ -30,7 +30,7 @@ Two decisions shape it. Both were taken on 24 September 2026:
 | Operator console | localhost only | private, behind an identity gate (§5) |
 | Branding | whatever the session was configured for | **generic** by default; client branding is a profile switched on for one demonstration (§4) |
 | Data | synthetic | synthetic, and **reset every night** |
-| Wallet | the modified EDTP test wallet | the same. It is still not published (§7) |
+| Wallet | the modified EDTP test wallet | the same; a release build downloadable behind the login (§7) |
 
 Unchanged in substance: `TEST` only, synthetic data only, no production claims, and no claim of
 conformance.
@@ -199,10 +199,21 @@ The official Reference Wallet cannot do any of this today (blockers B1 and B3). 
 published** (`CLAUDE.md` §6.22). So:
 
 - the public portal is visible to anyone, but a visitor can **use** it only with a test wallet installed;
-- **decided: demonstrations run on our own Android phones.** The wallet is installed on them by us,
-  with a clean install for each client (§4). It is not distributed to anyone else, and never as a
-  public download;
-- **Android only**, for now. There is no iOS build of the test wallet.
+- **decided: demonstrations run on our own Android phones**, with a clean install for each client (§4);
+- **Android only**, for now. There is no iOS build of the test wallet;
+- **decided: the APK is also offered for download, behind Cloudflare Access**, on the portal's private
+  part, as an example for people we give access to. It is never public and never on Google Play. The
+  conditions are:
+  - a **release** build signed with our own `OU=TEST ONLY` key, **never a debug build**: upstream's
+    debug build logs HTTP bodies, PID contents included;
+  - the **EUPL 1.2** terms the upstream wallet is licensed under, which is a copyleft licence: the
+    EUPL and the Commission's notices ship with it, the download page states that it is a modified
+    work and what was changed (`tools/test-wallet/deviations.md`), and it links to
+    `tools/test-wallet/` as the source. The repository must be public for that link to satisfy the
+    licence. **This reading awaits legal confirmation before the first upload**;
+  - a download page that says what the app is: a modified test build, which accepts unsigned issuer
+    metadata (WD-2) and trusts only our TEST lists. It is useless for real credentials, and it is not
+    the Reference Wallet.
 
 The portal says this plainly on every card, so a visitor never thinks the flow works with the wallet
 from the app store.
@@ -240,10 +251,12 @@ Decided on 24 September 2026:
 | Provider | **Hetzner Cloud**, EU region; deployments through GitHub Actions and the VM's own tunnel (§2) |
 | Access control for the private part | **Cloudflare Access** (§5) |
 | Auto-revert window for a client profile | **4 hours** (§4) |
-| Wallets on demonstration devices | **Our own Android phones only.** The APK is not published (`CLAUDE.md` §6.22 unchanged). No iOS for now (§7) |
+| Wallets on demonstration devices | **Our own Android phones.** No iOS for now (§7) |
+| The APK | **Downloadable behind Cloudflare Access only.** A release build, with the EUPL terms. Never public, never Google Play. `CLAUDE.md` §6.22 amended (§7) |
 | Public branding | **Generic.** Client branding only as a profile behind the login (§4) |
 
 Still open:
+0. Legal confirmation of the EUPL obligations before the first APK upload (§7).
 1. Whether a standing authorization covers `deploy-demo` after each merge to `main`, or each deployment
    is confirmed.
 2. Whether a second client ever justifies per-client engine tenants (§4, alternative).

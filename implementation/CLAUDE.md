@@ -332,7 +332,13 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     `eu.europa.ec.euidi.edtptest`, our own signing key (`OU=TEST ONLY`), a banner on every screen, and
     `BuildConfig.EDTP_DEVIATIONS` naming what is compiled in. Every deviation defaults to upstream
     behaviour and `build.sh` **refuses** a deviation flag it cannot honestly honour. Never write "the
-    Reference Wallet" about a result from it, and never commit or publish the APK.
+    Reference Wallet" about a result from it, and never commit the APK. **Publishing it** is allowed
+    in one form only, decided 24 September 2026. It must be a **release** build signed with our own key,
+    never a debug build: the debug build logs HTTP bodies, which include PID contents. It is offered
+    **behind Cloudflare Access** on the demonstration portal, never publicly and never on Google Play.
+    It must carry the EUPL 1.2 terms of the upstream wallet: the notices, a statement that it is
+    modified and how, and a link to `tools/test-wallet/` as the source. The EUPL reading awaits legal
+    confirmation. `docs/demo-hosting-proposal.md` §7.
 ---
 
 ## 7. Trust environment

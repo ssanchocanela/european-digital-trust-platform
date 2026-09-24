@@ -205,10 +205,24 @@ const refusalMessages = (
   if (code === "wallet_authorization_request_already_used")
     return ["Esta solicitud ya se ha usado. Vuelva a la cartera y empiece de nuevo."];
   const details = Array.isArray(json["details"])
-    ? (json["details"] as { path?: string; code?: string }[])
+    ? (json["details"] as { path?: string; code?: string; message?: string }[])
     : [];
   if (details.length === 0) return ["Revise los datos e inténtelo de nuevo."];
   return details.map((d) => {
+    // The Rulebook's "at least one of country, region or locality" (section 4.1), from the schema.
+    if (
+      String(d.path ?? "").startsWith("/place_of_birth") ||
+      /place_of_birth/.test(String((d as { message?: string }).message ?? ""))
+    ) {
+      if (d.code === "schema_minProperties" || d.code === "schema_required")
+        return "Indique al menos el país, la provincia o la localidad de nacimiento.";
+    }
+    if (d.code === "schema_pattern" || d.code === "schema_enum" || d.code === "schema_const")
+      return `El formato no es válido: ${labelOf(
+        String(d.path ?? "")
+          .replace(/^\//, "")
+          .replace(/\//g, "."),
+      )}.`;
     const name = labelOf(
       String(d.path ?? "")
         .replace(/^\//, "")

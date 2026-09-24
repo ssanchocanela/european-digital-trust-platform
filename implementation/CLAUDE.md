@@ -13,6 +13,12 @@ Everything — code, documentation, comments, commit messages, PR descriptions �
 Work only inside this repository. EUDIPLO, the EUDI Reference Implementation and the ARF are read for
 investigation only: **never forked, never modified**.
 
+**One exception, decided 24 September 2026:** an **upstream contribution** to EUDIPLO — batch issuance
+with an `attestation` proof (`docs/interop-findings.md` A34) — may be prepared as a pull request from a
+personal fork **outside this repository**, once the maintainers have accepted the issue
+(`docs/upstream/eudiplo-batch-attestation-proof.md`). The engine this platform runs stays the pinned
+release image until an upstream release contains the change. Never run a patched engine.
+
 Three phases with human checkpoints. Do not skip a checkpoint.
 
 | Phase | Branch | Ends with |

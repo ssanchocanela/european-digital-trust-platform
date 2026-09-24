@@ -35,6 +35,10 @@
 # `portrait` is omitted: not yet mandatory (§2.2, 24 months after the amending act), and
 # `AS-RP-03-01` (`PID_03a`) restricts its retention.
 #
+# This creates the **first**, minimal type. The full Rulebook model — every §4.1 attribute, with a
+# payload schema for its encodings — is applied on top by `scripts/upgrade-test-pid-type.mjs`, as a
+# new type and a new policy version (24 September 2026: v6).
+#
 # Idempotent: the ids are kept in ~/.edtp/test-pid-issuer.json (mode 600) and reused while the API
 # still knows them.
 set -euo pipefail

@@ -90,14 +90,62 @@ const hidden = (fields: Readonly<Record<string, string>>): string =>
 const HINTS: Readonly<Record<string, string>> = {
   nationalities:
     "Código de país de dos letras (ISO 3166-1), p. ej. ES. Varios, separados por comas.",
-  "place_of_birth.country": "Código de país de dos letras, p. ej. ES.",
+  "place_of_birth.country":
+    "Código de país de dos letras, p. ej. ES. Indique al menos uno: país, provincia o localidad.",
+  "address.country": "Código de país de dos letras, p. ej. ES.",
   personal_administrative_number: "DNI o NIE, sin espacios. Use un número ficticio.",
+  phone_number: "Con prefijo internacional y solo cifras, p. ej. +34600000000.",
+  issuing_jurisdiction: "Código ISO 3166-2, p. ej. ES-MD. Normalmente se deja vacío.",
 };
+
+/** The PID Rulebook's `sex` code list (section 2.3), shown as words. */
+const SEX_OPTIONS: readonly (readonly [string, string])[] = [
+  ["", "—"],
+  ["0", "No consta"],
+  ["1", "Hombre"],
+  ["2", "Mujer"],
+  ["3", "Otro"],
+  ["4", "Intersexual"],
+  ["5", "Diverso"],
+  ["6", "Abierto"],
+  ["9", "No aplicable"],
+];
+
+/**
+ * Which part of the form a field belongs in. The identity comes first and is what the Rulebook makes
+ * mandatory; residence and contact, and the document's own data, are optional and folded away.
+ */
+const SECTIONS: readonly {
+  readonly title: string;
+  readonly optional: boolean;
+  readonly match: (p: string) => boolean;
+}[] = [
+  {
+    title: "Domicilio y contacto",
+    optional: true,
+    match: (p) => p.startsWith("address.") || p === "email" || p === "phone_number",
+  },
+  {
+    title: "Datos del documento",
+    optional: true,
+    match: (p) =>
+      p === "document_number" ||
+      p === "date_of_issuance" ||
+      p === "date_of_expiry" ||
+      p === "issuing_jurisdiction",
+  },
+];
 
 const input = (field: FormField, value: string): string => {
   const name = `attr:${escapeHtml(field.path)}`;
   const required = field.mandatory ? " required" : "";
   const common = `id="${name}" name="${name}" value="${escapeHtml(value)}"${required}`;
+  if (field.path === "sex") {
+    return `<select id="${name}" name="${name}"${required}>${SEX_OPTIONS.map(
+      ([v, label]) =>
+        `<option value="${v}"${v === value ? " selected" : ""}>${escapeHtml(label)}</option>`,
+    ).join("")}</select>`;
+  }
   switch (field.valueType) {
     case "date":
       return `<input type="date" ${common}>`;
@@ -105,7 +153,7 @@ const input = (field: FormField, value: string): string => {
     case "integer":
       return `<input type="number" ${common}>`;
     default: {
-      const upper = field.path === "place_of_birth.country" || field.path === "nationalities";
+      const upper = field.path.endsWith("country") || field.path === "nationalities";
       const extra = upper
         ? ` maxlength="${field.path === "nationalities" ? 30 : 2}" style="text-transform:uppercase"`
         : ` maxlength="200"`;
@@ -132,18 +180,34 @@ const errorBox = (errors: readonly string[] | undefined): string =>
 
 export const renderForm = (page: FormPage): string => {
   const values = page.values ?? {};
-  const rows = page.fields
-    .filter((f) => f.valueType !== "object[]" && f.valueType !== "boolean")
-    .map((f) => {
-      const hint = HINTS[f.path];
-      return `
+  const row = (f: FormField) => {
+    const hint = HINTS[f.path];
+    return `
       <div class="field">
         <label for="attr:${escapeHtml(f.path)}">${escapeHtml(spanish(f.display, f.path))}${f.mandatory ? ' <span class="req" aria-hidden="true">*</span>' : ""}</label>
         ${input(f, values[f.path] ?? "")}
         ${hint ? `<p class="hint">${escapeHtml(hint)}</p>` : ""}
       </div>`;
-    })
+  };
+  const shown = page.fields.filter(
+    (f) => f.valueType !== "object[]" && f.valueType !== "boolean",
+  );
+  const sectionOf = (f: FormField) => SECTIONS.find((s) => s.match(f.path));
+  const rows = shown
+    .filter((f) => !sectionOf(f))
+    .map(row)
     .join("");
+  // Folded sections open by themselves when they hold a value — after a refusal, for instance.
+  const folded = SECTIONS.map((s) => {
+    const fields = shown.filter((f) => sectionOf(f) === s);
+    if (fields.length === 0) return "";
+    const open = fields.some((f) => (values[f.path] ?? "") !== "") ? " open" : "";
+    return `
+      <details class="more"${open}>
+        <summary>${escapeHtml(s.title)}${s.optional ? " (opcional)" : ""}</summary>
+        ${fields.map(row).join("")}
+      </details>`;
+  }).join("");
   return shell(
     page.brand,
     "Solicitud de PID",
@@ -156,6 +220,7 @@ export const renderForm = (page: FormPage): string => {
       ${hidden(page.state)}
       <h2>Datos personales</h2>
       ${rows}
+      ${folded}
       <div class="actions"><button type="submit">Confirmar</button></div>
     </form>`,
   );
@@ -350,9 +415,11 @@ ${head}
   .card { background:#fff; border:1px solid var(--line); border-radius:4px; padding:24px; }
   .field { margin-bottom:18px; }
   label { display:block; font-weight:600; margin-bottom:6px; font-size:15px; }
-  input { width:100%; max-width:420px; padding:10px 12px; font-size:16px; border:1px solid #bdbdbd; border-radius:3px; background:#fff; }
-  input:focus { outline:2px solid var(--brand); outline-offset:1px; border-color:var(--brand); }
+  input, select { width:100%; max-width:420px; padding:10px 12px; font-size:16px; border:1px solid #bdbdbd; border-radius:3px; background:#fff; }
+  input:focus, select:focus { outline:2px solid var(--brand); outline-offset:1px; border-color:var(--brand); }
   .hint { color:var(--muted); font-size:13px; margin:6px 0 0; }
+  .more { border-top:1px solid var(--line); padding-top:14px; margin-top:8px; }
+  .more summary { cursor:pointer; font-weight:600; color:var(--brand); margin-bottom:14px; }
   .req { color:#b00020; }
   .actions { margin-top:24px; }
   button, .button { display:inline-block; background:var(--brand); color:#fff; border:0; border-radius:3px; padding:12px 28px; font-size:16px; font-weight:600; cursor:pointer; text-decoration:none; }

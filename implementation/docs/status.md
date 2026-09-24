@@ -29,6 +29,23 @@ name the version to copy, never infer it from list order.) The linkability cost 
 accept a multi-key attestation proof: draft issue in `docs/upstream/eudiplo-batch-attestation-proof.md`,
 **not filed** — awaiting review.
 
+**The test PID now follows the PID Rulebook (24 September).** Policy **v6**, a new type from
+`scripts/pid/pid-rulebook-sd-jwt.json`: every attribute and metadata item of PID Rulebook v1.1 in its
+SD-JWT VC encoding (§4.1, catalog commit `36f8adcf`, identical to `main`), 28 claims, with a payload
+schema for what a claim list cannot say — alpha-2 codes, dates, the `sex` code list, and "at least one
+of country, region or locality" for the place of birth, which is no longer country-only. Mandatory as
+CIR 2024/2977 makes them, plus the ID number (our choice; the Rulebook leaves it to the Member State).
+The portrait is not included: it is not yet mandatory, and `PID_03a` restricts its retention.
+`attestation_legal_category: "PID"` and `trust_anchor` (our TEST PID list) are fixed. The FNMT form shows
+the identity first and folds residence/contact and document data away. Applied by
+`scripts/upgrade-test-pid-type.mjs`; **not yet issued to a phone**. A PID with no country of birth
+cannot feed a PoX (`credential-catalogue.md`).
+
+**Next — batch once-only issuance upstream.** Decided: file the issue
+(`docs/upstream/eudiplo-batch-attestation-proof.md`, with the user for review), and if the maintainers
+accept it, prepare the PR from a personal fork outside this repository (CLAUDE.md §1 exception). The
+engine stays the pinned image.
+
 **Always open a form session with `GATEWAY_PINNED_WALLET_COMPAT=true`** — without it the list fails
 (A29 item 3); the script now refuses.
 

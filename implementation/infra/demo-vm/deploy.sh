@@ -26,6 +26,10 @@ if [ "${verb:-}" != deploy ] || [ -n "${extra:-}" ] || ! [[ "${tag:-}" =~ ^[0-9a
   exit 64
 fi
 
+# Held for the whole deployment: the scheduled negative checks skip their turn while it is.
+exec 9>/tmp/edtp-deploy.lock
+flock -w 120 9 || { say "refused: another deployment holds the lock"; exit 75; }
+
 cd "$HOME/edtp" && git pull -q --ff-only
 cd "$ROOT"
 C=(docker compose -f docker-compose.yml -f infra/demo-vm/docker-compose.demo.yml)

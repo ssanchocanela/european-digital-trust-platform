@@ -103,6 +103,18 @@ port 22 again with `./close-bootstrap-ssh.sh`.
 Installed on 24 September 2026. The first scheduled run and a manual nightly run both passed (32 of 32
 are `404`).
 
+**Incident on 24 September 2026, 18:05 UTC.** The first `deploy-demo` run succeeded, but a scheduled
+check ran at the same time as the containers were restarting. It read their 502s as exposure and stopped
+the tunnel. The fail-closed stop worked as designed; the classification was wrong. Fixed as follows:
+- only a real answer counts as exposure (2xx, 3xx, 4xx other than 404); a 5xx (including Cloudflare's
+  530), a 429 or no connection counts as unreachable;
+- an exposure is re-checked 30 seconds later before the tunnel is stopped;
+- scheduled checks skip their turn while `deploy.sh` holds `/tmp/edtp-deploy.lock`.
+
+Recovery followed the procedure above: port 22 was reopened to one address, the local checks passed,
+the tunnel was started, the public checks passed, and port 22 was closed again. The demo was down for
+about 25 minutes.
+
 ## Branding profiles (ADR 0010 §2)
 
 `profiles/generic.env` is the public default. `profiles/fnmt-corpme.env` is a client profile; switch it

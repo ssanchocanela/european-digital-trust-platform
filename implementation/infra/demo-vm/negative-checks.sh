@@ -7,6 +7,12 @@
 #   ./infra/demo-vm/negative-checks.sh --local      the VM's loopback ports, before any DNS moves
 #
 # Exit status: 0 all 404; 1 something answered otherwise; 2 something did not answer at all.
+#
+# What counts as "answered otherwise": a response from the service itself — 2xx, 3xx, or any 4xx but
+# 404. A 5xx (including Cloudflare's 530 for a tunnel with no connector), a 429 from a rate limit and a
+# failed connection prove nothing is reachable and are counted as "did not answer". On 24 September
+# 2026 a scheduled run met a deployment restarting the containers, read their 502s as exposure, and
+# stopped the tunnel.
 set -uo pipefail
 if [ "${1:-}" = "--local" ]; then
   ENGINE=http://127.0.0.1:3010 PLATFORM=http://127.0.0.1:3011 FORM=http://127.0.0.1:3202 BANK=http://127.0.0.1:3203
@@ -27,7 +33,11 @@ probe() { # <label> <base> <path...>
   for path in "$@"; do
     code="$("${CURL[@]}" -s -o /dev/null -w '%{http_code}' --max-time 15 "$base$path" || true)"
     printf '    %s  %s%s\n' "$code" "$label" "$path"
-    case "$code" in 404) ;; 000) silent=$((silent + 1)) ;; *) failures=$((failures + 1)) ;; esac
+    case "$code" in
+      404) ;;
+      000 | 429 | 5??) silent=$((silent + 1)) ;;
+      *) failures=$((failures + 1)) ;;
+    esac
   done
 }
 probe engine "$ENGINE" "${engine_paths[@]}"

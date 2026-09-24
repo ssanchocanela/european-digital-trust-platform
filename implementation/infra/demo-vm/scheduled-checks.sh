@@ -17,8 +17,22 @@ STATUS_DIR=/var/lib/edtp-status
 ALERTS="${HOME}/.edtp/alerts.env"
 [ -f "$ALERTS" ] && . "$ALERTS"
 
+# A deployment in progress restarts containers; checking then measures the restart, not the exposure.
+exec 9>/tmp/edtp-deploy.lock
+if ! flock -n 9; then
+  logger -t edtp-checks "skipped: a deployment is in progress"
+  exit 0
+fi
+
 output="$("$HERE/negative-checks.sh" 2>&1)"
 code=$?
+# An exposure is confirmed before acting on it: one more run, 30 seconds later.
+if [ "$code" = 1 ]; then
+  logger -t edtp-checks -p user.warning "possible exposure, re-checking in 30 s: $(printf '%s\n' "$output" | tail -1)"
+  sleep 30
+  output="$("$HERE/negative-checks.sh" 2>&1)"
+  code=$?
+fi
 summary="$(printf '%s\n' "$output" | tail -1)"
 at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 case "$code" in

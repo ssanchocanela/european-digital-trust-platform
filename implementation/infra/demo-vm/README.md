@@ -59,6 +59,10 @@ systemd timers, whose units are in `files/`:
 Alerts go to the journal (`journalctl -t edtp-checks`). If `~/.edtp/alerts.env` sets `ALERT_WEBHOOK_URL`,
 they are also POSTed there, for example to a push-notification topic. The message carries no path,
 address or secret.
+**Configured on 24 September 2026: a private ntfy.sh topic.** Its name is random, and is kept only in
+`~/.edtp/alerts.env` on the VM and in `~/.edtp/ntfy-topic` on the operator's machine, never here: anyone
+who knows it can read the alerts. Exposures are sent as `urgent`; unreachable hosts and a failed nightly
+reset as `high`.
 
 **After a stop, SSH is gone too**, because it runs through the same tunnel. To get back in:
 - reopen port 22 to your address alone, with `EDTP_BOOTSTRAP_IP=<your IPv4> ./create-server.sh`, which

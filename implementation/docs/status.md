@@ -97,7 +97,8 @@ up by a person. Security limitation P8.
 - The nightly reset runs at 03:30 Europe/Madrid: generic profile, application containers recreated,
   images pruned. The databases and the engine are never touched.
 - A manual run of each passed.
-- Alerts go to the journal only, until an `ALERT_WEBHOOK_URL` is set in `~/.edtp/alerts.env` on the VM.
+- Alerts go to the journal and to a private ntfy.sh topic (the operator's phone). The topic name is not
+  in the repository.
 
 See `infra/demo-vm/README.md`, including how to get back in after a fail-closed stop.
 

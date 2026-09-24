@@ -457,7 +457,7 @@ migrations up from an empty database.
 | Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
-| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
+| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment (PROPOSED)**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
 
 Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
 checkpoint**: Q1 → **Path A** — enrol a real access certificate at the reference RP Registration

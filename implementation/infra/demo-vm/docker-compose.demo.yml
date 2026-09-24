@@ -40,9 +40,13 @@ services:
     <<: *platform-image
     environment:
       PORTAL_STATUS_FILE: /status/checks.json
+      PORTAL_PROFILE_DIR: /profile-requests
     volumes:
       # The scheduled negative checks' last result, read-only (infra/demo-vm/scheduled-checks.sh).
       - /var/lib/edtp-status:/status:ro
+      # Branding-profile requests: the portal writes request.json, the host applies it
+      # (apply-profile-request.sh). The only writable path the portal has.
+      - /var/lib/edtp-profile-requests:/profile-requests
 
   gateway:
     <<: *platform-image

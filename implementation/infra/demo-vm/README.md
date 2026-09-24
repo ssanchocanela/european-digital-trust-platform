@@ -124,6 +124,15 @@ on only with the organisations' written permission. On the VM:
     ~/edtp/implementation/infra/demo-vm/demo-profile.sh generic       # back now
     journalctl -t edtp-profile                                        # who switched what, when
 
+**Or from the portal:** `https://demo.murcata.es/operador` has a switch. The portal does not switch
+anything itself; it has no access to Docker or the host. It writes `request.json` into
+`/var/lib/edtp-profile-requests`, the only directory it can write to. The systemd path unit
+`edtp-profile-request` then runs `apply-profile-request.sh`, which validates the request again (a profile
+in `profiles/`, a requester that looks like an e-mail address) and calls `demo-profile.sh`. The requester
+is the Cloudflare Access identity, recorded in the journal. A client profile needs the "written
+permission" box ticked. A submission must come from the portal's own page (`Sec-Fetch-Site` or
+`Origin`), so another site cannot submit it in the operator's name.
+
 A client's look is served only on `edtp-cliente.murcata.es`, which sits behind Cloudflare Access. The
 form shows the neutral brand on every other host (`selectBrand`, `tests/unit/form-brands.test.ts`). The
 client emblems are served only while a client profile is on. The PID's content stays neutral in both

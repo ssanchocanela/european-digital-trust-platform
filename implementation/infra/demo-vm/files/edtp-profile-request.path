@@ -1,0 +1,9 @@
+[Unit]
+Description=EDTP demo: watch for branding-profile requests from the portal (ADR 0010)
+
+[Path]
+PathExists=/var/lib/edtp-profile-requests/request.json
+Unit=edtp-profile-request.service
+
+[Install]
+WantedBy=paths.target

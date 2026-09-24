@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import express, { type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { z } from "zod";
@@ -6,10 +7,12 @@ import {
   type ChecksStatus,
   type DemoCard,
   type Health,
+  type ProfileState,
   renderForbidden,
   renderHome,
   renderOperator,
 } from "./page.js";
+import { decideProfileRequest } from "./profile-request.js";
 
 /**
  * The demonstration portal (ADR 0010, `docs/demo-hosting-proposal.md` §3), at `demo.murcata.es`.
@@ -36,6 +39,22 @@ const schema = z.object({
   PORTAL_CLIENT_FORM_URL: url.default("https://edtp-cliente.murcata.es/"),
   /** The scheduled negative checks' last result, mounted read-only on the VM. */
   PORTAL_STATUS_FILE: z.string().min(1).optional(),
+  /**
+   * The directory shared with the host for branding-profile requests (ADR 0010 §2). The portal only
+   * writes `request.json` there; a systemd path unit on the VM applies it. Unset: no button.
+   */
+  PORTAL_PROFILE_DIR: z.string().min(1).optional(),
+  PORTAL_PROFILES: z
+    .string()
+    .default("generic,fnmt-corpme")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean),
+    ),
+  /** This portal's own origin, which a profile request must come from. */
+  PORTAL_ORIGIN: url.default("https://demo.murcata.es"),
   // Internal addresses the status dots probe. Any answer below 500 counts as up.
   CHECK_PLATFORM_URL: url.default("http://platform-api:3100/health"),
   CHECK_FORM_URL: url.default("http://pid-form:3202/"),
@@ -56,7 +75,7 @@ const GENERIC_PID_ISSUER = "PID Demo Issuer";
 const secureHeaders = (response: Response): void => {
   response.setHeader(
     "content-security-policy",
-    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   );
   response.setHeader("cache-control", "no-store");
   response.setHeader("referrer-policy", "no-referrer");
@@ -178,6 +197,44 @@ const lastChecks = async (config: Config): Promise<ChecksStatus | undefined> => 
   }
 };
 
+const readJson = async <T>(path: string): Promise<T | undefined> => {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as T;
+  } catch {
+    return undefined;
+  }
+};
+
+const profileState = async (
+  config: Config,
+  notice?: ProfileState["notice"],
+): Promise<ProfileState | undefined> => {
+  if (!config.PORTAL_PROFILE_DIR) return undefined;
+  const pending = await readJson<ProfileState["pending"]>(
+    join(config.PORTAL_PROFILE_DIR, "request.json"),
+  );
+  const last = await readJson<ProfileState["last"]>(
+    join(config.PORTAL_PROFILE_DIR, "last.json"),
+  );
+  return {
+    profiles: config.PORTAL_PROFILES,
+    ...(pending ? { pending } : {}),
+    ...(last ? { last } : {}),
+    ...(notice ? { notice } : {}),
+  };
+};
+
+/**
+ * Whether a form submission comes from this portal's own page: the browser's fetch metadata says
+ * same-origin, or the Origin header is this portal. Stops another site from submitting it in the
+ * operator's name.
+ */
+const sameOrigin = (request: Request, origin: string): boolean => {
+  const site = request.header("sec-fetch-site");
+  if (site) return site === "same-origin";
+  return request.header("origin") === origin;
+};
+
 /** The identity Cloudflare Access injects once a visitor has logged in. */
 const accessIdentity = (request: Request): string | undefined => {
   const email = request.header("cf-access-authenticated-user-email");
@@ -203,18 +260,26 @@ const main = (): void => {
     response.send(renderHome(await cards(config)));
   });
 
-  app.get("/operador", async (request, response) => {
-    secureHeaders(response);
+  const operatorPage = async (
+    request: Request,
+    response: Response,
+    notice?: ProfileState["notice"],
+  ): Promise<void> => {
     const who = accessIdentity(request);
     if (!who) {
       response.status(403).send(renderForbidden());
       return;
     }
-    const [profile, checks] = await Promise.all([currentProfile(config), lastChecks(config)]);
+    const [profile, checks, state] = await Promise.all([
+      currentProfile(config),
+      lastChecks(config),
+      profileState(config, notice),
+    ]);
     response.send(
       renderOperator({
         who,
         ...(checks ? { checks } : {}),
+        ...(state ? { profileState: state } : {}),
         profile: profile.name,
         clientProfileOn: profile.client,
         links: [
@@ -227,7 +292,47 @@ const main = (): void => {
         ],
       }),
     );
+  };
+
+  app.get("/operador", async (request, response) => {
+    secureHeaders(response);
+    await operatorPage(request, response);
   });
+
+  // A branding-profile request. It is written to the shared directory and applied on the host.
+  app.post(
+    "/operador",
+    express.urlencoded({ extended: false, limit: "1kb" }),
+    async (request, response) => {
+      secureHeaders(response);
+      const dir = config.PORTAL_PROFILE_DIR;
+      if (!dir) {
+        response.status(404).send(renderForbidden());
+        return;
+      }
+      const decision = decideProfileRequest({
+        profile: request.body?.perfil,
+        permission: request.body?.permiso,
+        who: accessIdentity(request),
+        allowed: config.PORTAL_PROFILES,
+        sameOrigin: sameOrigin(request, config.PORTAL_ORIGIN),
+        now: new Date(),
+      });
+      if (!decision.ok) {
+        response.status(accessIdentity(request) ? 422 : 403);
+        await operatorPage(request, response, { ok: false, text: decision.reason });
+        return;
+      }
+      // Written then renamed, so the host never reads a half-written file.
+      const tmp = join(dir, `.request-${Date.now()}.json`);
+      await writeFile(tmp, `${JSON.stringify(decision.request)}\n`, { mode: 0o644 });
+      await rename(tmp, join(dir, "request.json"));
+      await operatorPage(request, response, {
+        ok: true,
+        text: `Solicitud registrada: ${decision.request.profile}. Se aplicará en menos de un minuto.`,
+      });
+    },
+  );
 
   app.use((_request, response) => {
     secureHeaders(response);

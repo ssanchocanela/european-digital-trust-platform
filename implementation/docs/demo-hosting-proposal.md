@@ -1,6 +1,7 @@
 # Permanent demonstration environment — proposal
 
-**Status: proposal, not decided, not built.** Written 24 September 2026. Nothing here is provisioned. If
+**Status: proposal, not built.** Written 24 September 2026. The choices in §10 are decided; building it
+still waits on ADR 0010. Nothing here is provisioned. If
 accepted, the decision goes into ADR 0010, and the documents it changes are listed in §9.
 
 Today every demonstration depends on one laptop. A Cloudflare tunnel is opened by hand for each test
@@ -41,7 +42,7 @@ conformance.
 
 | | |
 |---|---|
-| Provider and region | An EU provider and region (for example Hetzner Falkenstein or Nuremberg, OVH Gravelines, Scaleway Paris). This is not a legal necessity with synthetic data; the reason is to form the habit (`test-session-vm.md` §2) |
+| Provider and region | **Hetzner Cloud**, Falkenstein or Nuremberg (decided 24 September 2026). The reason is that it can be operated entirely by API and CLI (`hcloud`), and it is a plain Docker host with no platform to adapt to. An EU region is not a legal necessity with synthetic data; it forms the habit (`test-session-vm.md` §2) |
 | Size | 4 vCPU, 8 GB RAM, 80 GB disk. The engine, the platform, two Postgres containers, the hosted form, the bank and the portal |
 | OS | Debian or Ubuntu LTS, with unattended security upgrades |
 | Cost | Roughly 10–20 € a month |
@@ -52,6 +53,26 @@ conformance.
 This reuses nearly everything already built: the tunnel configuration, the allow-list gateway, the
 compose file and the session scripts. It also removes the two failure modes of the last week: a
 laptop that is off, and a home router that caches a new hostname as nonexistent.
+
+### Deployments
+
+The goal is that no deployment depends on a developer's laptop, and that every running version is a
+known commit.
+
+1. **Build.** On every merge to `main`, GitHub Actions builds the image and pushes it to the GitHub
+   Container Registry. The registry is private.
+2. **Deploy.** A manual workflow, `deploy-demo`, takes a commit or tag and does the following:
+   - it connects to the VM over SSH **through the VM's own Cloudflare tunnel**, authenticated with a
+     Cloudflare Access service token, so port 22 is never open to the internet;
+   - it runs `docker compose pull && docker compose up -d`;
+   - it runs the negative checks. **If any check is not `404`, it rolls back to the previous tag.**
+3. **Rollback.** Re-run the workflow with an earlier tag.
+4. **Who triggers it.** A person, or Claude through `gh workflow run deploy-demo`. A deployment is an
+   outward-facing action. Whether a standing authorization covers deploying after each merge to `main`
+   is still open (§10).
+
+Out of the repository, set up by a person: the Hetzner account and a project API token, a Cloudflare
+Access service token for the deploy workflow, and the repository secrets that hold both.
 
 **Considered and not recommended:** managed container platforms (Azure Container Apps, Cloud Run, Fly.io).
 The engine and the platform each need a Postgres with a stable schema, the engine bakes its public URL
@@ -100,7 +121,7 @@ is in the metadata. What can be controlled is **when** it is there. Branding the
 | Representation issuer | "Registro Demo", neutral mark | "CORPME (demo)", CORPME emblem |
 | Hosted form look | neutral | FNMT / CORPME (`HOSTED_FORM_BRANDS`) |
 | Form and portal pages | public | **behind the login** |
-| Duration | always | **auto-reverts** after a set window (for example 4 hours), or at the end of the demonstration |
+| Duration | always | **auto-reverts after 4 hours** (decided), or earlier at the end of the demonstration |
 
 Switching a profile is configuration only. It already exists piece by piece today:
 `ENGINE_ISSUER_DISPLAY_NAMES`, `ENGINE_ISSUER_BRANDING` and `HOSTED_FORM_BRANDS`, followed by
@@ -123,7 +144,7 @@ client.
 
 ## 5. Access control for the private part
 
-**Recommended: Cloudflare Access** in front of the private hostnames and paths. It uses one-time PINs by
+**Decided: Cloudflare Access** in front of the private hostnames and paths. It uses one-time PINs by
 email or a username and password through an identity provider. Access is enforced at the edge, before
 anything reaches the VM, and nothing is built into the apps. Each client demonstration gets its own
 short-lived credential, revoked afterwards.
@@ -179,10 +200,10 @@ The official Reference Wallet cannot do any of this today (blockers B1 and B3). 
 published** (`CLAUDE.md` §6.22). So:
 
 - the public portal is visible to anyone, but a visitor can **use** it only with a test wallet installed;
-- the wallet is distributed privately to named devices, for example through Firebase App Distribution
-  invitations or a managed device, **never** as a public download;
-- the most dependable setup for a client demonstration is **our own demonstration phones**, with a clean
-  install per client (§4).
+- **decided: demonstrations run on our own Android phones.** The wallet is installed on them by us,
+  with a clean install for each client (§4). It is not distributed to anyone else, and never as a
+  public download;
+- **Android only**, for now. There is no iOS build of the test wallet.
 
 The portal says this plainly on every card, so a visitor never thinks the flow works with the wallet
 from the app store.
@@ -211,11 +232,19 @@ The documents this changes when it is adopted, and not before: `CLAUDE.md` §6.2
 rule), `test-session-gateway.md` (a permanent deployment target), `test-session-vm.md` (superseded in
 part), `security-limitations.md` (a new entry), and `status.md`.
 
-## 10. Open questions
+## 10. Decisions and open questions
 
-1. Which provider: any EU region will do, and the choice is cost and account convenience.
-2. Cloudflare Access (recommended) or basic authentication.
-3. The auto-revert window for a client profile.
-4. How test wallets reach demonstration devices: Firebase App Distribution, a managed device, or our own
-   phones only.
-5. Whether a second client ever justifies per-client engine tenants (§4, alternative).
+Decided on 24 September 2026:
+
+| Question | Decision |
+|---|---|
+| Provider | **Hetzner Cloud**, EU region; deployments through GitHub Actions and the VM's own tunnel (§2) |
+| Access control for the private part | **Cloudflare Access** (§5) |
+| Auto-revert window for a client profile | **4 hours** (§4) |
+| Wallets on demonstration devices | **Our own Android phones only.** The APK is not published (`CLAUDE.md` §6.22 unchanged). No iOS for now (§7) |
+| Public branding | **Generic.** Client branding only as a profile behind the login (§4) |
+
+Still open:
+1. Whether a standing authorization covers `deploy-demo` after each merge to `main`, or each deployment
+   is confirmed.
+2. Whether a second client ever justifies per-client engine tenants (§4, alternative).

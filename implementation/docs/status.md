@@ -51,8 +51,8 @@ v7 first. *Poder notarial* and *Autorización de empleado* at the bank: both `VE
 open a new hostname, the home router is caching it as nonexistent: use Private DNS (`one.one.one.one`)
 or mobile data.
 
-**Proposed — a permanent demonstration environment** (`docs/demo-hosting-proposal.md`, not decided,
-not built). An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
+**Proposed — a permanent demonstration environment** (`docs/demo-hosting-proposal.md`, choices
+decided — Hetzner, Cloudflare Access, 4-hour client profile, our own Android phones — not built). An always-on EU VM running the tunnel as a service, and a demonstration portal. Public
 demonstrations use generic branding; the client-branded ones (FNMT, CORPME) are a profile switched on
 per demonstration, behind a username and password. Open questions are in its §10. If adopted, it
 becomes ADR 0010 and replaces the session-only exposure rule.

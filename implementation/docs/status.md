@@ -73,7 +73,7 @@ Since then:
   can now be switched on with `demo-profile.sh fnmt-corpme`, with the organisation's written permission
   first.
 
-**The portal is live (24 September): `https://demo.murcata.es`** (image `c9d6bf384402`). It has four
+**The portal is live (24 September): `https://demo.murcata.es`**. It has four
 cards:
 - test PID;
 - representation credential;
@@ -83,6 +83,13 @@ cards:
 
 `/operador` is behind Access (`302` to login) and also refuses without Access's identity header. The
 negative checks now probe the portal too: 32 of 32 are `404`.
+
+**Per-client rate limits deployed (image `826cf841d5f4`).** Tested on the VM:
+- 305 gateway requests from one client: 300 passed, 5 got `429`, and a second client was unaffected;
+- 12 bank POSTs: 10 were processed, 2 got `429`.
+
+The Cloudflare edge rule (one on the free plan: 100 requests per 10 seconds per IP, then a block) is set
+up by a person. Security limitation P8.
 
 Still open:
 - The W6 wallet still labels the PID row "PID - FNMT", which is compiled in. A W7 with "PID (demo)" is

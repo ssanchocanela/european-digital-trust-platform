@@ -1,0 +1,54 @@
+# Demonstration VM override (ADR 0010), used as:
+#
+#   docker compose -f docker-compose.yml -f infra/demo-vm/docker-compose.demo.yml up -d
+#
+# - Every platform process runs the published image (`EDTP_IMAGE`, from the `demo-image` workflow)
+#   instead of building on the VM.
+# - The filtering gateway, a host process in laptop sessions, is a container here, with the same code
+#   and the same allow-list. The pinned-wallet compatibility switch is on (A29), as ADR 0010 decides.
+# - Every port binds to 127.0.0.1 only. `cloudflared` on the same host is the only way in, and the
+#   Hetzner firewall has no inbound rules.
+# - Everything restarts unless stopped: this environment is always on.
+
+x-platform-image: &platform-image
+  image: ${EDTP_IMAGE:?set EDTP_IMAGE to ghcr.io/<owner>/edtp-platform:<tag>}
+  build: !reset null
+  restart: unless-stopped
+
+services:
+  platform-api:
+    <<: *platform-image
+
+  operator-console:
+    <<: *platform-image
+
+  test-start:
+    <<: *platform-image
+    ports: !override
+      - "127.0.0.1:3201:3201"
+
+  pid-form:
+    <<: *platform-image
+
+  demo-bank:
+    <<: *platform-image
+
+  gateway:
+    <<: *platform-image
+    command: ["node", "apps/test-gateway/dist/main.js"]
+    depends_on: [eudiplo, platform-api]
+    environment:
+      NODE_ENV: production
+      GATEWAY_BIND_HOST: 0.0.0.0
+      GATEWAY_ENGINE_PORT: "3010"
+      GATEWAY_PLATFORM_PORT: "3011"
+      GATEWAY_ENGINE_TARGET: http://eudiplo:3000
+      GATEWAY_PLATFORM_TARGET: http://platform-api:3100
+      GATEWAY_PINNED_WALLET_COMPAT: "true"
+      GATEWAY_ATTESTATION_SKEW_DELAY_MS: "3000"
+      GATEWAY_HOSTED_FORM_URL: ${HOSTED_FORM_PUBLIC_URL:?}/
+      GATEWAY_HOSTED_FORM_AUTHORIZE_SECRET: ${HOSTED_FORM_AUTHORIZE_SECRET:?}
+      GATEWAY_HOSTED_FORM_TENANTS: ${EDTP_FORM_TENANTS:-pid-1,rpi-1}
+    ports:
+      - "127.0.0.1:3010:3010"
+      - "127.0.0.1:3011:3011"

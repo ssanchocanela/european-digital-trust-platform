@@ -746,6 +746,7 @@ why the session's probes now resolve over DNS-over-HTTPS.
 | 0 · PID | the PID re-issued under the Rulebook model | issuance **`ISSUED`**, policy **v7** |
 | 1 · Present | on the bank page, *Poder de representación*; the wallet opened on the same device, presented, and returned to the bank | presentation **`VERIFIED`**; the page showed "Operación autorizada" with the verified claims |
 | 2 · Present again | the same credential, straight after | presentation **`VERIFIED`** |
+| 3 · The other two | *Poder notarial*, then *Autorización de empleado* | both **`VERIFIED`** — all three PoX types accepted by a relying party page |
 
 The same Power of Representation, presented twice: the representation credentials are not
 single-use. This one was issued before the reuse policy existed, so the wallet stored it under its own

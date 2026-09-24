@@ -47,7 +47,7 @@ Power of Attorney or an Employee Authorisation to authorise a fictitious company
 outcome and the verified claims. Platform side: `/v1/hosted-verifications`, one narrow secret, return
 destination set by the platform (P7). **Run on the phone**: one Power of Representation presented
 twice, both `VERIFIED` (§8.1o) — the representation credentials are reusable. The PID was re-issued under
-v7 first. *Poder notarial* and *Autorización de empleado* at the bank: not yet run. If the phone cannot
+v7 first. *Poder notarial* and *Autorización de empleado* at the bank: both `VERIFIED` too. If the phone cannot
 open a new hostname, the home router is caching it as nonexistent: use Private DNS (`one.one.one.one`)
 or mobile data.
 

@@ -176,13 +176,14 @@ export const renderFailure = (title: string, body: string, site: Site = "bank"):
     `
     <div class="ko" role="alert"><span aria-hidden="true">✕</span> ${escapeHtml(title)}</div>
     <div class="card"><p>${escapeHtml(body)}</p></div>
-    <div class="actions"><a class="button secondary" href="${site === "shop" ? "edad" : "./"}">Volver a intentarlo</a></div>`,
+    <div class="actions"><a class="button secondary" href="${BACK[site]}">Volver a intentarlo</a></div>`,
     "",
     site,
   );
 
-/** The two fictional sites this process serves. Neither is a real business. */
-type Site = "bank" | "shop";
+/** The three fictional sites this process serves. None is a real business. */
+type Site = "bank" | "shop" | "fibre";
+const BACK: Readonly<Record<Site, string>> = { bank: "./", shop: "edad", fibre: "fibra" };
 const SITES = {
   bank: {
     name: "Banco Demo",
@@ -201,6 +202,15 @@ const SITES = {
     brand: "#5b2a86",
     brandDark: "#3f1d5d",
     accent: "#d98e04",
+  },
+  fibre: {
+    name: "Fibra Demo",
+    sub: "Fibra y móvil",
+    mark: "F",
+    band: "Fibra Demo no es una operadora real y esta contratación es ficticia.",
+    brand: "#b3471d",
+    brandDark: "#8a3514",
+    accent: "#2a7ab0",
   },
 } as const;
 
@@ -305,3 +315,98 @@ export const renderAgeResult = (overEighteen: boolean): string =>
         "La credencial es válida, pero no acredita que sea mayor de 18 años.",
         "shop",
       );
+
+// --- Fibra Demo: the large-family discount ----------------------------------------------------
+
+/** The fictitious offer, and the discount a valid Large Family Title earns. */
+export const FIBRE_OFFER = {
+  product: "Fibra 1 Gb + fijo",
+  monthly: 40,
+  discountPercent: 30,
+} as const;
+
+const euros = (amount: number): string => `${amount.toFixed(2).replace(".", ",")} EUR/mes`;
+
+const CATEGORY: Readonly<Record<string, string>> = { general: "General", special: "Especial" };
+
+/**
+ * Whether the discount applies to a verified title: the operator's own rule, on top of what the
+ * platform checked (signature, the attestation's validity, its status). The title carries its own
+ * expiry date, which may be earlier than the attestation's; a title that expired yesterday earns no
+ * discount. `today` is `YYYY-MM-DD`.
+ */
+export const largeFamilyDiscount = (
+  claims: Readonly<Record<string, unknown>>,
+  today: string,
+): { readonly applies: boolean; readonly category?: string; readonly validUntil?: string } => {
+  const category = typeof claims["category"] === "string" ? claims["category"] : undefined;
+  const validUntil =
+    typeof claims["date_of_expiry"] === "string" ? claims["date_of_expiry"] : undefined;
+  const applies =
+    category !== undefined &&
+    category in CATEGORY &&
+    validUntil !== undefined &&
+    /^\d{4}-\d{2}-\d{2}$/.test(validUntil) &&
+    validUntil >= today;
+  return { applies, category, validUntil };
+};
+
+const offerBox = (discounted: boolean): string => {
+  const price = FIBRE_OFFER.monthly * (discounted ? 1 - FIBRE_OFFER.discountPercent / 100 : 1);
+  return `
+  <div class="op">
+    <div class="op-title">${escapeHtml(FIBRE_OFFER.product)}</div>
+    <div class="kv"><span>Cuota</span><strong>${escapeHtml(euros(FIBRE_OFFER.monthly))}</strong></div>
+    <div class="kv"><span>Descuento familia numerosa</span><strong>${discounted ? `−${FIBRE_OFFER.discountPercent} %` : `hasta −${FIBRE_OFFER.discountPercent} %`}</strong></div>
+    ${discounted ? `<div class="kv"><span>Cuota con descuento</span><strong>${escapeHtml(euros(price))}</strong></div>` : ""}
+  </div>`;
+};
+
+export const renderFibreHome = (): string =>
+  shell(
+    "Contratar fibra",
+    `
+    <nav class="crumbs">Fibra Demo › Particulares › <strong>Contratar</strong></nav>
+    <h1>Contrate su fibra con un ${FIBRE_OFFER.discountPercent} % de descuento</h1>
+    <p class="lead">Si es familia numerosa, acredítelo con su cartera digital y le aplicamos el descuento. La operadora recibe solo <strong>la categoría del título y su fecha de validez</strong>: ni su nombre, ni su fecha de nacimiento, ni el número del título.</p>
+    ${offerBox(false)}
+    <form method="post" action="verificar" class="card">
+      <input type="hidden" name="tipo" value="fibra">
+      <p>Se abrirá su cartera y le pedirá compartir la categoría y la validez de su Título de Familia Numerosa.</p>
+      <div class="actions"><button type="submit">Acreditar familia numerosa con la cartera</button></div>
+    </form>`,
+    "",
+    "fibre",
+  );
+
+export const renderFibreResult = (
+  claims: Readonly<Record<string, unknown>>,
+  today: string,
+): string => {
+  const d = largeFamilyDiscount(claims, today);
+  if (!d.applies) {
+    return renderFailure(
+      "No se ha podido aplicar el descuento",
+      "La credencial es válida, pero el título no está en vigor o no indica una categoría reconocida.",
+      "fibre",
+    );
+  }
+  return shell(
+    "Descuento aplicado",
+    `
+    <div class="ok" role="status"><span class="tick" aria-hidden="true">✓</span> Familia numerosa acreditada. Descuento aplicado.</div>
+    <h1>Descuento del ${FIBRE_OFFER.discountPercent} % aplicado</h1>
+    ${offerBox(true)}
+    <div class="card">
+      <h2>Lo que ha recibido la operadora</h2>
+      <div class="kvs">
+        <div class="kv"><span>Categoría</span><strong>${escapeHtml(CATEGORY[d.category ?? ""] ?? "")}</strong></div>
+        <div class="kv"><span>Válido hasta</span><strong>${escapeHtml(d.validUntil ?? "")}</strong></div>
+      </div>
+      <p class="lead" style="margin-top:14px">Nada más: ni su nombre, ni su fecha de nacimiento, ni el número del título, ni el resto de su familia.</p>
+    </div>
+    <div class="actions"><a class="button secondary" href="fibra">Volver a la oferta</a></div>`,
+    "",
+    "fibre",
+  );
+};

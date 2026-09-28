@@ -9,6 +9,10 @@
  *     --signer-sha256 2IMmoFLUHyrtG60cldjIwVrvsEonpHlw9NhOqlfYUSo \
  *     --id eudi-dev-pid-providers
  *
+ * `--lote-file <path>` reads the JWS from disk instead of fetching `--lote`, which still names the
+ * list: for trying a regenerated list before it is published. The signature, the signer pin and
+ * `NextUpdate` are checked exactly as for a fetched one.
+ *
  * Then add `<lote URL>=<id>` to ENGINE_ISSUER_TRUST_LISTS in .env and recreate platform-api. A
  * presentation policy names the URL as a trust anchor source. Re-run it when the list rolls over:
  * it updates the engine's copy in place.
@@ -55,6 +59,7 @@ const fail = (message) => {
 
 const tenant = arg("tenant");
 const loteUrl = arg("lote");
+const loteFile = arg("lote-file");
 const pin = arg("signer-sha256");
 const listId = arg("id");
 const description = arg("description", `Issuers from ${loteUrl ?? "?"} (TEST)`);
@@ -76,10 +81,16 @@ const pem = (der64) =>
   `-----BEGIN CERTIFICATE-----\n${der64.match(/.{1,64}/g).join("\n")}\n-----END CERTIFICATE-----\n`;
 
 // --- the list ---------------------------------------------------------------------------------
-console.log(`==> Fetching ${loteUrl}`);
-const res = await fetch(loteUrl, { signal: AbortSignal.timeout(30_000) });
-if (!res.ok) fail(`fetch failed: HTTP ${res.status}`);
-const jws = (await res.text()).trim();
+let jws;
+if (loteFile) {
+  console.log(`==> Reading ${loteFile} (to be published at ${loteUrl})`);
+  jws = readFileSync(loteFile, "utf8").trim();
+} else {
+  console.log(`==> Fetching ${loteUrl}`);
+  const res = await fetch(loteUrl, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) fail(`fetch failed: HTTP ${res.status}`);
+  jws = (await res.text()).trim();
+}
 const [h, p, sig] = jws.split(".");
 if (!h || !p || !sig) fail("not a compact JWS");
 

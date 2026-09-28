@@ -3,7 +3,8 @@
  *
  * Styled after the issuing organisation's public site, for demonstrations to those organisations —
  * FNMT for the PID, CORPME (the Spanish Registrars' association) for the representation credentials —
- * and **always** carrying the demonstration band, so no page can be taken for a real service
+ * or after a fictitious one (the autonomous community that issues the Large Family Title), and
+ * **always** carrying the demonstration band, so no page can be taken for a real service
  * collecting real personal data. Every value typed or shown is expected to be fictitious.
  */
 
@@ -50,6 +51,21 @@ export const BRANDS: Readonly<Record<string, Brand>> = {
     service: "Credenciales de demostración",
     serviceSub: "Emisión de credenciales",
     crumbs: "Inicio › Credenciales",
+  },
+  /**
+   * The fictitious autonomous community that issues the Large Family Title. Not a real organisation,
+   * so not a client's look and shown on public hosts too: no logo, a text mark, generic colours.
+   */
+  comunidad: {
+    key: "comunidad",
+    organisation: "Comunidad Autónoma Demo",
+    logoAlt: "Comunidad Autónoma Demo",
+    client: false,
+    colour: "#2e6b3f",
+    colourDark: "#1f4d2c",
+    service: "Sede electrónica",
+    serviceSub: "Familias numerosas",
+    crumbs: "Inicio › Sede electrónica › Familias numerosas",
   },
   fnmt: {
     key: "fnmt",
@@ -264,10 +280,43 @@ export const renderForm = (page: FormPage): string => {
 
 // --- the representation flow: identify, then request ----------------------------------------
 
+/** Labels for the PID claims an identification may ask for, in the order they are listed. */
+const PID_LABELS: Readonly<Record<string, string>> = {
+  given_name: "Nombre",
+  family_name: "Apellidos",
+  birthdate: "Fecha de nacimiento",
+  nationalities: "Nacionalidad",
+  "place_of_birth.country": "País de nacimiento",
+  personal_administrative_number: "Número de identificación",
+};
+
+/**
+ * The PID claims to show, in `PID_LABELS` order: those the identification asks for when the platform
+ * says, otherwise every one known — the behaviour before the platform said.
+ */
+const askedFor = (asked: readonly string[] | undefined): string[] => {
+  const known = Object.keys(PID_LABELS);
+  if (!asked || asked.length === 0) return known;
+  return [
+    ...known.filter((k) => asked.includes(k)),
+    ...asked.filter((k) => !known.includes(k)),
+  ];
+};
+
+/** "a, b y c", in lower case after the first word of a sentence. */
+const listed = (paths: readonly string[]): string => {
+  const words = paths.map((p) => (PID_LABELS[p] ?? p).toLowerCase());
+  return words.length <= 1
+    ? (words[0] ?? "")
+    : `${words.slice(0, -1).join(", ")} y ${words[words.length - 1]}`;
+};
+
 export const renderIdentify = (page: {
   readonly brand: Brand;
   readonly state: Readonly<Record<string, string>>;
   readonly credentialName: string;
+  /** The PID claims the identification asks for, dotted. */
+  readonly asked?: readonly string[];
   readonly errors?: readonly string[];
 }): string =>
   shell(
@@ -281,7 +330,7 @@ export const renderIdentify = (page: {
     <form method="post" action="identificarse" class="card">
       ${hidden(page.state)}
       <h2>Paso 1 de 2 · Identificación</h2>
-      <p>Se abrirá su cartera y le pedirá compartir su nombre, apellidos, fecha de nacimiento, nacionalidad y país de nacimiento. Después volverá a esta página.</p>
+      <p>Se abrirá su cartera y le pedirá compartir ${escapeHtml(listed(askedFor(page.asked)))}. Después volverá a esta página.</p>
       <div class="actions"><button type="submit">Identificarme con mi cartera</button></div>
     </form>`,
   );
@@ -319,6 +368,9 @@ const CODES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   IssuingAuthorityType: { "0": "QEAA", "1": "PubEAA", "2": "NQEAA (no cualificada)" },
   Type: { "0": "Orgánica", "1": "Voluntaria", "2": "Apud acta" },
   Limitation: { true: "Limitado", false: "Sin límites" },
+  // Large Family Title
+  category: { general: "General", special: "Especial" },
+  member_role: { holder: "Titular", beneficiary: "Beneficiario" },
 };
 
 const plain = (key: string, value: unknown): string => {
@@ -353,20 +405,14 @@ const describe = (key: string, value: unknown): string => {
   return `<strong>${escapeHtml(plain(key, value))}</strong>`;
 };
 
-const PID_LABELS: Readonly<Record<string, string>> = {
-  given_name: "Nombre",
-  family_name: "Apellidos",
-  birthdate: "Fecha de nacimiento",
-  nationalities: "Nacionalidad",
-  "place_of_birth.country": "País de nacimiento",
-};
-
 export const renderRequest = (page: {
   readonly brand: Brand;
   readonly state: Readonly<Record<string, string>>;
   readonly credentialName: string;
   readonly person: Readonly<Record<string, unknown>>;
   readonly fixed: readonly FixedClaim[];
+  /** The PID claims the identification asked for, dotted. */
+  readonly asked?: readonly string[];
   readonly errors?: readonly string[];
 }): string => {
   // The verification result may carry a claim flat (`"a.b"`) or nested (`{a: {b}}`).
@@ -382,11 +428,11 @@ export const renderRequest = (page: {
                 : undefined,
             page.person,
           );
-  const person = Object.entries(PID_LABELS)
-    .filter(([k]) => read(k) !== undefined)
+  const person = askedFor(page.asked)
+    .filter((k) => read(k) !== undefined)
     .map(
-      ([k, label]) =>
-        `<div class="kv"><span>${escapeHtml(label)}</span>${describe(k, read(k))}</div>`,
+      (k) =>
+        `<div class="kv"><span>${escapeHtml(PID_LABELS[k] ?? k)}</span>${describe(k, read(k))}</div>`,
     )
     .join("");
   const fixed = page.fixed
@@ -406,9 +452,9 @@ export const renderRequest = (page: {
     <form method="post" action="solicitar" class="card">
       ${hidden(page.state)}
       <h2>Paso 2 de 2 · Solicitud</h2>
-      <h3>Datos del representante (de su PID)</h3>
+      <h3>Sus datos (de su PID)</h3>
       <div class="kvs">${person}</div>
-      <h3>Datos de la representación</h3>
+      <h3>Datos que certificará la credencial</h3>
       <div class="kvs">${fixed}</div>
       <div class="actions"><button type="submit">Solicitar</button></div>
     </form>`,

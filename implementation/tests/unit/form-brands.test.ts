@@ -34,4 +34,22 @@ describe("which look a page wears", () => {
     expect(html).not.toMatch(/FNMT|CORPME|Registradores/);
     expect(html).not.toContain("<img");
   });
+
+  it("shows the fictitious autonomous community on public hosts: it is nobody's real look", () => {
+    const brand = selectBrand(
+      { "fam-1": "comunidad" },
+      "fam-1",
+      "edtp-pid.murcata.es",
+      BRANDED,
+    );
+    expect(brand.key).toBe("comunidad");
+    expect(brand.client).toBe(false);
+    const html = renderIdentify({
+      brand,
+      state: {},
+      credentialName: "Título de Familia Numerosa",
+    });
+    expect(html).toContain("No es un servicio real");
+    expect(html).not.toContain("<img");
+  });
 });

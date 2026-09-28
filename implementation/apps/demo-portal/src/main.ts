@@ -47,7 +47,7 @@ const schema = z.object({
   PORTAL_PROFILE_DIR: z.string().min(1).optional(),
   PORTAL_PROFILES: z
     .string()
-    .default("generic,fnmt-corpme")
+    .default("generic,fnmt-corpme,gobcan")
     .transform((v) =>
       v
         .split(",")
@@ -67,11 +67,19 @@ const schema = z.object({
   CHECK_ISSUER_METADATA_URL: url.default(
     "http://gateway:3010/.well-known/openid-credential-issuer/issuers/pid-1",
   ),
+  /**
+   * The Large Family Title issuer's public metadata. A client profile may brand only this issuer
+   * (`gobcan`), so the PID issuer's name alone cannot tell the operator which profile is on.
+   */
+  CHECK_FAMILY_METADATA_URL: url.default(
+    "http://gateway:3010/.well-known/openid-credential-issuer/issuers/fam-1",
+  ),
 });
 type Config = Readonly<z.infer<typeof schema>>;
 
 /** The name the PID issuer has under the generic profile (`infra/demo-vm/profiles/generic.env`). */
 const GENERIC_PID_ISSUER = "PID Demo Issuer";
+const GENERIC_FAMILY_ISSUER = "Comunidad Autónoma Demo";
 
 const secureHeaders = (response: Response): void => {
   response.setHeader(
@@ -199,20 +207,32 @@ const cards = async (config: Config): Promise<DemoCard[]> => {
   ];
 };
 
-/** The PID issuer's current display name: tells the operator which branding profile is on. */
-const currentProfile = async (config: Config): Promise<{ name: string; client: boolean }> => {
+/** An issuer's current display name, from its public metadata. */
+const issuerName = async (url: string): Promise<string | undefined> => {
   try {
-    const r = await fetch(config.CHECK_ISSUER_METADATA_URL, {
-      signal: AbortSignal.timeout(3_000),
-    });
+    const r = await fetch(url, { signal: AbortSignal.timeout(3_000) });
     const d = (await r.json()) as { display?: { name?: string }[] };
-    const name = d.display?.[0]?.name ?? "desconocido";
-    return name === GENERIC_PID_ISSUER
-      ? { name: "genérico", client: false }
-      : { name: `cliente (${name})`, client: true };
+    return d.display?.[0]?.name;
   } catch {
-    return { name: "desconocido (el emisor no responde)", client: false };
+    return undefined;
   }
+};
+
+/**
+ * Which branding profile is on, told by the issuers' display names: a client profile renames the PID
+ * issuer (`fnmt-corpme`) or the Large Family Title's (`gobcan`). Generic only when both carry their
+ * generic names.
+ */
+const currentProfile = async (config: Config): Promise<{ name: string; client: boolean }> => {
+  const [pid, family] = await Promise.all([
+    issuerName(config.CHECK_ISSUER_METADATA_URL),
+    issuerName(config.CHECK_FAMILY_METADATA_URL),
+  ]);
+  if (pid === undefined) return { name: "desconocido (el emisor no responde)", client: false };
+  if (pid !== GENERIC_PID_ISSUER) return { name: `cliente (${pid})`, client: true };
+  if (family !== undefined && family !== GENERIC_FAMILY_ISSUER)
+    return { name: `cliente (${family})`, client: true };
+  return { name: "genérico", client: false };
 };
 
 const lastChecks = async (config: Config): Promise<ChecksStatus | undefined> => {

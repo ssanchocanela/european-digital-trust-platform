@@ -394,9 +394,17 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
         mode: "import",
         jwt: registrationCertificateJwt,
       };
+    } else {
+      // With no certificate the metadata carries no `issuer_info`; the omission is reported upward
+      // by `createCredentialOffer`, never faked. **Sent as an explicit `null`, not left out**: the
+      // engine keeps the stored issuer configuration's fields that a `POST /issuer/config` omits, so
+      // omitting it left whatever certificate the tenant held before — on 28 September 2026 `rpi-1`
+      // still carried a one-day TEST placeholder (`sub: NLAP.contract-test`) minted by the adapter
+      // contract suite on 23 September, which the engine then warned was expired on every metadata
+      // read. The provider's view is the whole truth about the tenant (interop-findings.md A20);
+      // `null` makes it so for this field too.
+      issuanceConfig.registrationCertificate = null;
     }
-    // With no certificate the metadata simply carries no `issuer_info`. The omission is reported
-    // upward by `createCredentialOffer`, never faked.
 
     await this.client.request(engineTenantRef, "POST", "/issuer/config", issuanceConfig);
 

@@ -201,9 +201,13 @@ const planFor = (
 };
 
 // The suite provisions into a real engine tenant, and a wallet reading that issuer's metadata lists
-// every configuration it finds. Leave nothing behind for one to list.
+// every configuration it finds. Leave nothing behind for one to list — including the TEST placeholder
+// registration certificate, which is tenant-scoped and outlived the suite on 23 September 2026: it
+// sat in `rpi-1` until 28 September, expired after a day, and was carried to the demonstration VM.
+// Provisioning once without it clears it (the adapter sends `null`).
 afterAll(async () => {
   if (!adapter || !reachable) return;
+  await adapter.provisionCredentialConfiguration({ engineTenantRef, plan: planFor() });
   await adapter.withdrawCredentialConfigurations({
     engineTenantRef,
     policyId: "issuance-contract-policy",
@@ -459,6 +463,26 @@ describe("issuance contract against a real engine (skipped when none is reachabl
         evidence.accessCertificateInSignedMetadata &&
         evidence.registrationCertificateInSignedPayload,
     ).toBe(false);
+  }, 90_000);
+
+  it("removes the registration certificate when the provider no longer holds one", async () => {
+    if (!reachable || !adapter || !client) return;
+
+    // The engine keeps the issuer configuration's fields that a `POST /issuer/config` omits, so a
+    // provider that stops holding a certificate must have it cleared explicitly, or the tenant goes
+    // on publishing the old one (and, once it expires, warning about it on every metadata read).
+    await adapter.provisionCredentialConfiguration({
+      engineTenantRef,
+      plan: planFor(testRegistrationCertificateJwt),
+    });
+    await adapter.provisionCredentialConfiguration({ engineTenantRef, plan: planFor() });
+
+    const evidence = await adapter.fetchProviderAuthenticationEvidence(engineTenantRef);
+    expect(evidence.registrationCertificatePresent).toBe(false);
+    const config = (await client.request(engineTenantRef, "GET", "/issuer/config")) as {
+      registrationCertificate?: unknown;
+    };
+    expect(config.registrationCertificate ?? null).toBeNull();
   }, 90_000);
 
   it("PID-during-issuance: the nested presentation request is decodable, as far as a wallet would get", async () => {

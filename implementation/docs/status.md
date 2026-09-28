@@ -43,8 +43,10 @@ the operator, a title issued under v2 wearing that look, and presented twice to 
 
 **Open:**
 - the wallet names the bank at Fibra Demo (security limitation P10);
-- the engine warns that `rpi-1`'s registration certificate JWT is expired or not active — seen in the
-  logs on the day, not investigated.
+- ~~the engine warns that `rpi-1`'s registration certificate JWT is expired~~ — **explained and fixed**:
+  a one-day TEST placeholder the adapter contract suite left in `rpi-1` on 23 September, which the
+  platform never cleared because it omitted the field ([`interop-findings.md`](interop-findings.md)
+  A35). The VM's copy is cleared by the first provisioning after the fix is deployed.
 
 ## 24 September 2026, night — **a representation credential from the wallet's own list, issued as CORPME after identifying with the PID**
 

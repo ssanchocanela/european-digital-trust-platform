@@ -28,9 +28,11 @@ that CA is **test data issued by a development platform**, not a PID: no Member 
 it, and only a wallet we modified ourselves (deviation WD-4) consults this list. It is signed by the
 same `edtp-lote-signer.crt`.
 
-`lote/EAAProviders.jwt` — a list of **non-qualified EAA providers** with exactly **one** anchor,
-`EDTP Development Attestation Provider - TEST ONLY` (`lote/edtp-dev-eaa-provider.crt`, self-signed),
-which signs this project's Power of X test attestations. Unlike the two lists above it carries
+`lote/EAAProviders.jwt` — a list of **non-qualified EAA providers** with **two** anchors, both
+self-signed and both ours: `EDTP Attestation Provider` (`lote/edtp-dev-eaa-provider.crt`), which signs
+this project's Power of X test attestations, and `Comunidad Autonoma Demo - large family titles - TEST
+ONLY` (`lote/edtp-dev-large-family-provider.crt`), which signs its Large Family Title test
+attestations on behalf of a **fictitious** autonomous community. Unlike the two lists above it carries
 **nothing** from a notified list: for a non-qualified EAA there is none to extend, so the EUDI
 development PubEAA list was used as a structural template only. It is read by the platform's own
 verification engine, not by any wallet. Its service and list type identifiers are `urn:edtp:test:…`

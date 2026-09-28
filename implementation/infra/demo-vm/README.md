@@ -128,8 +128,12 @@ about 25 minutes.
 
 ## Branding profiles (ADR 0010 §2)
 
-`profiles/generic.env` is the public default. `profiles/fnmt-corpme.env` is a client profile; switch it
-on only with the organisations' written permission. On the VM:
+`profiles/generic.env` is the public default. `profiles/fnmt-corpme.env` and `profiles/gobcan.env` are
+client profiles; switch one on only with the organisation's written permission. `gobcan` (28 September
+2026) brands only the Large Family Title's issuer, `fam-1`, as "Gobierno de Canarias (demo)", with a
+look taken from the public sede's stylesheet and **no emblem**; the PID issuer and the register keep
+their generic names. The title's content stays neutral: its `issuing_authority` is the fictitious
+"Consejería de Familia (demo)", whichever profile is on. On the VM:
 
     ~/edtp/implementation/infra/demo-vm/demo-profile.sh fnmt-corpme   # reverts by itself after 4 hours
     ~/edtp/implementation/infra/demo-vm/demo-profile.sh generic       # back now

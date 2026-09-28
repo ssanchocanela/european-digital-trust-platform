@@ -34,6 +34,14 @@ export interface Brand {
   readonly service: string;
   readonly serviceSub: string;
   readonly crumbs: string;
+  /** The top bar's colour, when it is not the brand colour. */
+  readonly accent?: string;
+  /** The letters in the text mark, when there is no logo. */
+  readonly mark?: string;
+  /** Body and header typeface, when the organisation's site sets one. */
+  readonly font?: string;
+  /** The page background, when not the default light grey. */
+  readonly background?: string;
 }
 
 export const BRANDS: Readonly<Record<string, Brand>> = {
@@ -66,6 +74,30 @@ export const BRANDS: Readonly<Record<string, Brand>> = {
     service: "Sede electrónica",
     serviceSub: "Familias numerosas",
     crumbs: "Inicio › Sede electrónica › Familias numerosas",
+    mark: "C",
+  },
+  /**
+   * The Gobierno de Canarias electronic office, for a demonstration of the Large Family Title to it.
+   * A real organisation's look, so a client brand: shown only on the Access-protected host while a
+   * client profile configures it, and only with the organisation's written permission (ADR 0010 §2).
+   * Its palette and typeface are read from the public sede's stylesheet (28 September 2026): blue
+   * #0c2c84, yellow #f9bc00, light blue #c5dce8, Arial. **No emblem or logo**: the coat of arms is an
+   * official symbol, so a text mark stands in until the organisation supplies one to use.
+   */
+  gobcan: {
+    key: "gobcan",
+    client: true,
+    organisation: "Gobierno de Canarias",
+    logoAlt: "Gobierno de Canarias",
+    colour: "#0c2c84",
+    colourDark: "#081f5e",
+    accent: "#f9bc00",
+    mark: "GC",
+    font: "Arial, Helvetica, sans-serif",
+    background: "#eef4f8",
+    service: "Sede electrónica del Gobierno de Canarias",
+    serviceSub: "Título de familia numerosa",
+    crumbs: "Inicio › Sede electrónica › Procedimientos › Familia numerosa",
   },
   fnmt: {
     key: "fnmt",
@@ -479,16 +511,16 @@ const shell = (brand: Brand, title: string, main: string, head = ""): string => 
 ${head}
 <title>${escapeHtml(title)} — ${escapeHtml(brand.organisation)} (demostración)</title>
 <style>
-  :root { --brand:${brand.colour}; --brand-dark:${brand.colourDark}; --ink:#212529; --muted:#4d4d4d; --line:#e7e7e7; --bg:#f7f7f7; }
+  :root { --brand:${brand.colour}; --brand-dark:${brand.colourDark}; --accent:${brand.accent ?? brand.colour}; --ink:#212529; --muted:#4d4d4d; --line:#e7e7e7; --bg:${brand.background ?? "#f7f7f7"}; }
   * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif; color:var(--ink); background:var(--bg); }
+  body { margin:0; font-family:${brand.font ?? '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif'}; color:var(--ink); background:var(--bg); }
   .demo { background:#fff4ce; color:#5c4400; border-bottom:1px solid #f0d77a; font-size:14px; padding:8px 16px; text-align:center; }
-  .topbar { height:6px; background:var(--brand); }
+  .topbar { height:6px; background:var(--accent); }
   header { background:#fff; border-bottom:1px solid var(--line); }
   header .inner { max-width:960px; margin:0 auto; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
   header img { height:56px; width:auto; display:block; }
   header .mark { display:flex; align-items:center; gap:10px; font-weight:700; font-size:18px; color:var(--brand); }
-  header .mark span { width:40px; height:40px; border-radius:8px; background:var(--brand); color:#fff; display:grid; place-items:center; font-size:20px; }
+  header .mark span { min-width:40px; height:40px; padding:0 6px; border-radius:8px; background:var(--brand); color:#fff; display:grid; place-items:center; font-size:18px; }
   header .service { color:var(--brand); font-weight:600; font-size:15px; text-align:right; }
   main { max-width:960px; margin:0 auto; padding:24px 16px 48px; }
   .crumbs { font-size:13px; color:var(--muted); margin-bottom:12px; }
@@ -524,7 +556,7 @@ ${head}
   <div class="demo" role="note"><strong>Entorno de demostración.</strong> ${brand.client ? `No es un servicio de ${escapeHtml(brand.organisation)}.` : "No es un servicio real."} Use únicamente datos ficticios.</div>
   <div class="topbar"></div>
   <header><div class="inner">
-    ${brand.logo ? `<img src="${escapeHtml(brand.logo)}" alt="${escapeHtml(brand.logoAlt)}">` : `<div class="mark" aria-label="${escapeHtml(brand.logoAlt)}"><span>D</span>${escapeHtml(brand.organisation)}</div>`}
+    ${brand.logo ? `<img src="${escapeHtml(brand.logo)}" alt="${escapeHtml(brand.logoAlt)}">` : `<div class="mark" aria-label="${escapeHtml(brand.logoAlt)}"><span>${escapeHtml(brand.mark ?? "D")}</span>${escapeHtml(brand.organisation)}</div>`}
     <div class="service">${escapeHtml(brand.service)}<br><span style="font-weight:400;color:#4d4d4d">${escapeHtml(brand.serviceSub)}</span></div>
   </div></header>
   <main>${main}</main>

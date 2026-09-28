@@ -52,4 +52,19 @@ describe("which look a page wears", () => {
     expect(html).toContain("No es un servicio real");
     expect(html).not.toContain("<img");
   });
+
+  it("shows the Gobierno de Canarias look only on the protected host, with the band and no emblem", () => {
+    const configured = { "fam-1": "gobcan" };
+    expect(selectBrand(configured, "fam-1", BRANDED, BRANDED).key).toBe("gobcan");
+    expect(selectBrand(configured, "fam-1", "edtp-pid.murcata.es", BRANDED).key).toBe("demo");
+    const html = renderIdentify({
+      brand: selectBrand(configured, "fam-1", BRANDED, BRANDED),
+      state: {},
+      credentialName: "Título de Familia Numerosa",
+    });
+    expect(html).toContain("Entorno de demostración");
+    expect(html).toContain("No es un servicio de Gobierno de Canarias");
+    expect(html).toContain("#0c2c84");
+    expect(html).not.toContain("<img");
+  });
 });

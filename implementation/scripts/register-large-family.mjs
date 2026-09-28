@@ -165,6 +165,10 @@ const issuance = async (t, providerId, identifyPolicyId) => {
       credentialValiditySeconds: doc.validitySeconds,
       // A title is revoked when the family stops qualifying; the law provides no suspension.
       statusPolicy: { statusListEnabled: true, suspensionAllowed: false },
+      // ARF Method B, limited time, as the PID and the Power of X carry: one credential, presented
+      // as often as needed, re-issued 30 days before it expires. Its presentations are linkable
+      // (interop-findings.md A34) until the engine can serve once-only batches.
+      reusePolicy: doc.reusePolicy,
       publish: true,
     },
   );

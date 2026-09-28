@@ -11,6 +11,7 @@
     "anchorSource": "RULEBOOK_ONLY"
   },
   "validitySeconds": 31536000,
+  "reusePolicy": { "method": "LIMITED_TIME", "reissueBeforeExpirySeconds": 2592000 },
   "type": {
     "key": "fn",
     "name": "Título de Familia Numerosa",

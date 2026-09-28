@@ -81,6 +81,11 @@ verifies is issued by `fam-1`, "Comunidad Autónoma Demo", set up on the VM with
 `scripts/create-engine-tenant.sh fam-1` and `scripts/setup-large-family-issuer.sh`
 (`docs/credential-catalogue.md`, *The Large Family Title*).
 
+**The VM's `.env` sets `EDTP_FORM_TENANTS` explicitly**, which overrides the compose default: it must
+list `fam-1` too (`pid-1,rpi-1,fam-1`), or the gateway lets the wallet past the form, the person is
+never identified, and the engine's request for the title's values gets a `404` — failing closed, with
+nothing issued. That is what happened on the first attempt, on 28 September 2026.
+
 ## Scheduled checks and the nightly reset (ADR 0010 §3)
 
 systemd timers, whose units are in `files/`:

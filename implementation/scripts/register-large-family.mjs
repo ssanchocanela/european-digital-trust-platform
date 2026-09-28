@@ -10,8 +10,8 @@
  *     <attestationProviderId> <identificationPresentationPolicyId>
  *
  * 1. A presentation policy **Identify with PID, for a Large Family Title**, alongside the
- *    identification policy it is given — same Relying Party Service, intended use, credential
- *    requirement and trust anchors — asking the PID for names and date of birth, nothing else.
+ *    identification policy it is given — same Relying Party Service, intended use and credential
+ *    requirement, and the PID anchors the definition names — asking the PID for names and date of birth, nothing else.
  * 2. The credential type, with its claims and payload schema, and a published issuance policy whose
  *    source is `verified-presentation`: the member's identity from the presentation, everything
  *    else fixed.
@@ -116,9 +116,10 @@ const issuance = async (t, providerId, identifyPolicyId) => {
       credentialRequirements: latest.credentialRequirements,
       requestedClaims: idSpec.requestedClaims.map((p) => ({ path: p })),
       resultPolicy: { kind: "VERIFIED_CLAIMS", allowedClaims: idSpec.requestedClaims },
-      // The same PID anchors as the policy copied, so a test PID identifies here exactly as it
-      // does for the representation credentials.
-      trustPolicy: latest.trustPolicy,
+      // Stated, not copied: the API's view of a policy version does not include its trust policy,
+      // so copying `latest.trustPolicy` sent nothing — and a policy with no anchors is refused at
+      // the first identification (`trust_anchor_sources_missing`, A30). Found on 28 September 2026.
+      trustPolicy: { anchorSources: idSpec.anchorSources, statusCheckMode: "STRICT" },
       publish: true,
     },
   );

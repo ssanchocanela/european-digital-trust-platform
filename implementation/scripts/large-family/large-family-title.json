@@ -172,7 +172,14 @@
       { "lang": "en", "value": "Identify you, to issue your Large Family Title" },
       { "lang": "es", "value": "Identificarle para expedir su Título de Familia Numerosa" }
     ],
-    "requestedClaims": [["family_name"], ["given_name"], ["birthdate"]]
+    "requestedClaims": [["family_name"], ["given_name"], ["birthdate"]],
+    "anchorSources": [
+      {
+        "kind": "ETSI_TS_119_602_LOTE",
+        "domain": "PID_PROVIDER",
+        "ref": "https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt"
+      }
+    ]
   },
   "presentation": {
     "intendedUseIdentifier": "edtp-demo-large-family-discount",

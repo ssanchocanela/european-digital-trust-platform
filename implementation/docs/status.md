@@ -8,43 +8,35 @@ linked rather than repeated.
 
 ---
 
-## 28 September 2026 — **the Large Family Title, built and run locally; not yet on the VM or a phone**
+## 28 September 2026 — **the Large Family Title, issued to a wallet and presented twice to Fibra Demo**
 
 A second use case alongside the representation credentials, the same shape: a *Título de Familia
 Numerosa* requested from the wallet's own list, issued by **"Comunidad Autónoma Demo"** (a fictitious
 community, engine tenant `fam-1`) after the person identifies with their PID, and presented to **Fibra
-Demo** (`/fibra`, a fictitious fibre operator) for a 30% discount. The model is ours — no Rulebook
-exists — and lives in the repository: [`credential-catalogue.md`](credential-catalogue.md), *The Large
-Family Title*. Branch `feature/large-family`.
+Demo** (`https://edtp-banco.murcata.es/fibra`, a fictitious fibre operator) for a 30% discount. The model
+is ours — no Rulebook exists — and lives in the repository: [`credential-catalogue.md`](credential-catalogue.md),
+*The Large Family Title*. PR #14.
 
-**Run on the laptop's stack** (no wallet, since the demo hostnames now belong to the VM): `fam-1`
-created and provisioned; its metadata names "Comunidad Autónoma Demo" and offers the title (12 claims);
-the hosted form's endpoint returns the identification's three claims (names, date of birth); the EAA
-TEST list with **two** anchors loaded into the engine from a file (`load-issuer-trust-list.mjs
---lote-file`); Fibra Demo starts a real presentation whose DCQL query asks for `category` and
-`date_of_expiry` only. Unit tests added for the form pages, the brand and the discount rule.
+**Run on the permanent environment** with **W7 rebuilt in place** (three WD-5 issuers):
+identification `VERIFIED`, title `ISSUED`, Fibra Demo `VERIFIED` twice — the second a separate
+presentation. Record: [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1p. It took
+three fixes on the day, each now in the scripts or the docs: the new tenant's wallet-provider trust
+list, `fam-1` in the VM's explicit `EDTP_FORM_TENANTS`, and PID anchors on the identification policy
+(published there as v2).
 
-**Still to do, in order — each step needing the user where marked:**
+**What is on the VM now**, beyond the deployed image: engine tenant `fam-1`; its provider
+`54af93c8…` with a self-signed signing certificate (valid to 28 September 2027); identification policy
+`661445e7…` **v2**, issuance policy `4d0b30a5…`, Fibra Demo policy `05746a87…` under a new intended use;
+the three in `.env`, with `fam-1` in `EDTP_FORM_TENANTS`, `ENGINE_ISSUER_DISPLAY_NAMES` and
+`HOSTED_FORM_BRANDS`. The EAA TEST list on `gh-pages` carries **two** anchors (`NextUpdate` 27 December
+2026) and is loaded on `rpi-1`. `.env` backups from the day are in the checkout, mode 600, git-ignored.
 
-1. **Merge the PR** (user), then deploy its `demo-image` tag with `deploy-demo` (**user approves**).
-2. **On the VM**, over SSH (**user's Access login**), from the checkout:
-   - `./scripts/create-engine-tenant.sh fam-1 "Comunidad Autonoma Demo"`, then recreate `platform-api`;
-   - `PLATFORM_TENANT_API_KEY=… ./scripts/setup-large-family-issuer.sh` — prints the provider id and
-     saves the signing certificate as `~/.edtp/eaa-provider/fam-1.crt` **on the VM**.
-3. **On the laptop**, which holds the list signer: copy that certificate across, regenerate
-   `EAAProviders.jwt` with `--ca ~/.edtp/eaa-provider/ca.crt,<fam-1.crt>`, and publish it on `gh-pages`
-   (**user confirms**: it is public). Then, on the VM, reload it into `rpi-1` with
-   `load-issuer-trust-list.mjs … --id edtp-test-eaa-providers`.
-4. **On the VM**: `register-large-family.mjs issuance <provider> c4e31d3f-390b-4e1d-9549-977eee914a3f`
-   and `presentation be13182d-5b11-480a-acb8-a52a347d80a4 <EAA list URL>` (ids as migrated on 24
-   September — check them first); add the three printed ids to `HOSTED_FORM_POLICIES`,
-   `HOSTED_VERIFIER_POLICIES` and `DEMO_BANK_POLICIES` (`fibra=`); `demo-profile.sh generic` to take the
-   new issuer name and brand; provision the issuance policy; run the negative checks.
-5. **The wallet**: W7 rebuilt in place (same suffix `.edtptest7`, so it keeps its documents) with
-   `--issuer …/pid-1,…/rpi-1,…/fam-1` — the release build needs the signing key's passwords (**user**).
-6. **On the phone** (**user**): request the title from the list, identify, issue; then Fibra Demo, twice.
-
-The laptop's own `.env` gained `fam-1` and the local ids; the laptop stack is not what the phone reaches.
+**Open:**
+- the title carries no reuse policy, so its presentations are linkable (A34); giving the issuance policy
+  `reusePolicy: LIMITED_TIME`, as the PID and PoX have, is a version bump;
+- the wallet names the bank at Fibra Demo (security limitation P10);
+- the engine warns that `rpi-1`'s registration certificate JWT is expired or not active — seen in the
+  logs on the day, not investigated.
 
 ## 24 September 2026, night — **a representation credential from the wallet's own list, issued as CORPME after identifying with the PID**
 

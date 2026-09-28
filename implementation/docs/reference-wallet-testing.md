@@ -754,6 +754,34 @@ default for non-PID documents (`RotatingBatch`, one credential, reused). New one
 `LIMITED_TIME` policy. Either way, **the presentations are linkable** (A34). Banco Demo is fictional and
 the operation is fictitious.
 
+### 8.1p Seventeenth wallet run — **the Large Family Title: from the wallet's own list, after identifying with the PID, then Fibra Demo twice**
+
+28 September 2026, on the **permanent demonstration environment** (image `fcb441d6a11a`, ADR 0010).
+**W7 rebuilt in place** — a **modified wallet**, release build signed with our key, same suffix
+`.edtptest7` so it kept its documents — with WD-5 carrying **three** issuers (`pid-1`, `rpi-1`, `fam-1`).
+The `fnmt-corpme` client profile was on at the time; `fam-1` is fictitious under either profile.
+Negative checks passed (32 probes, all `404`) after each change.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 0a · First attempt | *From list* failed at the first call | `POST /issuers/fam-1/authorize/par` 400, "Could not find any entity of type TrustList": the new engine tenant had no wallet-provider trust list. Created with `setup-wallet-provider-trust.sh`; the issuer set-up script now does it |
+| 0b · Second attempt | failed at collection | the gateway did not send `fam-1` to the form — the VM's `.env` sets `EDTP_FORM_TENANTS` explicitly (`pid-1,rpi-1`), overriding the new default — so nobody was identified and the engine's request for the values got `404`. **Failed closed: nothing issued.** `fam-1` added |
+| 0c · Third attempt | the form showed "Servicio no disponible" on *Identificarme* | `trust_anchor_sources_missing`: the identification policy had been created with no PID anchors, because the script copied a trust policy the API does not return. Fixed with a **v2** naming the EDTP TEST PID list; the script now states the anchors |
+| 1 · Discover | the list showed a third issuer, *Comunidad Autónoma Demo*, offering *Título de Familia Numerosa* | `fam-1` metadata: one configuration, `urn:edtp:large-family:1`, 12 claims |
+| 2 · Identify | the Comunidad Autónoma Demo form asked for names and date of birth only; the wallet presented its PID mid-issuance and returned into the form | identification presentation **`VERIFIED`** (10:19:03 UTC) |
+| 3 · Collect | the form showed the PID claims and the fictitious title data; *Solicitar*; the wallet collected the title | issuance **`ISSUED`** (policy v1), warnings: no registration certificate, FIXTURE source. The platform showed `AWAITING_WALLET` until the issuance was read — its state is reconciled with the engine on read, as for every issuance |
+| 4 · Present | Fibra Demo (`/fibra`): the wallet asked for the category and validity of the title and returned to the page | presentation **`VERIFIED`** (10:19:47); "Descuento del 30 % aplicado", showing category *General* and *Válido hasta 2031-01-15* only |
+| 5 · Present again | the same title, from the start of the page | a **second, separate** presentation **`VERIFIED`** (10:34:05). A first "second time" had only reopened the result page; the count of presentations on the VM is what showed it |
+
+What this shows: a second issuer offered from the wallet's own list; an attestation built from a
+verified PID plus test data, by a different issuer from the representation credentials'; and a
+relying party that asks for two claims and nothing else. What it does **not** show: anything about an
+unmodified wallet, about any autonomous community, or about anyone's family — the community, the title
+and the family are fictitious. The title was issued without a reuse policy, so the wallet stored it
+under its default for non-PID documents (one credential, reused): **the two presentations are
+linkable** (A34). The wallet names the bank as the relying party at Fibra Demo (security limitation
+P10). No registration certificate (B3).
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

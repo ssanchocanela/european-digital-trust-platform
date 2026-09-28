@@ -242,7 +242,8 @@ second slot's `VciConfig` block is emitted again as the last element, with only 
 `order` (2) changed — every client setting is the second slot's, which is upstream's. The wallet builds
 its list from `issuersConfig` generically (`associateWith`, sorted by `order`) and nothing in it counts
 to two. Checked on a copy of the pinned upstream file: the only change is the added block (and a
-trailing newline). More than three is refused. **Not yet built into an APK.**
+trailing newline). More than three is refused. **Built on 28 September 2026** as W7 rebuilt in place
+(release, our key, `.edtptest7`), and exercised: `reference-wallet-testing.md` §8.1p.
 
 **W7** (24 September 2026) is the build for the generic, permanent demonstration environment (ADR
 0010). It has the same deviations and the same two issuers as W6, but the row label is "PID (demo)",

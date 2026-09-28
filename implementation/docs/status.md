@@ -36,7 +36,10 @@ the three in `.env`, with `fam-1` in `EDTP_FORM_TENANTS`, `ENGINE_ISSUER_DISPLAY
 presentations stay linkable (A34) but no longer depend on the wallet's default. A title issued under v1
 keeps v1's terms: re-request it to get the policy. And a **`gobcan` client profile** gives the title's
 form a Gobierno de Canarias look — no emblem — on the Access-protected host only, with written
-permission (`infra/demo-vm/README.md`, *Branding profiles*). Not yet deployed.
+permission (`infra/demo-vm/README.md`, *Branding profiles*). **Deployed (image `68ed5a74076c`) and
+exercised** the same day: `gobcan` switched on with the organisation's written permission confirmed by
+the operator, a title issued under v2 wearing that look, and presented twice to Fibra Demo, both
+`VERIFIED` — [`reference-wallet-testing.md`](reference-wallet-testing.md) §8.1q.
 
 **Open:**
 - the wallet names the bank at Fibra Demo (security limitation P10);

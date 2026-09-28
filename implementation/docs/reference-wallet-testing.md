@@ -782,6 +782,29 @@ under its default for non-PID documents (one credential, reused): **the two pres
 linkable** (A34). The wallet names the bank as the relying party at Fibra Demo (security limitation
 P10). No registration certificate (B3).
 
+### 8.1q Eighteenth wallet run — **the Large Family Title with a reuse policy, under the Gobierno de Canarias client profile**
+
+28 September 2026, same wallet as §8.1p (**W7** rebuilt in place, a **modified wallet**), on the
+permanent environment at image `68ed5a74076c`. The title's issuance policy at **v2**, with
+`reusePolicy: LIMITED_TIME` (re-issued 30 days before its one-year expiry), which the issuer metadata
+publishes as `credential_reuse_policy` `limited_time`, `reissue_trigger_lifetime_left` 2592000. The
+**`gobcan` client profile** switched on at 11:00 UTC by the operator, who confirmed the organisation's
+written permission (journal: `profile=gobcan by=…`); revert scheduled for 15:00 UTC. Negative checks
+passed (32 probes, all `404`) before and after the switch.
+
+| Step | What happened | Evidence |
+|---|---|---|
+| 0 · The look | the form on `edtp-cliente.murcata.es` wore the Gobierno de Canarias look; on `edtp-pid.murcata.es` the neutral one; `edtp-cliente` without logging in answered `302` to the Access login | form pages fetched per host on the VM; public request to `edtp-cliente` |
+| 1 · Discover | the wallet's list named the title's issuer "Gobierno de Canarias (demo)"; the PID issuer and the register kept their generic names | issuer metadata of `pid-1`, `rpi-1`, `fam-1` |
+| 2 · Identify and collect | the old title deleted; a new one requested, the person identified with the PID behind the Access login | identifications **`VERIFIED`** (11:01, 11:13); issuances **`ISSUED`**, both at **policy v2** (11:01, 11:14) |
+| 3 · Present twice | Fibra Demo, twice, from the start of the page each time | two separate presentations **`VERIFIED`** (11:15:33, 11:17:23), the discount applied both times |
+
+What this adds to §8.1p: the title now carries an explicit limited-time reuse policy, and the wallet
+presented a title issued under it twice. The presentations remain **linkable** (A34). The look is a
+demonstration under the organisation's permission and the band says so on every page; it is **not** a
+service of the Gobierno de Canarias, the title's content stays fictitious (`issuing_authority`
+"Consejería de Familia (demo)"), and nothing about an unmodified wallet follows from it.
+
 ### 8.2 Wallet capability checks
 
 | Item | Status |

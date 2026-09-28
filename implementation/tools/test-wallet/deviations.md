@@ -235,6 +235,15 @@ representation credentials from `rpi-1`. The two go into upstream's own two slot
 at the second URL with the same settings; nothing is added. More than two is refused. W6 was rebuilt
 this way on 24 September 2026, with the same suffix, so it updates in place and keeps its documents.
 
+**Three issuers**, `--issuer <url>,<url>,<url>`, for the Large Family Title (28 September 2026): the
+PID from `pid-1`, the representation credentials from `rpi-1`, and the title from `fam-1`, a fictitious
+autonomous community. The third is **the one addition WD-5 makes**: upstream has two slots, so the
+second slot's `VciConfig` block is emitted again as the last element, with only its URL and its
+`order` (2) changed — every client setting is the second slot's, which is upstream's. The wallet builds
+its list from `issuersConfig` generically (`associateWith`, sorted by `order`) and nothing in it counts
+to two. Checked on a copy of the pinned upstream file: the only change is the added block (and a
+trailing newline). More than three is refused. **Not yet built into an APK.**
+
 **W7** (24 September 2026) is the build for the generic, permanent demonstration environment (ADR
 0010). It has the same deviations and the same two issuers as W6, but the row label is "PID (demo)",
 the suffix is `.edtptest7`, the name is "EDTP TEST 7", and it is a **release** build signed with our
@@ -255,7 +264,8 @@ open it when the browser hands back; choose the build the flow started in.
 
 That this platform can issue a PID into a wallet that *discovers* it as its issuer, with the
 authorization step on a web form of ours — and, with two issuers, that a representation credential
-can be requested the same way, the person identifying mid-issuance by presenting that PID. Nothing about which issuers an unmodified wallet offers —
+can be requested the same way, the person identifying mid-issuance by presenting that PID; with three,
+that a second issuer (the Large Family Title's) is offered alongside. Nothing about which issuers an unmodified wallet offers —
 it offers the EUDI reference issuers, and its list is not something a Relying Party or an issuer
 controls. The PID and the representation data are test data, and the FNMT and CORPME branding is a
 demonstration, not a service of either.

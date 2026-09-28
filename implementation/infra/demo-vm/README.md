@@ -75,6 +75,12 @@ hosted-verifier secret. Its policy, "Comprobación de mayoría de edad (demo)", 
 `scripts/register-age-check.mjs`. It requests `birthdate` and returns only `over_18`. It has to be
 listed in both `HOSTED_VERIFIER_POLICIES` and `DEMO_BANK_POLICIES` (`edad=<id>`).
 
+Fibra Demo's large-family discount lives there too, at `/fibra`, on the same terms. Its policy comes
+from `scripts/register-large-family.mjs presentation` and is listed as `fibra=<id>`. The title it
+verifies is issued by `fam-1`, "Comunidad Autónoma Demo", set up on the VM with
+`scripts/create-engine-tenant.sh fam-1` and `scripts/setup-large-family-issuer.sh`
+(`docs/credential-catalogue.md`, *The Large Family Title*).
+
 ## Scheduled checks and the nightly reset (ADR 0010 §3)
 
 systemd timers, whose units are in `files/`:

@@ -5,6 +5,11 @@
 #   ./scripts/create-engine-tenant.sh fam-1 "Comunidad Autonoma Demo"   # once; restart platform-api
 #   PLATFORM_TENANT_API_KEY=… ./scripts/setup-large-family-issuer.sh
 #
+# It also creates the engine tenant's wallet-provider trust list (setup-wallet-provider-trust.sh),
+# which every issuer tenant needs: without it the engine refuses the wallet at its first call,
+# `POST /issuers/fam-1/authorize/par` 400, "Could not find any entity of type TrustList". Found on
+# 28 September 2026, on the first wallet request to fam-1.
+#
 # Then, in this order:
 #   1. add the saved certificate to the EDTP TEST list of EAA providers and republish it:
 #        node scripts/make-test-lote.mjs --kind eaa \
@@ -104,6 +109,9 @@ if [ "$PROVIDER_STATE" = "registered" ]; then
 else
   echo "==> Reusing Attestation Provider $PROVIDER_ID (already provisioned; not re-keyed)"
 fi
+
+echo "==> Wallet-provider trust list on $ENGINE_TENANT_REF"
+ENGINE_TENANT_REF="$ENGINE_TENANT_REF" "$HERE/setup-wallet-provider-trust.sh" | sed 's/^/    /'
 
 cat <<NEXT
 

@@ -31,9 +31,14 @@ the three in `.env`, with `fam-1` in `EDTP_FORM_TENANTS`, `ENGINE_ISSUER_DISPLAY
 `HOSTED_FORM_BRANDS`. The EAA TEST list on `gh-pages` carries **two** anchors (`NextUpdate` 27 December
 2026) and is loaded on `rpi-1`. `.env` backups from the day are in the checkout, mode 600, git-ignored.
 
+**Since, the same day:** the title's issuance policy is at **v2** on the VM with the PID's and PoX's
+`reusePolicy: LIMITED_TIME` (re-issued 30 days before its one-year expiry; v1 withdrawn), so its
+presentations stay linkable (A34) but no longer depend on the wallet's default. A title issued under v1
+keeps v1's terms: re-request it to get the policy. And a **`gobcan` client profile** gives the title's
+form a Gobierno de Canarias look — no emblem — on the Access-protected host only, with written
+permission (`infra/demo-vm/README.md`, *Branding profiles*). Not yet deployed.
+
 **Open:**
-- the title carries no reuse policy, so its presentations are linkable (A34); giving the issuance policy
-  `reusePolicy: LIMITED_TIME`, as the PID and PoX have, is a version bump;
 - the wallet names the bank at Fibra Demo (security limitation P10);
 - the engine warns that `rpi-1`'s registration certificate JWT is expired or not active — seen in the
   logs on the day, not investigated.

@@ -24,6 +24,14 @@
  * and so is replaced rather than extended. Both kinds share one signer: the signer vouches for the
  * list's integrity, not for either domain, and the domains stay apart because the lists do.
  *
+ * ## Several anchors (`--ca a.crt,b.crt`)
+ *
+ * The EAA list carries one anchor per development attestation provider, because each provider signs
+ * with a self-signed certificate of its own: the register that issues the representation credentials
+ * and the autonomous community that issues the Large Family Title (`setup-large-family-issuer.sh`).
+ * Each certificate becomes its own Issuance and Revocation services in our entity, named after its
+ * CN. With one certificate the list is built exactly as before.
+ *
  * ## This is not a notified list, and it says so in every field that is displayed
  *
  * ARF Topic 31 lists are notified by Member States. This one is not and never will be. It exists
@@ -56,7 +64,7 @@
  * `deviations.md`.
  */
 import { execFileSync } from "node:child_process";
-import { createSign, generateKeyPairSync } from "node:crypto";
+import { createSign, generateKeyPairSync, X509Certificate } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -114,7 +122,10 @@ if (!kind) {
 }
 const NOTIFIED_LIST = kind.notifiedList;
 
-const caPath = arg("ca", join(homedir(), ".edtp", kind.caDir, "ca.crt"));
+const caPaths = arg("ca", join(homedir(), ".edtp", kind.caDir, "ca.crt"))
+  .split(",")
+  .map((p) => p.trim().replace(/^~(?=\/)/, homedir()))
+  .filter(Boolean);
 const publishedUrl = arg("url");
 const outPath = arg("out");
 const validityDays = Number(arg("validity-days", "90"));
@@ -184,7 +195,17 @@ if (carryForward) {
 // A separate entity rather than another service of theirs: the anchor is ours, operated by us,
 // and folding it into their entity would misattribute it.
 
-const caDer = derOf(caPath);
+const cas = caPaths.map((path) => {
+  const der = derOf(path);
+  // One RDN per line in Node's rendering, so a CN containing a comma is read whole.
+  const cn = new X509Certificate(der).subject
+    .split("\n")
+    .find((rdn) => rdn.startsWith("CN="))
+    ?.slice(3)
+    .replace(/\\(.)/g, "$1"); // RFC 4514 escapes, e.g. "\\,"
+  return { path, der, cn: cn ?? path };
+});
+console.log(`==> ${cas.length} anchor(s): ${cas.map((c) => c.cn).join("; ")}`);
 
 /**
  * Our entry is built by **cloning the notified list's entity and replacing its values**, rather than
@@ -215,11 +236,11 @@ const relabel = (entries, replacement) =>
   }));
 
 const serviceTemplate = template.TrustedEntityServices[0].ServiceInformation;
-const ourService = (name, typeIdentifier) => ({
+const ourService = (name, typeIdentifier, der) => ({
   ServiceInformation: {
     ...clone(serviceTemplate),
     ServiceName: relabel(serviceTemplate.ServiceName, name),
-    ServiceDigitalIdentity: { X509Certificates: [{ val: caDer.toString("base64") }] },
+    ServiceDigitalIdentity: { X509Certificates: [{ val: der.toString("base64") }] },
     ServiceTypeIdentifier: typeIdentifier,
     SchemeServiceDefinitionURI: relabel(
       serviceTemplate.SchemeServiceDefinitionURI,
@@ -239,8 +260,13 @@ const ourEntity = {
   TrustedEntityServices: [
     // Issuance and Revocation, as the notified list carries for every anchor. The same certificate
     // appears in both, which is why anything counting anchors must filter on the type.
-    ourService(kind.serviceName, `${kind.serviceType}/Issuance`),
-    ourService(`${kind.serviceName} Revocation`, `${kind.serviceType}/Revocation`),
+    ...cas.flatMap(({ der, cn }) => {
+      const name = cas.length === 1 ? kind.serviceName : `${kind.serviceName} - ${cn}`;
+      return [
+        ourService(name, `${kind.serviceType}/Issuance`, der),
+        ourService(`${name} Revocation`, `${kind.serviceType}/Revocation`, der),
+      ];
+    }),
   ],
 };
 

@@ -148,6 +148,8 @@ interface Definition {
   readonly credentialName: string;
   readonly fields: readonly FormField[];
   readonly fixed: readonly FixedClaim[];
+  /** The PID claims the identification asks for, dotted; empty for the typed form. */
+  readonly asked: readonly string[];
 }
 
 /** The pending request's policy, and what the form must show for it. */
@@ -173,6 +175,7 @@ const definitionFor = async (
       display.find((d) => d.lang.startsWith("es"))?.value ?? display[0]?.value ?? "credencial",
     fields: (json["fields"] as FormField[]) ?? [],
     fixed: (json["fixed"] as FixedClaim[]) ?? [],
+    asked: ((json["identify"] as { claims?: unknown })?.claims as string[] | undefined) ?? [],
   };
 };
 
@@ -379,7 +382,12 @@ const main = (): void => {
     const state = { ...stateFields(s), policy: definition.policyId };
     if (definition.flow === "identify") {
       response.send(
-        renderIdentify({ brand, state, credentialName: definition.credentialName }),
+        renderIdentify({
+          brand,
+          state,
+          credentialName: definition.credentialName,
+          asked: definition.asked,
+        }),
       );
     } else {
       response.send(renderForm({ brand, state, ...definition }));
@@ -470,6 +478,7 @@ const main = (): void => {
           credentialName: definition.credentialName,
           person: (identification?.json["claims"] as Record<string, unknown>) ?? {},
           fixed: definition.fixed,
+          asked: definition.asked,
         }),
       );
       return;
@@ -483,6 +492,7 @@ const main = (): void => {
         brand,
         state: { ...stateFields(s), policy: definition.policyId },
         credentialName: definition.credentialName,
+        asked: definition.asked,
         errors: ["No se ha podido verificar su identificación. Inténtelo de nuevo."],
       }),
     );

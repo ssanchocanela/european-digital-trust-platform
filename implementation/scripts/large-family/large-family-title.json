@@ -1,0 +1,242 @@
+{
+  "_note": [
+    "Título de Familia Numerosa (Spanish large-family title), as a demonstration attestation. Read by scripts/register-large-family.mjs.",
+    "A platform-defined model, not a Rulebook: no EU or national Rulebook exists for this attestation. Its content follows the individual title/card that Spanish autonomous communities issue under Ley 40/2003 de Protección a las Familias Numerosas and Real Decreto 1621/2005, reduced to what a verifier plausibly needs. It is a working model, not a final one.",
+    "One attestation per family member: the member identified by the PID. Member names and date of birth come from that PID; everything else is FICTITIOUS test data. The issuing community, the title number and the family exist nowhere.",
+    "vct is a project placeholder. issuing_region ES-XX is deliberately not an ISO 3166-2 code, so the fictitious community cannot be mistaken for a real one."
+  ],
+  "rulebook": {
+    "identifier": "urn:edtp:rulebook:large-family-title",
+    "version": "0.1",
+    "anchorSource": "RULEBOOK_ONLY"
+  },
+  "validitySeconds": 31536000,
+  "type": {
+    "key": "fn",
+    "name": "Título de Familia Numerosa",
+    "vct": "urn:edtp:large-family:1",
+    "display": [
+      { "lang": "es", "value": "Título de Familia Numerosa" },
+      { "lang": "en", "value": "Large Family Title" }
+    ],
+    "claims": [
+      {
+        "path": ["family_name"],
+        "display": [
+          { "lang": "en", "value": "Family name" },
+          { "lang": "es", "value": "Apellidos" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["given_name"],
+        "display": [
+          { "lang": "en", "value": "Given name" },
+          { "lang": "es", "value": "Nombre" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["birthdate"],
+        "display": [
+          { "lang": "en", "value": "Date of birth" },
+          { "lang": "es", "value": "Fecha de nacimiento" }
+        ],
+        "mandatory": true,
+        "valueType": "date"
+      },
+      {
+        "path": ["member_role"],
+        "display": [
+          { "lang": "en", "value": "Role in the family" },
+          { "lang": "es", "value": "Condición" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["title_number"],
+        "display": [
+          { "lang": "en", "value": "Title number" },
+          { "lang": "es", "value": "Número de título" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["category"],
+        "display": [
+          { "lang": "en", "value": "Category" },
+          { "lang": "es", "value": "Categoría" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["number_of_children"],
+        "display": [
+          { "lang": "en", "value": "Number of children" },
+          { "lang": "es", "value": "Número de hijos" }
+        ],
+        "mandatory": true,
+        "valueType": "integer"
+      },
+      {
+        "path": ["date_of_issuance"],
+        "display": [
+          { "lang": "en", "value": "Date of issue" },
+          { "lang": "es", "value": "Fecha de expedición" }
+        ],
+        "mandatory": true,
+        "valueType": "date"
+      },
+      {
+        "path": ["date_of_expiry"],
+        "display": [
+          { "lang": "en", "value": "Valid until" },
+          { "lang": "es", "value": "Válido hasta" }
+        ],
+        "mandatory": true,
+        "valueType": "date"
+      },
+      {
+        "path": ["issuing_authority"],
+        "display": [
+          { "lang": "en", "value": "Issuing authority" },
+          { "lang": "es", "value": "Órgano expedidor" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["issuing_region"],
+        "display": [
+          { "lang": "en", "value": "Issuing autonomous community" },
+          { "lang": "es", "value": "Comunidad autónoma" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["issuing_country"],
+        "display": [
+          { "lang": "en", "value": "Issuing country" },
+          { "lang": "es", "value": "País emisor" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      }
+    ],
+    "codeLists": {
+      "category": [
+        {
+          "code": "general",
+          "es": "General",
+          "en": "General",
+          "note": "3 or 4 children, or the equivalent situations the law provides for"
+        },
+        {
+          "code": "special",
+          "es": "Especial",
+          "en": "Special",
+          "note": "5 or more children, or 4 with the circumstances the law provides for"
+        }
+      ],
+      "member_role": [
+        { "code": "holder", "es": "Titular", "en": "Holder (parent or guardian)" },
+        { "code": "beneficiary", "es": "Beneficiario", "en": "Beneficiary (child)" }
+      ]
+    },
+    "fixedClaims": {
+      "member_role": "holder",
+      "title_number": "XX-DEMO-0001234",
+      "category": "general",
+      "number_of_children": 3,
+      "date_of_issuance": "2026-01-15",
+      "date_of_expiry": "2031-01-15",
+      "issuing_authority": "Consejería de Familia (demo) - TEST ONLY",
+      "issuing_region": "ES-XX",
+      "issuing_country": "ES"
+    }
+  },
+  "fromPid": {
+    "family_name": "family_name",
+    "given_name": "given_name",
+    "birthdate": "birthdate"
+  },
+  "identification": {
+    "name": "Identify with PID, for a Large Family Title",
+    "purpose": [
+      { "lang": "en", "value": "Identify you, to issue your Large Family Title" },
+      { "lang": "es", "value": "Identificarle para expedir su Título de Familia Numerosa" }
+    ],
+    "requestedClaims": [["family_name"], ["given_name"], ["birthdate"]]
+  },
+  "presentation": {
+    "intendedUseIdentifier": "edtp-demo-large-family-discount",
+    "intendedUsePurpose": [
+      { "lang": "en", "value": "Apply a large-family discount to a fibre contract" },
+      {
+        "lang": "es",
+        "value": "Aplicar el descuento de familia numerosa a un contrato de fibra"
+      }
+    ],
+    "name": "Verify a Large Family Title, for a discount",
+    "description": "Checks that a Large Family Title is valid and of which category, to apply a discount. Asks for the category and the expiry date only: no name, no date of birth, no title number.",
+    "purpose": [
+      {
+        "lang": "en",
+        "value": "Check that you hold a valid Large Family Title, to apply a 30% discount"
+      },
+      {
+        "lang": "es",
+        "value": "Comprobar que tiene un Título de Familia Numerosa en vigor, para aplicarle un descuento del 30 %"
+      }
+    ],
+    "requestedClaims": [["category"], ["date_of_expiry"]]
+  },
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:edtp:schema:large-family:1",
+    "title": "Título de Familia Numerosa (urn:edtp:large-family:1), SD-JWT VC, disclosed claims",
+    "type": "object",
+    "required": [
+      "vct",
+      "family_name",
+      "given_name",
+      "birthdate",
+      "member_role",
+      "title_number",
+      "category",
+      "number_of_children",
+      "date_of_issuance",
+      "date_of_expiry",
+      "issuing_authority",
+      "issuing_region",
+      "issuing_country"
+    ],
+    "$defs": {
+      "date": {
+        "type": "string",
+        "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+      }
+    },
+    "properties": {
+      "vct": { "const": "urn:edtp:large-family:1" },
+      "family_name": { "type": "string", "minLength": 1 },
+      "given_name": { "type": "string", "minLength": 1 },
+      "birthdate": { "$ref": "#/$defs/date" },
+      "member_role": { "enum": ["holder", "beneficiary"] },
+      "title_number": { "type": "string", "minLength": 1 },
+      "category": { "enum": ["general", "special"] },
+      "number_of_children": { "type": "integer", "minimum": 2 },
+      "date_of_issuance": { "$ref": "#/$defs/date" },
+      "date_of_expiry": { "$ref": "#/$defs/date" },
+      "issuing_authority": { "type": "string", "minLength": 1 },
+      "issuing_region": { "type": "string", "pattern": "^ES-[A-Z]{1,2}$" },
+      "issuing_country": { "const": "ES" }
+    }
+  }
+}

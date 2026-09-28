@@ -6,6 +6,8 @@ import {
   renderAgeHome,
   renderAgeResult,
   renderFailure,
+  renderFibreHome,
+  renderFibreResult,
   renderHome,
   renderOpenWallet,
   renderSuccess,
@@ -27,6 +29,11 @@ import {
  *   policies configured for it. No tenant key, no database, no session, no cookie.
  * - It never chooses where the wallet returns: the platform sets that from its own configuration.
  * - It shows the verified claims to the person who presented them, and keeps nothing.
+ *
+ * It also serves two other fictitious Relying Parties, each on its own path with its own look: Tienda
+ * Demo's age check (`/edad`) and Fibra Demo's large-family discount (`/fibra`). They share this
+ * process, its secret and the platform's single hosted-verifier return, so a wallet shows the same
+ * Relying Party for all three — a demonstration limit, recorded in `docs/security-limitations.md`.
  */
 
 const schema = z.object({
@@ -40,8 +47,8 @@ const schema = z.object({
   PLATFORM_API_BASE_URL: z.string().url(),
   HOSTED_VERIFIER_SECRET: z.string().min(32),
   /**
-   * The presentation policy for each choice: `por=<id>,poa=<id>,poe=<id>`, and `edad=<id>` for Tienda
-   * Demo's age check (`/edad`).
+   * The presentation policy for each choice: `por=<id>,poa=<id>,poe=<id>`, `edad=<id>` for Tienda
+   * Demo's age check (`/edad`) and `fibra=<id>` for Fibra Demo's large-family discount (`/fibra`).
    */
   DEMO_BANK_POLICIES: z
     .string()
@@ -157,6 +164,10 @@ const main = (): void => {
   // Tienda Demo: an age check, derived from the PID's date of birth. The result carries `over_18`
   // only; the date never reaches this process (ADR 0005 Decision 5).
   const agePolicy = config.DEMO_BANK_POLICIES["edad"];
+  // Fibra Demo: a large-family discount. The result carries the title's category and expiry date
+  // only; no name, date of birth or title number reaches this process.
+  const fibrePolicy = config.DEMO_BANK_POLICIES["fibra"];
+  const today = () => new Date().toISOString().slice(0, 10);
 
   const app = express();
   app.disable("x-powered-by");
@@ -202,9 +213,30 @@ const main = (): void => {
     response.send(renderAgeHome());
   });
 
+  app.get("/fibra", (_request, response) => {
+    secureHeaders(response);
+    if (!fibrePolicy) {
+      response.status(404).send(renderFailure("No encontrado", "Esta página no existe."));
+      return;
+    }
+    response.send(renderFibreHome());
+  });
+
   app.post("/verificar", async (request, response) => {
     secureHeaders(response);
     const key = typeof request.body?.tipo === "string" ? request.body.tipo : "";
+    if (key === "fibra" && fibrePolicy) {
+      const started = await platform(
+        config,
+        "POST",
+        `/v1/hosted-verifications/${encodeURIComponent(fibrePolicy)}`,
+      ).catch(() => undefined);
+      const walletUri = started?.json["walletUri"];
+      if (started?.status !== 201 || typeof walletUri !== "string")
+        return unavailable(response);
+      response.send(renderOpenWallet(walletUri, "Título de Familia Numerosa", "fibre"));
+      return;
+    }
     if (key === "edad" && agePolicy) {
       const started = await platform(
         config,
@@ -240,8 +272,9 @@ const main = (): void => {
     const presentationId =
       typeof request.query["presentation"] === "string" ? request.query["presentation"] : "";
     const isAge = Boolean(agePolicy) && policyId === agePolicy;
+    const isFibre = Boolean(fibrePolicy) && policyId === fibrePolicy;
     const choice = choiceForPolicy(policyId);
-    if ((!choice && !isAge) || !UUID.test(presentationId)) {
+    if ((!choice && !isAge && !isFibre) || !UUID.test(presentationId)) {
       response
         .status(400)
         .send(
@@ -257,7 +290,20 @@ const main = (): void => {
     if (!outcome || outcome.status !== 200) return unavailable(response);
     const status = String(outcome.json["status"] ?? "");
     if (IN_PROGRESS.has(status)) {
-      response.send(renderWaiting(isAge ? "shop" : "bank"));
+      response.send(renderWaiting(isAge ? "shop" : isFibre ? "fibre" : "bank"));
+      return;
+    }
+    if (isFibre) {
+      if (status === "VERIFIED") {
+        const claims = (outcome.json["claims"] as Record<string, unknown>) ?? {};
+        response.send(renderFibreResult(claims, today()));
+        return;
+      }
+      const [title, body] = FAILURES[status] ?? [
+        "No se ha podido comprobar",
+        "La comprobación no ha terminado correctamente. Vuelva a intentarlo.",
+      ];
+      response.status(422).send(renderFailure(title, body, "fibre"));
       return;
     }
     if (isAge) {

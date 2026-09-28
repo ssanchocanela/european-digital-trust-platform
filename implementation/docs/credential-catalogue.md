@@ -15,6 +15,7 @@ authorised anything.** `TEST` environment only.
 | Power of Representation | `dc+sd-jwt` | `urn:edtp:pox:power-of-representation:1` | a consortium Rulebook draft (v0.1) | attribute names exact, **structure and identifier interpreted** |
 | Power of Attorney | `dc+sd-jwt` | `urn:edtp:pox:power-of-attorney:1` | the same | as above |
 | Power of Employee | `dc+sd-jwt` | `urn:edtp:pox:power-of-employee:1` | the same | as above |
+| Large Family Title | `dc+sd-jwt` | `urn:edtp:large-family:1` | this project's own model | **ours, a working model** — no Rulebook exists |
 
 ## The first two are read, not remembered
 
@@ -123,6 +124,42 @@ takes three things, all in place since 23 September 2026:
 **An attestation is verifiable only while its status list is reachable.** Its status list URI is the
 engine's public URL at the time of issue, so attestations issued through a quick tunnel cannot be
 verified once that tunnel closes. Issue through the named tunnel (`test-session-gateway.md` §2).
+
+## The Large Family Title — a model of our own
+
+Written 28 September 2026. *Título de Familia Numerosa*: the title a Spanish autonomous community
+issues under Ley 40/2003 and Real Decreto 1621/2005, as a demonstration attestation. **No EU or national
+Rulebook defines it**, so the model is this project's, and — unlike the Power of X definitions, which
+derive from a confidential draft — it lives in the repository:
+[`scripts/large-family/large-family-title.json`](../scripts/large-family/large-family-title.json).
+
+**One attestation per family member**, like the individual title or card a community issues: the member
+identified by the PID. Twelve claims, all selectively disclosable:
+
+| Block | Claims | Where the value comes from |
+|---|---|---|
+| Member | `family_name`, `given_name`, `birthdate`; `member_role` (`holder` / `beneficiary`) | names and date of birth from a verified PID; the role fixed |
+| Title | `title_number`, `category` (`general` / `special`), `number_of_children`, `date_of_issuance`, `date_of_expiry` | fixed, fictitious |
+| Issuer | `issuing_authority`, `issuing_region`, `issuing_country` | fixed, fictitious; `ES-XX` is deliberately not an ISO 3166-2 code |
+
+The attestation is valid for a year, shorter than the title's own `date_of_expiry`: it may expire
+before the title, never after it. Revocation only, no suspension.
+
+**Issued by its own issuer**, engine tenant `fam-1`, "Comunidad Autónoma Demo" — a fictitious
+community, not a client's look, so it wears its own neutral brand on public hosts too. The flow is the
+representation credentials': the wallet's own list (WD-5, now with a third issuer), identification with
+the PID mid-issuance, a page showing what the title will state, issuance. Set up with
+`scripts/setup-large-family-issuer.sh` and `scripts/register-large-family.mjs issuance`.
+
+**Verified by Fibra Demo**, a fictitious fibre operator in the bank's process at `/fibra`, which offers
+a 30% discount. Its policy asks for `category` and `date_of_expiry` and nothing else — the DCQL query
+sent to the wallet was checked — and the page applies its own rule on the title's expiry. Created with
+`register-large-family.mjs presentation`, under a **new** intended use. The wallet names the bank as the
+Relying Party (security limitation P10).
+
+**Trust.** `fam-1` signs with a self-signed certificate, like `rpi-1`, so the EDTP TEST list of EAA
+providers now carries two anchors (`make-test-lote.mjs --ca a.crt,b.crt`). A title is verifiable only
+once that list is republished and reloaded.
 
 ## Adding to the catalogue
 

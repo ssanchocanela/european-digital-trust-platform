@@ -123,7 +123,8 @@ request to the engine and opens the browser at `/issuers/{tenant}/authorize`. **
 authorization server mints a code for whoever arrives there** — it has no page and no hook — so the
 person's form must stand in front of it, and the gateway is where it can.
 
-For the engine tenants in `GATEWAY_HOSTED_FORM_TENANTS` (`pid-1`, `rpi-1`):
+For the engine tenants in `GATEWAY_HOSTED_FORM_TENANTS` (`pid-1`, `rpi-1`, and `fam-1` for the Large
+Family Title):
 
 - a `GET` to that path **without a valid pass** is answered `302` to the hosted form
   (`edtp-pid.murcata.es`, `apps/pid-form`), carrying `request_uri` and `client_id` only;

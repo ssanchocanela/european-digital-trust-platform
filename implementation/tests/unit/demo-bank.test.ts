@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  largeFamilyDiscount,
   renderFailure,
+  renderFibreHome,
+  renderFibreResult,
   renderHome,
   renderOpenWallet,
   renderSuccess,
@@ -42,5 +45,50 @@ describe("demonstration bank pages", () => {
     expect(html).toContain("Empresa");
     expect(html).toContain("Persona física");
     expect(html).toContain("Operación autorizada");
+  });
+});
+
+/**
+ * Fibra Demo: a fictitious fibre operator that gives a large family a discount. It asks for the title's
+ * category and expiry date only, and applies its own rule on the title's expiry.
+ */
+describe("Fibra Demo, the large-family discount", () => {
+  const today = "2026-09-28";
+  const valid = { category: "general", date_of_expiry: "2031-01-15" };
+
+  it("applies to a title in force with a known category", () => {
+    expect(largeFamilyDiscount(valid, today).applies).toBe(true);
+    expect(largeFamilyDiscount({ ...valid, category: "special" }, today).applies).toBe(true);
+    // The last day of validity still counts.
+    expect(largeFamilyDiscount({ ...valid, date_of_expiry: today }, today).applies).toBe(true);
+  });
+
+  it("does not apply to an expired title, an unknown category, or missing claims", () => {
+    expect(largeFamilyDiscount({ ...valid, date_of_expiry: "2026-09-27" }, today).applies).toBe(
+      false,
+    );
+    expect(largeFamilyDiscount({ ...valid, category: "gold" }, today).applies).toBe(false);
+    expect(largeFamilyDiscount({ category: "general" }, today).applies).toBe(false);
+    expect(largeFamilyDiscount({ ...valid, date_of_expiry: "15/01/2031" }, today).applies).toBe(
+      false,
+    );
+  });
+
+  it("carries the band on every page, and never claims to be a real operator", () => {
+    for (const page of [
+      renderFibreHome(),
+      renderFibreResult(valid, today),
+      renderFibreResult({ ...valid, date_of_expiry: "2020-01-01" }, today),
+    ]) {
+      expect(page).toContain("Entorno de demostración");
+      expect(page).toContain("no es una operadora real");
+    }
+  });
+
+  it("shows the discounted price and only what it received", () => {
+    const html = renderFibreResult(valid, today);
+    expect(html).toContain("28,00 EUR/mes");
+    expect(html).toContain("<strong>General</strong>");
+    expect(html).toContain("2031-01-15");
   });
 });

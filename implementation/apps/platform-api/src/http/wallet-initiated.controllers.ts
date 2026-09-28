@@ -9,6 +9,7 @@ import { z } from "zod";
 import type { PlatformConfig } from "../config.js";
 import type { HostedFormReturns } from "../modules/issuances/hosted-form-returns.js";
 import type { IssuanceService } from "../modules/issuances/issuance.service.js";
+import type { PolicyService } from "../modules/policies/policy.service.js";
 import type { PresentationService } from "../modules/presentations/presentation.service.js";
 import {
   CONFIG_TOKEN,
@@ -16,6 +17,7 @@ import {
   ISSUANCE_REPOSITORY,
   ISSUANCE_SERVICE,
   ISSUER_PORT,
+  POLICY_SERVICE,
   PRESENTATION_SERVICE,
 } from "../tokens.js";
 import { assertUuidPathParam, constantTimeEquals, Public } from "./auth.js";
@@ -96,6 +98,7 @@ export class HostedFormController {
     @Inject(ISSUER_PORT) private readonly issuer: EudiIssuerPort,
     @Inject(PRESENTATION_SERVICE) private readonly presentations: PresentationService,
     @Inject(HOSTED_FORM_RETURNS) private readonly returns: HostedFormReturns,
+    @Inject(POLICY_SERVICE) private readonly policies: PolicyService,
   ) {}
 
   /**
@@ -152,9 +155,13 @@ export class HostedFormController {
           valueType: c.valueType,
           mandatory: c.mandatory,
         })),
-      // What the attestation will state on the policy's behalf, shown before the person asks for it.
+      // What the attestation will state on the policy's behalf, shown before the person asks for it,
+      // and what the identification asks the PID for, so the form can say so before the wallet opens.
       ...(identify
         ? {
+            identify: {
+              claims: await this.identificationClaims(tenantId, binding.identifyPolicyId),
+            },
             fixed: context.credentialType.claims
               .filter((c) => c.path.join(".") in fixed)
               .map((c) => ({
@@ -165,6 +172,27 @@ export class HostedFormController {
           }
         : {}),
     };
+  }
+
+  /**
+   * The claim paths the identification policy's latest published version asks for, dotted. Paths
+   * only: they are configuration, not anyone's data.
+   */
+  private async identificationClaims(
+    tenantId: ReturnType<typeof asId<"TenantId">>,
+    policyId: string | undefined,
+  ): Promise<string[]> {
+    if (!policyId) return [];
+    const { versions } = await this.policies.getPolicy(
+      tenantId,
+      asId<"PresentationPolicyId">(policyId),
+    );
+    const latest = [...versions]
+      .filter((v) => v.status === "PUBLISHED")
+      .sort((a, b) => b.version - a.version)[0];
+    return (latest?.requestedClaims ?? []).map((c) =>
+      c.path.filter((segment): segment is string => typeof segment === "string").join("."),
+    );
   }
 
   /**

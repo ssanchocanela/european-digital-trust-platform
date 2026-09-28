@@ -10,6 +10,10 @@
 # wallet validates a PID's `x5c` against its `pidProviders` anchors, so a self-signed leaf is
 # refused however it is configured. `scripts/make-dev-pid-ca.sh` creates that CA.
 #
+# `SAVE_SIGNING_CERT=<path>` also writes the new signing certificate (public, never the key) to that
+# path, for an anchor list that has to carry it: a self-signed provider is trusted by a verifier only
+# through the EDTP TEST list of EAA providers (`scripts/make-test-lote.mjs --kind eaa`).
+#
 # ## Why this exists
 #
 # On 16 September 2026 an issuance chain stopped working because its signing certificate had expired
@@ -44,6 +48,7 @@ PROVIDER_ID="${1:-}"
 CERT_DAYS="${CERT_DAYS:-90}"
 SUBJECT="${CERT_SUBJECT:-/CN=EDTP Attestation Provider/O=Development only/C=EU}"
 SIGNING_CA_DIR="${SIGNING_CA_DIR:-}"
+SAVE_SIGNING_CERT="${SAVE_SIGNING_CERT:-}"
 if [ -n "$SIGNING_CA_DIR" ] && { [ ! -f "$SIGNING_CA_DIR/ca.crt" ] || [ ! -f "$SIGNING_CA_DIR/ca.key" ]; }; then
   echo "SIGNING_CA_DIR=$SIGNING_CA_DIR holds no ca.crt and ca.key." >&2
   exit 1
@@ -179,6 +184,11 @@ echo "$RESULT" | jq '{provisioned, accessCertificateImported, registrationCertif
 if [ -n "$(echo "$RESULT" | jq -r '.error // empty')" ]; then
   echo "Provisioning FAILED. The provider is left as it was." >&2
   exit 1
+fi
+
+if [ -n "$SAVE_SIGNING_CERT" ]; then
+  ( umask 022; cp "$WORK/cert.pem" "$SAVE_SIGNING_CERT" )
+  echo "    signing certificate saved to $SAVE_SIGNING_CERT (public; the key was not written)"
 fi
 
 echo

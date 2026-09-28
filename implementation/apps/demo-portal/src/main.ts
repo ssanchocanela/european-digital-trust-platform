@@ -36,6 +36,7 @@ const schema = z.object({
   // Public addresses shown to visitors.
   PORTAL_BANK_URL: url.default("https://edtp-banco.murcata.es/"),
   PORTAL_SHOP_URL: url.default("https://edtp-banco.murcata.es/edad"),
+  PORTAL_FIBRE_URL: url.default("https://edtp-banco.murcata.es/fibra"),
   PORTAL_CLIENT_FORM_URL: url.default("https://edtp-cliente.murcata.es/"),
   /** The scheduled negative checks' last result, mounted read-only on the VM. */
   PORTAL_STATUS_FILE: z.string().min(1).optional(),
@@ -112,9 +113,10 @@ const cards = async (config: Config): Promise<DemoCard[]> => {
     health(config.CHECK_FORM_URL),
     health(config.CHECK_BANK_URL),
   ]);
-  const [bankQr, shopQr] = await Promise.all([
+  const [bankQr, shopQr, fibreQr] = await Promise.all([
     qr(config.PORTAL_BANK_URL),
     qr(config.PORTAL_SHOP_URL),
+    qr(config.PORTAL_FIBRE_URL),
   ]);
   return [
     {
@@ -166,6 +168,32 @@ const cards = async (config: Config): Promise<DemoCard[]> => {
       ],
       url: config.PORTAL_SHOP_URL,
       qrSvg: shopQr,
+      health: all(platform, engine, bank),
+    },
+    {
+      key: "familia",
+      title: "Obtener un Título de Familia Numerosa",
+      summary:
+        "Expedido por una comunidad autónoma ficticia, con su identidad tomada del PID y los datos de la familia ficticios.",
+      steps: [
+        "En la cartera, Añadir documento → Desde lista → «Comunidad Autónoma Demo».",
+        "Elija el Título de Familia Numerosa e identifíquese presentando su PID.",
+        "Revise los datos y solicítelo.",
+      ],
+      health: all(platform, engine, form),
+    },
+    {
+      key: "fibra",
+      title: "Fibra Demo: descuento de familia numerosa",
+      summary:
+        "Una operadora ficticia aplica un 30 % de descuento. Recibe solo la categoría y la validez del título.",
+      steps: [
+        "Abra la página de la operadora en el móvil que tiene la cartera.",
+        "Comparta la categoría y la validez de su Título de Familia Numerosa.",
+        "Vuelva a la operadora: descuento aplicado. Ni su nombre ni su fecha de nacimiento.",
+      ],
+      url: config.PORTAL_FIBRE_URL,
+      qrSvg: fibreQr,
       health: all(platform, engine, bank),
     },
   ];

@@ -77,3 +77,42 @@ describe("the pages", () => {
     for (const html of [flat, nested]) expect(html).toContain("País de nacimiento");
   });
 });
+
+describe("the Large Family Title", () => {
+  const comunidad = BRANDS["comunidad"] as Brand;
+  const asked = ["family_name", "given_name", "birthdate"];
+
+  it("says which PID claims the identification asks for, and only those", () => {
+    const html = renderIdentify({
+      brand: comunidad,
+      state: {},
+      credentialName: "Título de Familia Numerosa",
+      asked,
+    });
+    expect(html).toContain("nombre, apellidos y fecha de nacimiento");
+    expect(html).not.toContain("nacionalidad");
+  });
+
+  it("shows the asked PID claims and the title's codes as words", () => {
+    const html = renderRequest({
+      brand: comunidad,
+      state: {},
+      credentialName: "Título de Familia Numerosa",
+      person: {
+        given_name: "Erika",
+        family_name: "Tester",
+        birthdate: "1984-01-26",
+        nationalities: ["ES"],
+      },
+      fixed: [
+        { path: "category", display: [{ lang: "es", value: "Categoría" }], value: "general" },
+        { path: "member_role", display: [{ lang: "es", value: "Condición" }], value: "holder" },
+      ],
+      asked,
+    });
+    expect(html).toContain("Fecha de nacimiento");
+    expect(html).not.toContain("Nacionalidad"); // presented, but not asked for here
+    expect(html).toContain("<strong>General</strong>");
+    expect(html).toContain("<strong>Titular</strong>");
+  });
+});

@@ -86,6 +86,29 @@ list `fam-1` too (`pid-1,rpi-1,fam-1`), or the gateway lets the wallet past the 
 never identified, and the engine's request for the title's values gets a `404` — failing closed, with
 nothing issued. That is what happened on the first attempt, on 28 September 2026.
 
+## The age verification demos (ADR 0011)
+
+Lumen and Plaza, from the `age_verification_platform` repository, with that repository's verifier, run
+as the compose project `av-demos` (`av/docker-compose.yml`). They are published on `av-lumen`, `av-plaza`
+and `av-verifier.murcata.es`, and of the verifier only the three paths a wallet calls. They prefer
+OpenID4VP, because the demo app on iOS cannot rely on the DC API.
+
+Once, on the VM:
+
+1. Copy the issuer machine's `pki/out/trusted-issuers.p12` to the VM (certificates only; the script
+   refuses a store with a private key), then run `infra/demo-vm/av/setup-pki.sh <that file>`. It asks
+   for that store's password, generates the verifier's TEST PKI for `av-verifier.murcata.es` in
+   `~/.av/pki`, and writes `~/.av/demos.env` with random keys and secrets.
+2. **A person** adds the three routes to the `edtp-demo` tunnel, then installs the new
+   `files/cloudflared-config.yml` as `/etc/cloudflared/config.yml` and restarts `cloudflared`.
+3. Deploy with `gh workflow run deploy-demo -f stack=av -f tag=<12-hex>`, the tag from
+   `age_verification_platform`'s `demo-images` workflow, and approve it. Then run
+   `EDTP_CHECK_AV=1 ./negative-checks.sh` publicly.
+4. Set `PORTAL_SHOW_AV_DEMOS=true` in the VM's `.env` and recreate `demo-portal`.
+
+The nightly reset recreates Lumen and Plaza. Their deployments are logged as `av <tag>` in
+`/var/lib/edtp-status/deploys.log`.
+
 ## Scheduled checks and the nightly reset (ADR 0010 §3)
 
 systemd timers, whose units are in `files/`:

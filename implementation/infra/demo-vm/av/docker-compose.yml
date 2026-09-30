@@ -16,9 +16,11 @@ name: av-demos
 x-demos: &demos
   image: ghcr.io/ssanchocanela/av-demos:${AV_IMAGE_TAG:?set AV_IMAGE_TAG to a 12-hex demo-images tag}
   restart: unless-stopped
+  # Started, not healthy: the verifier's image has no shell to run a healthcheck with (below). The demos
+  # tolerate a verifier still starting -- a session asked for too early fails, and the next one works --
+  # and deploy-av.sh waits for the verifier's health from the host before it declares a deployment.
   depends_on:
-    av-verifier:
-      condition: service_healthy
+    - av-verifier
   mem_limit: 256m
 
 services:
@@ -47,12 +49,10 @@ services:
       - ${HOME}/.av/pki:/etc/av/pki:ro
     ports:
       - "127.0.0.1:3210:8080"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8080/actuator/health > /dev/null || wget -qO- http://127.0.0.1:8080/actuator/health > /dev/null"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 90s
+    # No healthcheck: the image is a Paketo "tiny" one, with no shell, curl or wget, so a container
+    # healthcheck can never run (the first deployment waited on one for three minutes, on 30 September
+    # 2026, while the verifier had been up after ten seconds). deploy-av.sh probes /actuator/health on
+    # this loopback port instead.
 
   lumen:
     <<: *demos

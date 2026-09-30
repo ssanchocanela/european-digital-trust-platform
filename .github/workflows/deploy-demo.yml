@@ -1,4 +1,5 @@
-# Deploys one published platform image to the demonstration VM (ADR 0010 §3.6).
+# Deploys one published platform image to the demonstration VM (ADR 0010 §3.6), or, with stack `av`,
+# the age verification demos (ADR 0011).
 #
 # - Runs only after the user approves it: the `demo` environment has the repository owner as its
 #   required reviewer. Anyone, Claude included, can request a deployment; nothing reaches the VM
@@ -17,8 +18,13 @@ name: deploy-demo
 on:
   workflow_dispatch:
     inputs:
+      stack:
+        description: "edtp: the platform (demo-image). av: the age verification demos (ADR 0011)"
+        type: choice
+        options: [edtp, av]
+        default: edtp
       tag:
-        description: "Image tag to deploy: the 12-hex commit tag from demo-image (not a branch name)"
+        description: "12-hex commit tag: from demo-image for edtp, from age_verification_platform's demo-images for av"
         required: true
 
 permissions:
@@ -35,12 +41,20 @@ jobs:
     timeout-minutes: 15
     env:
       TAG: ${{ inputs.tag }}
-      IMAGE: ghcr.io/${{ github.repository_owner }}/edtp-platform
+      STACK: ${{ inputs.stack }}
+      OWNER: ${{ github.repository_owner }}
     steps:
       - name: Validate the tag
         run: |
           [[ "$TAG" =~ ^[0-9a-f]{12}$ ]] || { echo "tag must be 12 hex digits"; exit 1; }
-          docker manifest inspect "${IMAGE,,}:$TAG" >/dev/null || { echo "no such image"; exit 1; }
+          case "$STACK" in
+            edtp) images=(edtp-platform) ;;
+            av) images=(av-verifier av-demos) ;;
+            *) echo "unknown stack"; exit 1 ;;
+          esac
+          for image in "${images[@]}"; do
+            docker manifest inspect "ghcr.io/${OWNER,,}/$image:$TAG" >/dev/null || { echo "no such image: $image:$TAG"; exit 1; }
+          done
 
       - name: Install cloudflared (pinned, checksum-verified)
         run: |
@@ -62,4 +76,4 @@ jobs:
           ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes \
             -o StrictHostKeyChecking=yes -o HostKeyAlias=edtp-demo-vm \
             -o ProxyCommand="cloudflared access ssh --hostname %h" \
-            edtp@edtp-ssh.murcata.es "deploy $TAG"
+            edtp@edtp-ssh.murcata.es "$([ "$STACK" = av ] && echo deploy-av || echo deploy) $TAG"

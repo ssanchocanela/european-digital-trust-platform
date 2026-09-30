@@ -8,6 +8,30 @@ linked rather than repeated.
 
 ---
 
+## 30 September 2026, afternoon — **the age verification demos live on Murcata, used from an iPhone**
+
+Lumen (<https://av-lumen.murcata.es>) and Plaza (<https://av-plaza.murcata.es>) run on the VM against
+`age_verification_platform`'s verifier (`av-verifier.murcata.es`), and the portal shows their cards.
+[ADR 0011](adr/0011-age-verification-demos-on-the-demo-vm.md) is **accepted**. The user verified with the
+Age Verification app on an iPhone in both demos. The verifier logged the wallet's answer arriving by
+OpenID4VP `direct_post`, with device authentication verified for `eu.europa.ec.av.1`: the plain-mdoc
+path, not the zero-knowledge one, as the addendum to that repository's ADR-0025 expects.
+
+**What is on the VM now:** the compose project `av-demos` at `c5710995163f` (Plaza's social-network
+UI and landing preview); the TEST PKI in `~/.av/pki` and the secrets in `~/.av/demos.env`; the
+`cloudflared` config with the three hostnames (the previous one kept as
+`/etc/cloudflared/config.yml.before-av`); a Docker login to ghcr with a `read:packages` token, because
+the repository and its images are private; `PORTAL_SHOW_AV_DEMOS=true` and the platform at
+`9b5e0e786685`.
+
+**Found on the way, fixed:** the runner's anonymous image check (#21); the verifier's image has no
+shell, so its health is read from the host (#22); Cloudflare served a stale stylesheet for hours, so
+the demos' static files now have content-versioned URLs (that repository's #6).
+
+**Open:** the verifier logs a `WARN` on every status poll while a session is pending, which is the
+EC code's behaviour and only noise; the read-only token expires with its 90 days, and the next
+`deploy-av` after that fails at the pull.
+
 ## 30 September 2026 — **the age verification demos, prepared for the demonstration VM**
 
 `age_verification_platform`'s two demo relying parties, **Lumen** (an 18+ gate) and **Plaza** (a

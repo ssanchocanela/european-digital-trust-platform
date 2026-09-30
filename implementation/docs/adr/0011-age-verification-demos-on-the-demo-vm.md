@@ -1,6 +1,6 @@
 # ADR 0011 — The age verification demos on the demonstration VM
 
-- **Status:** PROPOSED, 30 September 2026. Accepted when the user approves the first `deploy-av`.
+- **Status:** ACCEPTED, 30 September 2026: the user approved the first `deploy-av` (`1f4867e7267b`), and the demos were then used from an iPhone against the verifier.
 - **Date:** 30 September 2026
 - **Amends:** [ADR 0010](0010-permanent-demonstration-environment.md), which covers only this
   repository's stack.

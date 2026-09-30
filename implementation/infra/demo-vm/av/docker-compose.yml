@@ -1,0 +1,98 @@
+# The age verification demos on the demonstration VM (ADR 0011): the verifier and the two demo relying
+# parties of the age_verification_platform repository, Lumen and Plaza. A compose project of its own,
+# `av-demos`, so that its deployments, failures and rollbacks never touch the EDTP stack, and the EDTP
+# stack's never touch it.
+#
+#   docker compose -p av-demos -f infra/demo-vm/av/docker-compose.yml --env-file ~/.av/demos.env up -d
+#
+# - Images come from that repository's `demo-images` workflow, pinned by commit (`AV_IMAGE_TAG`).
+# - Every port binds to 127.0.0.1. `cloudflared` publishes av-lumen and av-plaza whole, and of
+#   av-verifier only the three paths a wallet calls (files/cloudflared-config.yml). The demos reach the
+#   verifier's session API on this project's own network, never through the tunnel.
+# - The verifier's TEST PKI lives in ~/.av/pki, generated on the VM by setup-pki.sh, never committed.
+
+name: av-demos
+
+x-demos: &demos
+  image: ghcr.io/ssanchocanela/av-demos:${AV_IMAGE_TAG:?set AV_IMAGE_TAG to a 12-hex demo-images tag}
+  restart: unless-stopped
+  depends_on:
+    av-verifier:
+      condition: service_healthy
+  mem_limit: 256m
+
+services:
+  av-verifier:
+    image: ghcr.io/ssanchocanela/av-verifier:${AV_IMAGE_TAG:?}
+    restart: unless-stopped
+    # 900 MB for the JVM and the longfellow native library; the VM had 2.7 GB available before this.
+    mem_limit: 900m
+    environment:
+      SPRING_PROFILES_ACTIVE: av
+      AV_VERIFIER_PUBLIC_URL: https://av-verifier.murcata.es
+      AV_VERIFIER_DNS: av-verifier.murcata.es
+      AV_VERIFIER_KEYSTORE: file:///etc/av/pki/verifier.p12
+      AV_TL_SIGNERS: file:///etc/av/pki/tl-signers.p12
+      AV_TRUSTED_ISSUERS: file:///etc/av/pki/trusted-issuers.p12
+      AV_RESULT_SIGNING_KEY: file:///etc/av/pki/result-signing.key
+      AV_PKI_PASSWORD: ${AV_PKI_PASSWORD:?}
+      AV_LUMEN_DEMO_API_KEY_SHA256: ${AV_LUMEN_DEMO_API_KEY_SHA256:?}
+      AV_PLAZA_DEMO_API_KEY_SHA256: ${AV_PLAZA_DEMO_API_KEY_SHA256:?}
+      # Over OpenID4VP the wallet answers with a plain mdoc: zkp_only would refuse every answer.
+      AV_LUMEN_DEMO_PRESENTATION_POLICY: zkp_preferred
+      AV_PLAZA_DEMO_PRESENTATION_POLICY: zkp_preferred
+      VERIFIER_MAXAGE: PT5M
+      BPL_JVM_THREAD_COUNT: "50"
+    volumes:
+      - ${HOME}/.av/pki:/etc/av/pki:ro
+    ports:
+      - "127.0.0.1:3210:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8080/actuator/health > /dev/null || wget -qO- http://127.0.0.1:8080/actuator/health > /dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+  lumen:
+    <<: *demos
+    command: ["node", "lumen/dist/main.js"]
+    environment: &demo-env
+      PORT: "8081"
+      VERIFIER_BASE_URL: http://av-verifier:8080
+      VERIFIER_API_KEY: ${LUMEN_VERIFIER_API_KEY:?}
+      VERIFIER_TENANT: lumen-demo
+      PUBLIC_BASE_URL: https://av-lumen.murcata.es
+      AGE_STRATEGY: cascade
+      SESSION_SECRET: ${LUMEN_SESSION_SECRET:?}
+      # The demo app on iOS cannot rely on the DC API (ADR-0025 addendum in that repository).
+      DEMO_CHANNEL_PREFERENCE: oid4vp
+      # Public: no demo bar, no reset, no session log.
+      DEMO_PRESENTER_CONTROLS: "off"
+      DEMO_LOCALE: es
+      LOG_LEVEL: info
+    ports:
+      - "127.0.0.1:3211:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/healthz > /dev/null"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  plaza:
+    <<: *demos
+    command: ["node", "plaza/dist/main.js"]
+    environment:
+      <<: *demo-env
+      PORT: "8082"
+      VERIFIER_API_KEY: ${PLAZA_VERIFIER_API_KEY:?}
+      VERIFIER_TENANT: plaza-demo
+      PUBLIC_BASE_URL: https://av-plaza.murcata.es
+      SESSION_SECRET: ${PLAZA_SESSION_SECRET:?}
+    ports:
+      - "127.0.0.1:3212:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/healthz > /dev/null"]
+      interval: 15s
+      timeout: 3s
+      retries: 5

@@ -93,18 +93,25 @@ as the compose project `av-demos` (`av/docker-compose.yml`). They are published 
 and `av-verifier.murcata.es`, and of the verifier only the three paths a wallet calls. They prefer
 OpenID4VP, because the demo app on iOS cannot rely on the DC API.
 
-Once, on the VM:
+`age_verification_platform` is a **private** repository, so the VM neither clones it nor pulls its images
+anonymously. Once, on the VM:
 
-1. Copy the issuer machine's `pki/out/trusted-issuers.p12` to the VM (certificates only; the script
-   refuses a store with a private key), then run `infra/demo-vm/av/setup-pki.sh <that file>`. It asks
-   for that store's password, generates the verifier's TEST PKI for `av-verifier.murcata.es` in
-   `~/.av/pki`, and writes `~/.av/demos.env` with random keys and secrets.
-2. **A person** adds the three routes to the `edtp-demo` tunnel, then installs the new
+1. **A person** logs Docker in to ghcr with a classic token whose only scope is `read:packages`
+   (fine-grained tokens do not work with ghcr), typed on the VM so it never passes anywhere else:
+   `docker login ghcr.io -u <user>`. It is stored in `~/.docker/config.json`, mode 600.
+2. Copy that repository's PKI generator and the public certificates it pins, and the issuer machine's
+   trust store (certificates only; the script refuses a store with a private key):
+   `scp -r <checkout>/pki/generate-test-pki.sh <checkout>/pki/trust edtp-demo:.av/pki-tools/` and
+   `scp <checkout>/pki/out/trusted-issuers.p12 edtp-demo:/tmp/`. Then run
+   `infra/demo-vm/av/setup-pki.sh /tmp/trusted-issuers.p12`. It asks for that store's password,
+   generates the verifier's TEST PKI for `av-verifier.murcata.es` in `~/.av/pki`, and writes
+   `~/.av/demos.env` with random keys and secrets.
+3. **A person** adds the three routes to the `edtp-demo` tunnel, then installs the new
    `files/cloudflared-config.yml` as `/etc/cloudflared/config.yml` and restarts `cloudflared`.
-3. Deploy with `gh workflow run deploy-demo -f stack=av -f tag=<12-hex>`, the tag from
+4. Deploy with `gh workflow run deploy-demo -f stack=av -f tag=<12-hex>`, the tag from
    `age_verification_platform`'s `demo-images` workflow, and approve it. Then run
    `EDTP_CHECK_AV=1 ./negative-checks.sh` publicly.
-4. Set `PORTAL_SHOW_AV_DEMOS=true` in the VM's `.env` and recreate `demo-portal`.
+5. Set `PORTAL_SHOW_AV_DEMOS=true` in the VM's `.env` and recreate `demo-portal`.
 
 The nightly reset recreates Lumen and Plaza. Their deployments are logged as `av <tag>` in
 `/var/lib/edtp-status/deploys.log`.

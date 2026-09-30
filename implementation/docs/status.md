@@ -8,6 +8,21 @@ linked rather than repeated.
 
 ---
 
+## 30 September 2026 — **the age verification demos, prepared for the demonstration VM**
+
+`age_verification_platform`'s two demo relying parties, **Lumen** (an 18+ gate) and **Plaza** (a
+sign-up with age bands and a guardian path), and its verifier, are to run on the VM beside this stack:
+[ADR 0011](adr/0011-age-verification-demos-on-the-demo-vm.md), proposed. They get their own compose
+project, `av-demos`, and the hostnames `av-lumen`, `av-plaza` and `av-verifier.murcata.es`. The
+verifier is published only for the three paths a wallet calls. They prefer OpenID4VP, because the demo
+app on iOS cannot rely on the DC API.
+
+**Not yet deployed.** Still to do, in order: set the stack up on the VM with `av/setup-pki.sh`; add the
+three tunnel routes and install the new `cloudflared` config; run the first `deploy-demo stack=av`,
+which needs the user's approval; run the public negative checks with `EDTP_CHECK_AV=1`; then switch on
+`PORTAL_SHOW_AV_DEMOS`. Steps: [`infra/demo-vm/README.md`](../infra/demo-vm/README.md), *The age
+verification demos*.
+
 ## 28 September 2026 — **the Large Family Title, issued to a wallet and presented twice to Fibra Demo**
 
 A second use case alongside the representation credentials, the same shape: a *Título de Familia

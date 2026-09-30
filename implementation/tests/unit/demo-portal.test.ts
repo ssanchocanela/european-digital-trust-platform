@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderAgeHome, renderAgeResult } from "../../apps/demo-bank/src/page.js";
+import { ageVerificationCards } from "../../apps/demo-portal/src/age-verification.js";
 import {
   renderForbidden,
   renderHome,
@@ -81,5 +82,34 @@ describe("Tienda Demo age check", () => {
     expect(yes).toContain("Mayor de 18 años");
     expect(yes).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     expect(renderAgeResult(false)).toContain("No se ha acreditado la mayoría de edad");
+  });
+});
+
+describe("the age verification demos' cards (ADR 0011)", () => {
+  const cards = ageVerificationCards(
+    { url: "https://av-lumen.murcata.es/", qrSvg: "<svg>l</svg>", health: "up" },
+    { url: "https://av-plaza.murcata.es/", qrSvg: "<svg>p</svg>", health: "down" },
+  );
+  const home = renderHome(cards);
+
+  it("point at the two public hostnames, each with its own status", () => {
+    expect(cards.map((card) => card.url)).toEqual([
+      "https://av-lumen.murcata.es/",
+      "https://av-plaza.murcata.es/",
+    ]);
+    expect(cards.map((card) => card.health)).toEqual(["up", "down"]);
+    expect(home).toContain("Lumen");
+    expect(home).toContain("Plaza");
+  });
+
+  it("send the visitor to the age verification app, not the EDTP wallet", () => {
+    for (const card of cards) {
+      expect(card.steps.join(" ")).toContain("app de verificación de edad");
+      expect(card.steps.join(" ")).not.toMatch(/cartera EDTP/);
+    }
+  });
+
+  it("never promise a date of birth to the site", () => {
+    expect(home).toMatch(/sin nombre ni fecha de nacimiento|no pide la fecha de nacimiento/);
   });
 });

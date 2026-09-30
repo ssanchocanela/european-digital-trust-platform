@@ -28,4 +28,22 @@ ingress:
   # operador" protects at the edge (the portal also refuses it without Access's identity header).
   - hostname: demo.murcata.es
     service: http://127.0.0.1:3204
+  # The age verification demos (ADR 0011), a compose project of their own. Lumen and Plaza are public
+  # whole: their pages are built to be, and their presenter controls are off.
+  - hostname: av-lumen.murcata.es
+    service: http://127.0.0.1:3211
+  - hostname: av-plaza.murcata.es
+    service: http://127.0.0.1:3212
+  # Of the verifier, only what a wallet calls: the request object, its public keys, and the direct_post
+  # answer. /v1/sessions (the demos reach it on the project's own network), /ui/presentations (which
+  # opens transactions without authentication), /utilities, the JWKS, Swagger and the actuator stay
+  # unpublished: the rule after these answers 404 for anything else on the hostname.
+  - hostname: av-verifier.murcata.es
+    path: ^/wallet/(request\.jwt|direct_post)/[^/]+$
+    service: http://127.0.0.1:3210
+  - hostname: av-verifier.murcata.es
+    path: ^/wallet/public-keys\.json$
+    service: http://127.0.0.1:3210
+  - hostname: av-verifier.murcata.es
+    service: http_status:404
   - service: http_status:404

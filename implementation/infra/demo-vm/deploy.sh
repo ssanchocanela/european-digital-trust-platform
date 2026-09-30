@@ -5,6 +5,8 @@
 #
 #   deploy <tag>     <tag> is a 12-hex-digit commit tag from the demo-image workflow. A moving tag
 #                    such as `main` is refused: what runs must be a known, immutable build.
+#   deploy-av <tag>  the age verification demos (ADR 0011): a 12-hex tag from age_verification_platform's
+#                    demo-images workflow, handed to av/deploy-av.sh under the same lock.
 #
 # It never runs unconfirmed: the deploy-demo workflow waits for the user's approval (GitHub environment
 # `demo`) before it can reach this script.
@@ -21,14 +23,18 @@ notify() {
   [ -n "${ALERT_WEBHOOK_URL:-}" ] && curl -s -m 10 -o /dev/null -H "Title: EDTP demo" \
     -H "Priority: $1" -d "$2" "$ALERT_WEBHOOK_URL" || true
 }
-if [ "${verb:-}" != deploy ] || [ -n "${extra:-}" ] || ! [[ "${tag:-}" =~ ^[0-9a-f]{12}$ ]]; then
-  say "refused: expected 'deploy <12-hex tag>'"
+if { [ "${verb:-}" != deploy ] && [ "${verb:-}" != deploy-av ]; } || [ -n "${extra:-}" ] || ! [[ "${tag:-}" =~ ^[0-9a-f]{12}$ ]]; then
+  say "refused: expected 'deploy <12-hex tag>' or 'deploy-av <12-hex tag>'"
   exit 64
 fi
 
 # Held for the whole deployment: the scheduled negative checks skip their turn while it is.
 exec 9>/tmp/edtp-deploy.lock
 flock -w 120 9 || { say "refused: another deployment holds the lock"; exit 75; }
+if [ "$verb" = deploy-av ]; then
+  cd "$HOME/edtp" && git pull -q --ff-only
+  exec "$ROOT/infra/demo-vm/av/deploy-av.sh" "$tag"
+fi
 
 cd "$HOME/edtp" && git pull -q --ff-only
 cd "$ROOT"

@@ -46,4 +46,23 @@ ingress:
     service: http://127.0.0.1:3210
   - hostname: av-verifier.murcata.es
     service: http_status:404
+  # The age verification issuer (ADR 0012), through its haproxy over TLS, as the laptop tunnel reached it.
+  # Only what a wallet and a browser use: the issuer's realm (login, PAR, tokens, keys) and the login
+  # page's resources, the issuer and its well-known documents, the status lists and the wallet provider.
+  # Keycloak's admin console and API and the master realm match nothing here and answer 404; haproxy
+  # refuses them to anything but localhost as well.
+  # The counter path's internal API (offers and the pre-authorized token endpoint's back office) is off on
+  # the VM, and never public even if it were turned on. A rule of its own, before the allow-list, because
+  # the allow-list admits everything under /pid-issuer/ and cloudflared's regexps have no negation.
+  - hostname: issuer-dev.murcata.es
+    path: ^/pid-issuer/av/internal/
+    service: http_status:404
+  - hostname: issuer-dev.murcata.es
+    path: ^/(idp/realms/pid-issuer-realm/|idp/resources/|pid-issuer(/|$)|token_status_list/|wallet-provider/|\.well-known/(openid-credential-issuer|oauth-authorization-server|openid-configuration|oauth-protected-resource|jwt-vc-issuer|jwt-issuer)/)
+    service: https://127.0.0.1:3220
+    originRequest:
+      noTLSVerify: true
+      httpHostHeader: issuer-dev.murcata.es
+  - hostname: issuer-dev.murcata.es
+    service: http_status:404
   - service: http_status:404

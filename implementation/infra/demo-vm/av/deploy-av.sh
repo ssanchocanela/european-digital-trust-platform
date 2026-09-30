@@ -34,7 +34,9 @@ docker pull -q "ghcr.io/ssanchocanela/av-demos:$TAG" >/dev/null
 healthy() {
   for _ in $(seq 1 90); do
     local all=1
-    for service in av-verifier lumen plaza; do
+    # The verifier's image cannot run a container healthcheck (no shell), so its health is read here.
+    curl -fs -m 3 http://127.0.0.1:3210/actuator/health 2>/dev/null | grep -q '"status":"UP"' || all=0
+    for service in lumen plaza; do
       [ "$("${C[@]}" ps "$service" --format '{{.Health}}' 2>/dev/null)" = healthy ] || all=0
     done
     [ "$all" = 1 ] && return 0

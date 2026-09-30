@@ -4,6 +4,11 @@
 #
 #   infra/demo-vm/av/setup-pki.sh <trusted-issuers.p12 copied from the issuer's machine>
 #
+# age_verification_platform is a private repository, so nothing here clones it. Its PKI generator and
+# the public certificates it pins are copied to the VM first, from a checkout of it:
+#
+#   scp -r <checkout>/pki/generate-test-pki.sh <checkout>/pki/trust edtp-demo:.av/pki-tools/
+#
 # 1. A TEST PKI for av-verifier.murcata.es, generated here with age_verification_platform's own
 #    pki/generate-test-pki.sh, in ~/.av/pki, keeping only what the verifier reads. The request-signing certificate's SAN must be that hostname
 #    (the client id is x509_san_dns). The wallet does not enforce reader trust, so a TEST reader CA works.
@@ -17,18 +22,17 @@ set -euo pipefail
 ISSUERS="${1:?usage: setup-pki.sh <trusted-issuers.p12> [--rotate]}"
 ROTATE="${2:-}"
 AV_DIR="$HOME/.av"
-AV_REPO="$AV_DIR/age_verification_platform"
+TOOLS="$AV_DIR/pki-tools"
 PKI="$AV_DIR/pki"
 ENV_FILE="$AV_DIR/demos.env"
 
 [ -f "$ISSUERS" ] || { echo "no such file: $ISSUERS" >&2; exit 1; }
 install -d -m 700 "$AV_DIR"
 
-if [ ! -d "$AV_REPO/.git" ]; then
-  git clone -q https://github.com/ssanchocanela/age_verification_platform.git "$AV_REPO"
-else
-  git -C "$AV_REPO" pull -q --ff-only
-fi
+[ -x "$TOOLS/generate-test-pki.sh" ] && [ -d "$TOOLS/trust" ] || {
+  echo "copy age_verification_platform's pki/generate-test-pki.sh and pki/trust to $TOOLS first" >&2
+  exit 1
+}
 
 random() { openssl rand -base64 36 | tr -d '/+=' | cut -c1-40; }
 
@@ -59,7 +63,7 @@ generate=0
 docker run --rm -i \
   -e GENERATE="$generate" -e PASSWORD="$password" -e SOURCE_PASSWORD="$source_password" \
   -e OWNER="$(id -u):$(id -g)" \
-  -v "$AV_REPO:/repo:ro" -v "$AV_DIR:/av" -v "$(realpath "$ISSUERS"):/in/trusted-issuers.p12:ro" \
+  -v "$TOOLS:/repo/pki:ro" -v "$AV_DIR:/av" -v "$(realpath "$ISSUERS"):/in/trusted-issuers.p12:ro" \
   eclipse-temurin:21-jdk bash -euo pipefail -s <<'IN_CONTAINER'
 command -v openssl >/dev/null || { apt-get update -qq && apt-get install -y -qq openssl >/dev/null; }
 if [ "$GENERATE" = 1 ]; then

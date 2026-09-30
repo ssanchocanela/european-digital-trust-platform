@@ -49,10 +49,13 @@ jobs:
           [[ "$TAG" =~ ^[0-9a-f]{12}$ ]] || { echo "tag must be 12 hex digits"; exit 1; }
           case "$STACK" in
             edtp) images=(edtp-platform) ;;
-            av) images=(av-verifier av-demos) ;;
+            # The age verification images are private, and this runner holds no credential for them. The
+            # VM checks them instead: deploy-av.sh pulls both with its own read-only login before it
+            # changes anything, and stops there if either is missing.
+            av) images=() ;;
             *) echo "unknown stack"; exit 1 ;;
           esac
-          for image in "${images[@]}"; do
+          for image in "${images[@]+"${images[@]}"}"; do
             docker manifest inspect "ghcr.io/${OWNER,,}/$image:$TAG" >/dev/null || { echo "no such image: $image:$TAG"; exit 1; }
           done
 

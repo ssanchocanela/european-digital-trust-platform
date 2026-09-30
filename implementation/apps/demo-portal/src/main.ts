@@ -3,6 +3,7 @@ import { join } from "node:path";
 import express, { type Request, type Response } from "express";
 import QRCode from "qrcode";
 import { z } from "zod";
+import { ageVerificationCards } from "./age-verification.js";
 import {
   type ChecksStatus,
   type DemoCard,
@@ -38,6 +39,17 @@ const schema = z.object({
   PORTAL_SHOP_URL: url.default("https://edtp-banco.murcata.es/edad"),
   PORTAL_FIBRE_URL: url.default("https://edtp-banco.murcata.es/fibra"),
   PORTAL_CLIENT_FORM_URL: url.default("https://edtp-cliente.murcata.es/"),
+  // The age verification demos (ADR 0011). Off until they are deployed, so the portal never shows two
+  // cards that cannot work.
+  PORTAL_SHOW_AV_DEMOS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  PORTAL_LUMEN_URL: url.default("https://av-lumen.murcata.es/"),
+  PORTAL_PLAZA_URL: url.default("https://av-plaza.murcata.es/"),
+  // Another compose project, so probed through its public name: that is also what a visitor reaches.
+  CHECK_LUMEN_URL: url.default("https://av-lumen.murcata.es/healthz"),
+  CHECK_PLAZA_URL: url.default("https://av-plaza.murcata.es/healthz"),
   /** The scheduled negative checks' last result, mounted read-only on the VM. */
   PORTAL_STATUS_FILE: z.string().min(1).optional(),
   /**
@@ -204,7 +216,21 @@ const cards = async (config: Config): Promise<DemoCard[]> => {
       qrSvg: fibreQr,
       health: all(platform, engine, bank),
     },
+    ...(config.PORTAL_SHOW_AV_DEMOS ? await avCards(config) : []),
   ];
+};
+
+const avCards = async (config: Config): Promise<DemoCard[]> => {
+  const [lumenHealth, plazaHealth, lumenQr, plazaQr] = await Promise.all([
+    health(config.CHECK_LUMEN_URL),
+    health(config.CHECK_PLAZA_URL),
+    qr(config.PORTAL_LUMEN_URL),
+    qr(config.PORTAL_PLAZA_URL),
+  ]);
+  return ageVerificationCards(
+    { url: config.PORTAL_LUMEN_URL, qrSvg: lumenQr, health: lumenHealth },
+    { url: config.PORTAL_PLAZA_URL, qrSvg: plazaQr, health: plazaHealth },
+  );
 };
 
 /** An issuer's current display name, from its public metadata. */
@@ -333,6 +359,12 @@ const main = (): void => {
         links: [
           { label: "Banco Demo", url: config.PORTAL_BANK_URL },
           { label: "Tienda Demo (edad)", url: config.PORTAL_SHOP_URL },
+          ...(config.PORTAL_SHOW_AV_DEMOS
+            ? [
+                { label: "Lumen (verificación de edad)", url: config.PORTAL_LUMEN_URL },
+                { label: "Plaza (verificación de edad)", url: config.PORTAL_PLAZA_URL },
+              ]
+            : []),
           {
             label: "Formulario con marca de cliente (protegido)",
             url: config.PORTAL_CLIENT_FORM_URL,

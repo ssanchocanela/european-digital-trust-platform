@@ -8,6 +8,17 @@ linked rather than repeated.
 
 ---
 
+## 30 September 2026, evening — **the age verification issuer, prepared for the demonstration VM**
+
+The VM is now a **cx33** (4 vCPU, 8 GB; resized in place, disk kept at 40 GB so it can go back). The
+issuer stack is prepared as the compose project `av-issuer`
+([ADR 0012](adr/0012-age-verification-issuer-on-the-demo-vm.md), proposed), at the same hostname the app
+uses, `issuer-dev.murcata.es`, with the laptop's TEST keys. **Not yet deployed**: the setup, the tunnel
+config and the DNS move are in `infra/demo-vm/README.md`, *The age verification issuer*.
+
+Found on the way: the laptop stack published Keycloak's admin console behind the default password,
+closed the same day; the two EDTP databases had no restart policy and stayed down after the resize (#24).
+
 ## 30 September 2026, afternoon — **the age verification demos live on Murcata, used from an iPhone**
 
 Lumen (<https://av-lumen.murcata.es>) and Plaza (<https://av-plaza.murcata.es>) run on the VM against

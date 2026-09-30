@@ -116,6 +116,30 @@ anonymously. Once, on the VM:
 The nightly reset recreates Lumen and Plaza. Their deployments are logged as `av <tag>` in
 `/var/lib/edtp-status/deploys.log`.
 
+## The age verification issuer (ADR 0012)
+
+`age_verification_platform`'s issuer stack -- haproxy, Keycloak (the mock eID), the issuer, the status list
+and the wallet provider -- runs as the compose project `av-issuer` (`av-issuer/docker-compose.yml`) at
+`issuer-dev.murcata.es`, the hostname the Age Verification app issues from. The tunnel publishes only the
+paths a wallet and a browser use; Keycloak's admin console and master realm answer 404, from the tunnel and
+from haproxy.
+
+Once, on the VM, after a person has logged Docker in to ghcr (above):
+
+1. From the laptop that ran `deploy/issuer-local`, copy its TEST keystores and a registration certificate:
+   `scp <checkout>/pki/out/{issuer,wallet-provider}.p12 edtp-demo:.av/issuer-pki/` and
+   `python3 <checkout>/scripts/make-test-wrprc.py | ssh edtp-demo 'umask 077; cat > .av/issuer-wrprc'`.
+2. `infra/demo-vm/av-issuer/setup-issuer.sh` asks for the keystores' password and writes
+   `~/.av/issuer.env`, with a random Keycloak admin password.
+3. Install the new `files/cloudflared-config.yml` and restart `cloudflared`.
+4. `deploy-av <12-hex tag>` now brings the issuer up too, from the same commit as the demos.
+5. Move `issuer-dev.murcata.es` from the laptop's `av-dev` tunnel to `edtp-demo`
+   (`cloudflared tunnel route dns --overwrite-dns <edtp-demo UUID> issuer-dev.murcata.es`, with a config file
+   naming that tunnel: the laptop's `~/.cloudflared/config.yml` names `av-dev` and wins otherwise), then stop
+   the laptop stack.
+
+The issuer's data persists across deployments and the nightly reset leaves it alone.
+
 ## Scheduled checks and the nightly reset (ADR 0010 §3)
 
 systemd timers, whose units are in `files/`:

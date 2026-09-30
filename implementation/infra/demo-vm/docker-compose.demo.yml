@@ -16,6 +16,14 @@ x-platform-image: &platform-image
   restart: unless-stopped
 
 services:
+  # The databases too: without a restart policy they stayed down after the VM rebooted (the resize to
+  # cx33 on 30 September 2026), taking the platform and the engine with them until started by hand.
+  platform-db:
+    restart: unless-stopped
+
+  engine-db:
+    restart: unless-stopped
+
   platform-api:
     <<: *platform-image
 

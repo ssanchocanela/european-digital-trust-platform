@@ -158,7 +158,7 @@ run, not a waste of it.
 |---|---|---|
 | 1 | Note the **exact on-screen message**, with a screenshot | The banner in the screenshot proves which build produced it |
 | 2 | Search the log for `wallet-instance-attestation`, `key-attestation`, `wallet-provider`, `issuer.eudiw.dev`, `HTTP`, `401`, `403`, `invalid_client`, `attestation` | Separates "attestation refused" from "issuer refused our attestation" from "something else entirely" |
-| 3 | Build and install a **debug** APK for a verbose run | Release sets the HTTP log level to `NONE`; debug sets it to `BODY`, so request and response bodies appear in logcat |
+| 3 | Build and install a **debug** APK for a verbose run | Debug also logs the app's own HTTP client at `BODY`. **Correction (2 October 2026):** a release build *without* WD-7 logs bodies too, through Wallet Core (`deviations.md` WD-7). A WD-7 release build logs warnings and errors only |
 | 4 | Try the **`dev` flavour's** Wallet Provider by building `devRelease` | `dev.wallet-provider.eudiw.dev` may be more permissive than the demo one |
 
 For step 3:

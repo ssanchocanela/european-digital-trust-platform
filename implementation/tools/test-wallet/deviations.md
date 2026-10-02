@@ -7,7 +7,7 @@ tag, what it is for, and whether it is compiled in.
 nothing; a deviation that is on is named in `BuildConfig.EDTP_DEVIATIONS`, printed by the banner on
 every screen, and must appear in the record of any test run it touched.
 
-`build.sh --deviations` accepts `none`, `wd-2`, `wd-3`, `wd-4` and `wd-5`, and **refuses anything else**, and
+`build.sh --deviations` accepts `none` and `wd-2` to `wd-7`, and **refuses anything else**, and
 any of them without what it needs, rather than accepting a flag that does nothing. An accepted-but-inert flag is how a test record comes to say
 "WD-1 active" about a build where it was not.
 
@@ -19,6 +19,8 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | **Built** (W3, W4) — Path A failed |
 | **WD-4** | `pidProviders` trust list pointing at our TEST PID LoTE, which carries the notified anchors **plus** our development PID Provider CA | (b), for a PID | Configuration of an ARF-intended mechanism | **Built** (W5, W6) |
 | **WD-5** | The wallet's issuer list (*From list*) offers our issuers only (one or two); optional relabel of the merged PID row | — | Configuration (which issuers the app offers) | **Built** (W6), 24 September 2026; two issuers the same day |
+| **WD-6** | Credential response encryption `REQUIRED` → `SUPPORTED`: an issuer that offers no encryption is accepted | — | **Security relaxation** | **Prepared** (W8), 2 October 2026 |
+| **WD-7** | A release build logs warnings and errors only: no HTTP bodies in logcat or in the log files | — | **Hardening** (no protocol behaviour changes) | **Prepared** (W8), 2 October 2026 |
 
 ---
 
@@ -248,8 +250,11 @@ trailing newline). More than three is refused. **Built on 28 September 2026** as
 **W7** (24 September 2026) is the build for the generic, permanent demonstration environment (ADR
 0010). It has the same deviations and the same two issuers as W6, but the row label is "PID (demo)",
 the suffix is `.edtptest7`, the name is "EDTP TEST 7", and it is a **release** build signed with our
-`OU=TEST ONLY` key, so no HTTP bodies are logged. It is installed alongside W6, which keeps "PID - FNMT"
-for client demonstrations.
+`OU=TEST ONLY` key. It is installed alongside W6, which keeps "PID - FNMT" for client demonstrations.
+
+> **Correction, 2 October 2026.** This entry said a release build logs no HTTP bodies. **It does.**
+> W7 wrote full request and response bodies to logcat and to its log files during an issuance — see
+> WD-7 for why. Any W1–W7 release build has the same behaviour. W8 is the first build without it.
 
 **Offers are unaffected.** A credential offer from any issuer still works, because upstream uses the
 first configured issuer's settings for an issuer it does not know.
@@ -270,6 +275,88 @@ that a second issuer (the Large Family Title's) is offered alongside. Nothing ab
 it offers the EUDI reference issuers, and its list is not something a Relying Party or an issuer
 controls. The PID and the representation data are test data, and the FNMT and CORPME branding is a
 demonstration, not a service of either.
+
+
+## WD-6 — credential response encryption `REQUIRED` → `SUPPORTED`
+
+**A security relaxation.** Wallet Core 0.30.2's `OpenId4VciManager.Config.Builder` defaults to
+`EncryptionSupportConfig(credentialResponseEncryptionPolicy = REQUIRED, EcConfig(P-256), RsaConfig(2048))`
+(read from the bytecode), and the app never overrides it. Under `REQUIRED`, openid4vci-kt 0.13.1
+(`IssuanceEncryptionKt.responseEncryptionSpec`) refuses an issuer whose metadata carries no
+`credential_response_encryption`, with `ResponseEncryptionRequiredByWalletButNotSupportedByIssuer`,
+before it asks for a token.
+
+Found on 2 October 2026 with an external EAA issuer's development deployment, whose offer and
+metadata W7 resolved and then refused for exactly that reason.
+
+The point is in the per-flavour `WalletCoreConfigImpl`: `.withResponseEncryptionConfig(...)` with the
+same defaults and `SUPPORTED`, inserted after `.withDPopConfig(DPopConfig.Default)` in **every**
+`VciConfig`. Every slot matters, because an offer from an issuer the wallet does not list is handled
+with the first slot's settings. `build.sh` applies it after WD-5, so a third slot is covered, and
+refuses if any slot is missed.
+
+### What it changes and what it does not
+
+| Issuer's metadata | `REQUIRED` (upstream) | `SUPPORTED` (WD-6) |
+|---|---|---|
+| no `credential_response_encryption` | **refused** | accepted, response **in clear** inside TLS |
+| encryption supported, not required | encrypted | encrypted |
+| encryption required | encrypted | encrypted |
+
+Only the first row changes. A credential from such an issuer reaches the wallet protected by TLS
+alone, with no application-layer encryption.
+
+### What a run with this build may and may not say
+
+It may say that issuance against an issuer without response encryption works with a wallet relaxed
+to accept it. It may **not** say that an unmodified wallet would accept that issuer. It would not, and
+the issuer's operator needs to know that. Whether the ARF or HAIP *require* credential response
+encryption has not been checked against the HLR register. `docs/interop-findings.md` C13 records it
+as an open question.
+
+## WD-7 — a release build logs warnings and errors only
+
+**Hardening, not a relaxation.** It changes nothing the wallet accepts or sends; it is registered as
+a deviation because it is a behavioural change to upstream code and the banner must show it.
+
+Upstream at the pinned tag logs HTTP bodies **in release builds**, through a path that `build.sh`, this
+register and `docs/demo-hosting-proposal.md` §7 all missed:
+
+1. Wallet Core wraps the HTTP client the app hands it (`withKtorHttpClientFactory`) in Ktor's
+   `Logging` plugin at **`LogLevel.ALL`** (`KtorHttpClientFactoryExtensionsKt.wrappedWithLogging`), and
+   forwards every line to the wallet `Logger` at DEBUG, tag `OpenId4VciManager`.
+2. The app's `WalletCoreLogControllerImpl` passes DEBUG records on to `LogControllerImpl`. Wallet
+   Core's own `configureLogging` level evidently does not filter a custom logger: its default is
+   INFO, and DEBUG lines reached logcat.
+3. `LogControllerImpl` plants `Timber.DebugTree()` and a `FileLoggerTree` at **`Log.DEBUG`** in every
+   build type. The second writes `files/logs/eudi-android-wallet-logs*.txt`, up to ten 5 MB files,
+   which the app's own *share logs* action can send anywhere.
+
+The `LogLevel.NONE` that upstream's `NetworkModule` sets for release governs the app's own client
+only. Observed on W7 (release) on 2 October 2026: issuer metadata, authorization server metadata and
+the offer, in full, in logcat under `EUDI Wallet DEMO-RELEASE`. On an issuance that completes, the
+credential response, and with it the credential, goes the same way.
+
+The point is `deviations/wd-7.patch`, against `business-logic/src/main/.../log/LogController.kt`
+(shared code, so a patch against `src/main`, not a flavour copy). For `AppBuildType.RELEASE` both
+trees take a floor of `Log.WARN`; debug is unchanged. `build.sh` **refuses wd-7 with
+`--build-type debug`**: the app's own Ktor client logs bodies there too, so the banner would claim a
+protection that build does not have.
+
+What it leaves:
+
+- Warnings and errors are still logged, to logcat and to the files. That is how an issuance failure
+  still has a reason, such as the WD-6 error above. An exception message can echo an issuer's
+  error response; it does not carry a credential, but that has not been proven for every path.
+- Files written by an earlier build stay in the app's data directory until the app is uninstalled or
+  its data cleared. W8 is a new `applicationId`, so it starts with none.
+
+## W8 — WD-6 and WD-7 on top of W7
+
+Prepared 2 October 2026 (`--prepare-only`, and the patched modules compile for `edtptestRelease`); the signed APK is built by the operator, who holds the key password. Release, our `OU=TEST ONLY` key, `.edtptest8`, "EDTP TEST 8", deviations
+`wd-2,wd-3,wd-4,wd-5,wd-6,wd-7`, the same three issuers and "PID (demo)" label as W7. It installs
+**alongside** W7, so it starts with no documents. W7 is not rebuilt in place, because W7 is the build
+recorded in earlier runs.
 
 ---
 

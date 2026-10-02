@@ -12,7 +12,7 @@
 #   ANDROID_KEYSTORE_PATH=... ANDROID_KEY_ALIAS=... ANDROID_KEY_PASSWORD=... ./build.sh
 #   ... ./build.sh --deviations wd-3 --wrpac-lote https://<host>/lote/WRPACProviders.jwt
 #
-# Deviations: `none`, `wd-2`, `wd-3`, `wd-4`, or a comma-separated set (`wd-2,wd-3`). Each is refused unless
+# Deviations: `none`, `wd-2` … `wd-7`, or a comma-separated set (`wd-2,wd-3`). Each is refused unless
 # everything it needs is present, because a flag that is accepted and does nothing puts a false claim
 # in a test record. `wd-1` is refused outright: it needs a published list of **issuer** anchors,
 # which does not exist.
@@ -28,6 +28,11 @@
 #                           a copy of the second slot's settings, pointed at the third URL.
 #   --pid-label <text>      optional with wd-5. Replaces upstream's "PID Combined" row label.
 #
+# `wd-6` accepts an issuer that does not offer credential response encryption (Wallet Core's
+# default is REQUIRED); the response is still encrypted whenever the issuer offers it. A relaxation.
+# `wd-7` keeps a release build's logs to warnings and errors: Wallet Core logs every HTTP body at
+# DEBUG through the app's logger, which upstream plants at DEBUG in every build type. Hardening.
+#
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
 #   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
@@ -37,9 +42,12 @@
 #   --app-name <name>       overrides the on-screen app name to match.
 #   --build-type <type>     `release` (default) or `debug`.
 #
-# `debug` exists for diagnosis, not for results. Upstream's NetworkModule sets Ktor's HTTP logging
-# to LogLevel.BODY for DEBUG and NONE for RELEASE, so a release build writes no application logging
-# whatever — which is how a blocked presentation gave no reason on 13 September 2026. A debug build
+# `debug` exists for diagnosis, not for results. Upstream's NetworkModule sets the APP's Ktor HTTP
+# logging to LogLevel.BODY for DEBUG and NONE for RELEASE — but that is one of two clients. Wallet
+# Core wraps its own in Ktor Logging at LogLevel.ALL and forwards every line to the app's logger at
+# DEBUG, which upstream plants at DEBUG in every build type, so **a release build without wd-7 logs
+# full HTTP bodies, credentials included, to logcat and to files/logs** (found 2 October 2026, W7).
+# Only wd-7 stops that. A debug build
 # also carries `debuggable`, so `adb shell run-as` can read the app's data directory and show
 # whether a trust list was fetched and cached at all. It is signed with the SDK's debug key, so a
 # result from it is even further from an official one than the release build already is.
@@ -81,7 +89,7 @@ while [ $# -gt 0 ]; do
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
     --build-type) BUILD_TYPE="${2:-}"; shift 2 ;;
     --prepare-only) SKIP_BUILD="yes"; shift ;;
-    -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -102,6 +110,8 @@ WANT_WD2=no
 WANT_WD3=no
 WANT_WD4=no
 WANT_WD5=no
+WANT_WD6=no
+WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
   for d in $DEVIATIONS; do
@@ -152,6 +162,18 @@ if [ "$DEVIATIONS" != "none" ]; then
           die "--issuer takes at most three URLs: upstream's two issuer slots, and one copy of the second."
         WANT_WD5=yes
         ;;
+      wd-6)
+        WANT_WD6=yes
+        ;;
+      wd-7)
+        [ -f "$HERE/deviations/wd-7.patch" ] || die "deviations/wd-7.patch is missing."
+        # Release only: a debug build logs bodies through its own Ktor client as well (LogLevel.BODY),
+        # so wd-7 there would be a deviation that does not do what its name says.
+        [ "$BUILD_TYPE" = "release" ] ||
+          die "wd-7 is for release builds only. A debug build logs HTTP bodies through the app's own
+    Ktor client too, so the banner would claim a protection the build does not have."
+        WANT_WD7=yes
+        ;;
       wd-1)
         die "wd-1 is recorded in deviations.md and is not built. It needs an ETSI TS 119 602 list
     of **issuer** anchors published and reachable, which does not exist — scripts/make-test-lote.mjs
@@ -159,7 +181,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2, wd-3, wd-4, wd-5, or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-7 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -446,6 +468,66 @@ XML
   fi
   echo "    issuersConfig -> $ISSUER_URL (only)"
   echo "    this build offers our issuers and nothing else. Every result says 'modified wallet'."
+fi
+
+if [ "$WANT_WD6" = "yes" ]; then
+  step "Applying WD-6 (credential response encryption REQUIRED -> SUPPORTED)"
+  # Wallet Core's OpenId4VciManager.Config.Builder defaults to EncryptionSupportConfig(REQUIRED, EC
+  # P-256, RSA 2048), and openid4vci-kt then refuses any issuer whose metadata has no
+  # `credential_response_encryption` (ResponseEncryptionRequiredByWalletButNotSupportedByIssuer). The
+  # same config with SUPPORTED changes that one case only: an issuer that offers encryption still
+  # gets an encrypted response. Set on EVERY issuer slot, because an offer from an issuer the wallet
+  # does not list is handled with the first slot's settings. Runs after WD-5 so a third slot is
+  # covered too.
+  WD6_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  WD6_ANCHOR='.withDPopConfig(DPopConfig.Default)'
+  WD6_SLOTS="$(grep -c '^ *VciConfig($' "$WD6_FILE")"
+  [ "$(grep -cF "$WD6_ANCHOR" "$WD6_FILE")" = "$WD6_SLOTS" ] && [ "$WD6_SLOTS" -ge 1 ] ||
+    die "WD-6 expects one '$WD6_ANCHOR' per VciConfig in $WD6_FILE; it must be regenerated."
+  WD6_IMPORT_ANCHOR='import eu.europa.ec.eudi.openid4vci.CredentialReusePolicies'
+  [ "$(grep -cxF "$WD6_IMPORT_ANCHOR" "$WD6_FILE")" = "1" ] || die "WD-6 import anchor missing from $WD6_FILE."
+  awk -v anchor="$WD6_ANCHOR" -v imp="$WD6_IMPORT_ANCHOR" '
+    $0 == imp {
+      print "import com.nimbusds.jose.jwk.Curve"
+      print
+      print "import eu.europa.ec.eudi.openid4vci.CredentialResponseEncryptionPolicy"
+      print "import eu.europa.ec.eudi.openid4vci.EcConfig"
+      print "import eu.europa.ec.eudi.openid4vci.EncryptionSupportConfig"
+      print "import eu.europa.ec.eudi.openid4vci.RsaConfig"
+      next
+    }
+    index($0, anchor) {
+      print
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print pad "// EDTP WD-6: the Wallet Core default, with SUPPORTED instead of REQUIRED."
+      print pad ".withResponseEncryptionConfig("
+      print pad "    EncryptionSupportConfig("
+      print pad "        credentialResponseEncryptionPolicy = CredentialResponseEncryptionPolicy.SUPPORTED,"
+      print pad "        ecConfig = EcConfig(Curve.P_256),"
+      print pad "        rsaConfig = RsaConfig(2048),"
+      print pad "    )"
+      print pad ")"
+      next
+    }
+    { print }
+  ' "$WD6_FILE" > "$WD6_FILE.new" && mv "$WD6_FILE.new" "$WD6_FILE"
+  [ "$(grep -cF 'CredentialResponseEncryptionPolicy.SUPPORTED' "$WD6_FILE")" = "$WD6_SLOTS" ] ||
+    die "WD-6 did not reach every issuer slot."
+  echo "    credential response encryption: SUPPORTED on $WD6_SLOTS issuer slot(s). Unencrypted responses ACCEPTED."
+fi
+
+if [ "$WANT_WD7" = "yes" ]; then
+  step "Applying WD-7 (release logging -> warnings and errors only)"
+  # Upstream's LogControllerImpl plants Timber.DebugTree and a FileLoggerTree at Log.DEBUG in every
+  # build type, and Wallet Core installs Ktor Logging at LogLevel.ALL on its HTTP client and forwards
+  # each line to that controller at DEBUG — so a release build wrote full HTTP bodies, credentials
+  # included, to logcat and to files/logs. A patch against src/main, because LogController is shared.
+  git apply --whitespace=nowarn "$HERE/deviations/wd-7.patch" ||
+    die "failed to apply deviations/wd-7.patch against the pinned tag; it must be regenerated."
+  WD7_FILE="business-logic/src/main/java/eu/europa/ec/businesslogic/controller/log/LogController.kt"
+  grep -q "withMinPriority(minPriority)" "$WD7_FILE" && ! grep -q "withMinPriority(Log.DEBUG)" "$WD7_FILE" ||
+    die "WD-7 did not take effect in $WD7_FILE."
+  echo "    release logging: WARN and above, logcat and log files. HTTP bodies are no longer logged."
 fi
 
 # --- 5. Build stamp ----------------------------------------------------------------------------

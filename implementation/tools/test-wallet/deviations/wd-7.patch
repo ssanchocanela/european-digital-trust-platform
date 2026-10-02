@@ -1,0 +1,45 @@
+diff --git a/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/log/LogController.kt b/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/log/LogController.kt
+index ae7157f..3e9b12b 100644
+--- a/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/log/LogController.kt
++++ b/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/log/LogController.kt
+@@ -20,6 +20,7 @@ import android.content.Context
+ import android.net.Uri
+ import android.util.Log
+ import androidx.core.content.FileProvider
++import eu.europa.ec.businesslogic.config.AppBuildType
+ import eu.europa.ec.businesslogic.config.ConfigLogic
+ import eu.europa.ec.businesslogic.util.FileLoggerTree
+ import timber.log.Timber
+@@ -52,17 +53,30 @@ class LogControllerImpl(
+ 
+     private val logsDir = File(context.filesDir.absolutePath + "/logs")
+ 
++    // EDTP WD-7: a release build keeps warnings and errors only. Wallet Core wraps its HTTP client in
++    // Ktor's Logging plugin at LogLevel.ALL and forwards every line here at DEBUG, so upstream's
++    // Log.DEBUG floor put full request and response bodies (credentials included) in logcat and in
++    // the shareable log files below, whatever the build type.
++    private val minPriority: Int =
++        if (configLogic.appBuildType == AppBuildType.RELEASE) Log.WARN else Log.DEBUG
++
+     private val fileLoggerTree: FileLoggerTree = FileLoggerTree.Builder()
+         .withFileName(LOG_FILE_NAME)
+         .withDir(logsDir)
+         .withSizeLimit(FILE_SIZE_LIMIT)
+         .withFileLimit(FILE_LIMIT)
+-        .withMinPriority(Log.DEBUG)
++        .withMinPriority(minPriority)
+         .appendToFile(true)
+         .build()
+ 
+     init {
+-        Timber.plant(Timber.DebugTree(), fileLoggerTree)
++        Timber.plant(
++            object : Timber.DebugTree() {
++                override fun isLoggable(tag: String?, priority: Int): Boolean =
++                    priority >= minPriority
++            },
++            fileLoggerTree
++        )
+     }
+ 
+     private val tag: String = "EUDI Wallet ${configLogic.appFlavor}-${configLogic.appBuildType}"

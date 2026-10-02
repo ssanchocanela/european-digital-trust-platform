@@ -210,7 +210,9 @@ published** (`CLAUDE.md` §6.22). So:
   part, as an example for people we give access to. It is never public and never on Google Play. The
   conditions are:
   - a **release** build signed with our own `OU=TEST ONLY` key, **never a debug build**: upstream's
-    debug build logs HTTP bodies, PID contents included;
+    debug build logs HTTP bodies, PID contents included. **Correction, 2 October 2026:** so does a
+    release build unless it carries WD-7 (`tools/test-wallet/deviations.md`), so the published build
+    must be **W8 or later**, not W7 (`security-limitations.md` V5);
   - the **EUPL 1.2** terms the upstream wallet is licensed under, which is a copyleft licence: the
     EUPL and the Commission's notices ship with it, the download page states that it is a modified
     work and what was changed (`tools/test-wallet/deviations.md`), and it links to

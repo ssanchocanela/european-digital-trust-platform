@@ -138,3 +138,44 @@ index 2948af2..5f094b5 100644
              ResolveDocumentOfferInteractorPartialState.Failure(
                  errorMessage = it.localizedMessage ?: genericErrorMsg
              )
+diff --git a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
+index e3404fa..3efb085 100644
+--- a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
++++ b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
+@@ -65,6 +65,36 @@ fun provideHttpClient(json: Json, configLogic: ConfigLogic): HttpClient {
+                 contentType = ContentType.Application.Json
+             )
+         }
++
++        // EDTP DIAGNOSTIC (diag-issuance). Logging only; no behaviour changes. Prints the client
++        // authentication headers of an outgoing request — the Wallet Instance Attestation, its PoP
++        // and the DPoP proof — so an issuer that rejects them can be handed the exact JWTs. Wallet
++        // Core issues through this client (withKtorHttpClientFactory). Never a body, never any other
++        // header: these carry a TEST wallet instance identity and public keys, no credential and no
++        // PID data. At ERROR through android.util.Log, so WD-7 does not drop it; chunked, because
++        // logcat truncates a line at about 4 KB.
++        install(
++            io.ktor.client.plugins.api.createClientPlugin("EdtpDiagClientAuthHeaders") {
++                onRequest { request, _ ->
++                    listOf(
++                        "OAuth-Client-Attestation",
++                        "OAuth-Client-Attestation-PoP",
++                        "DPoP"
++                    ).forEach { name ->
++                        request.headers[name]?.let { value ->
++                            val target = "${request.method.value} ${request.url.buildString().substringBefore('?')}"
++                            val chunks = value.chunked(3000)
++                            chunks.forEachIndexed { i, chunk ->
++                                android.util.Log.e(
++                                    "EDTP-DIAG",
++                                    "header $name (${i + 1}/${chunks.size}) $target: $chunk"
++                                )
++                            }
++                        }
++                    }
++                }
++            }
++        )
+     }
+ }
+ 

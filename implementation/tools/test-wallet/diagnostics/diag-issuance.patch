@@ -139,7 +139,7 @@ index 2948af2..5f094b5 100644
                  errorMessage = it.localizedMessage ?: genericErrorMsg
              )
 diff --git a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
-index e3404fa..4ccaf90 100644
+index e3404fa..7967552 100644
 --- a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
 +++ b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
 @@ -27,6 +27,7 @@ import io.ktor.client.plugins.logging.DEFAULT
@@ -150,7 +150,7 @@ index e3404fa..4ccaf90 100644
  import io.ktor.http.ContentType
  import io.ktor.serialization.kotlinx.json.json
  import kotlinx.serialization.json.Json
-@@ -65,6 +66,54 @@ fun provideHttpClient(json: Json, configLogic: ConfigLogic): HttpClient {
+@@ -65,6 +66,84 @@ fun provideHttpClient(json: Json, configLogic: ConfigLogic): HttpClient {
                  contentType = ContentType.Application.Json
              )
          }
@@ -181,6 +181,36 @@ index e3404fa..4ccaf90 100644
 +                            }
 +                        }
 +                    }
++                }
++                // The HEADER of each JWT proof in an outgoing credential request — where the key
++                // attestation travels (`key_attestation`) — so an issuer that rejects it can be handed
++                // the exact attestation. Only the first segment of each JWT is decoded and printed:
++                // never its payload, its signature or anything else in the body. A credential request
++                // carries proofs and a configuration id, no credential and no PID data. Read at Send,
++                // once the body has been serialised.
++                on(io.ktor.client.plugins.api.Send) { request ->
++                    val text = (request.body as? io.ktor.http.content.TextContent)?.text
++                    if (text != null && text.contains("\"proof")) {
++                        val target = "${request.method.value} ${request.url.buildString().substringBefore('?')}"
++                        Regex("eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+").findAll(text)
++                            .forEachIndexed { n, m ->
++                                val header = runCatching {
++                                    String(
++                                        java.util.Base64.getUrlDecoder()
++                                            .decode(m.value.substringBefore('.')),
++                                        Charsets.UTF_8
++                                    )
++                                }.getOrElse { "<undecodable>" }
++                                val chunks = header.chunked(3000)
++                                chunks.forEachIndexed { i, chunk ->
++                                    android.util.Log.e(
++                                        "EDTP-DIAG",
++                                        "proof header #$n (${i + 1}/${chunks.size}) $target: $chunk"
++                                    )
++                                }
++                            }
++                    }
++                    proceed(request)
 +                }
 +                // The body of an ERROR response only (status >= 400): an OAuth / OpenID4VCI error
 +                // object, never a credential. Wallet Core turns a failed credential response into

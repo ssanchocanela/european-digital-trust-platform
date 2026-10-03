@@ -310,7 +310,7 @@ if [ "$DIAGNOSTICS" = "yes" ]; then
   [ -f "$HERE/diagnostics/diag-issuance.patch" ] || die "diagnostics/diag-issuance.patch is missing."
   git apply --whitespace=nowarn "$HERE/diagnostics/diag-issuance.patch" ||
     die "failed to apply diagnostics/diag-issuance.patch against the pinned tag."
-  echo "    applied diagnostics/diag-issuance.patch (logging only, tag EDTP-DIAG; prints the client-auth headers, never a body)"
+  echo "    applied diagnostics/diag-issuance.patch (logging only, tag EDTP-DIAG; client-auth headers and error-response bodies, never a success body)"
 fi
 
 # --- 4. Generated flavour source sets ----------------------------------------------------------

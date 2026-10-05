@@ -1,0 +1,59 @@
+{
+  "_note": [
+    "Banco Horizonte: a FICTITIOUS bank, for the bank onboarding demonstration (apps/demo-onboarding).",
+    "Every identifier here is a TEST placeholder that no Registrar assigned. TEST environment only.",
+    "Claim names are the PID Rulebook v1.1 SD-JWT VC ones (scripts/pid/pid-rulebook-sd-jwt.json).",
+    "There is no age claim: the PID has none (CLAUDE.md §6.1). The bank receives the date of birth,",
+    "which its onboarding needs anyway, and works out the person's majority from it.",
+    "The address claims are optional in the Rulebook, and a query naming a claim the credential lacks",
+    "matches no credential: a test PID for this demonstration must carry all four."
+  ],
+  "organisation": {
+    "legalName": "Banco Horizonte S.A. (ficticio)",
+    "memberState": "ES",
+    "isPublicSectorBody": false,
+    "officialIdentifiers": [
+      { "scheme": "urn:edtp:test:fictitious-entity", "value": "TEST-ES-BANCO-HORIZONTE" }
+    ]
+  },
+  "relyingParty": {
+    "registrarAssignedIdentifier": "TEST-ES-BANCO-HORIZONTE",
+    "registrar": "none (TEST placeholder, no Registrar)",
+    "tradeName": "Banco Horizonte",
+    "trustEnvironment": "TEST"
+  },
+  "service": {
+    "serviceIdentifier": "onboarding",
+    "serviceTradeName": "Banco Horizonte",
+    "description": [
+      { "lang": "es", "value": "Alta de clientes en línea" },
+      { "lang": "en", "value": "Online customer onboarding" }
+    ],
+    "callbackUrlAllowList": []
+  },
+  "vct": "urn:eudi:pid:1",
+  "intendedUse": {
+    "intendedUseIdentifier": "edtp-test-bank-onboarding",
+    "purpose": [
+      { "lang": "es", "value": "Identificarte para abrir tu cuenta" },
+      { "lang": "ca", "value": "Identificar-te per obrir el teu compte" },
+      { "lang": "en", "value": "Identify you to open your account" }
+    ],
+    "privacyPolicyUris": [{ "lang": "es", "value": "https://example.test/privacidad" }]
+  },
+  "policy": {
+    "name": "Banco Horizonte — customer onboarding with PID",
+    "description": "Identifies a new customer from their PID: names, date of birth, nationalities, personal administrative number and address. Nothing else is asked for.",
+    "requestedClaims": [
+      ["given_name"],
+      ["family_name"],
+      ["birthdate"],
+      ["nationalities"],
+      ["personal_administrative_number"],
+      ["address", "street_address"],
+      ["address", "postal_code"],
+      ["address", "locality"],
+      ["address", "country"]
+    ]
+  }
+}

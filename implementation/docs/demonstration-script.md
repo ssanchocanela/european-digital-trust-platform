@@ -166,3 +166,9 @@ exists so the modification can be stated precisely rather than glossed.
    an audience sees.
 4. **If a phone is involved, open the tunnel first** (`./scripts/test-session.sh up`) and close it
    after (`down`). It is synthetic data only, hand-started, and never left running.
+5. **Check the phone and the room's screen reach the demonstration, on the network you will use.**
+   Open the demonstration's address in the phone's browser and on the presenting computer. A
+   corporate network or a VPN on the phone may filter the hostnames: the page then fails to load,
+   and the wallet reports `Trust anchor for certification path not found`, which reads like a trust
+   failure and is a blocked connection. Turn the VPN off, or use the phone's own mobile data. Found
+   on 5 October 2026, after an hour.

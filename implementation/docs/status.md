@@ -8,6 +8,61 @@ linked rather than repeated.
 
 ---
 
+## 5 October 2026, evening — **Banco Horizonte deployed, and one presentation `VERIFIED` from the test wallet**
+
+`apps/demo-onboarding` runs on the permanent environment at <https://edtp-horizonte.murcata.es>, in
+real mode, with its card on the portal (PR #26, image `b76f954366ab`, engine unchanged).
+
+**The run.** One presentation, **`SAME_DEVICE`**, from the EDTP test wallet **W8** (a modified wallet:
+`wd-2,wd-3,wd-4,wd-5,wd-6,wd-7`) on a Pixel 9a, Android 17: created 19:01:56 UTC, settled
+**`VERIFIED`** 19:02:05 — nine seconds from request to verified result (audit: `presentation.created`,
+`presentation.settled`, sent without a registration certificate, as every request here is). The user
+reported the page working. **It says nothing about an official Reference Wallet build.**
+
+**Not verified by this run:**
+
+- **Cross-device by QR.** Four `QR` presentations were created during the day and all expired; none
+  was completed by a wallet. ADR 0012's flow is deployed and unexercised.
+- **Which issuer's PID it was.** The platform issued no PID that day. The wallet first held a PID in
+  `mso_mdoc` from the reference issuer, which the policy does not ask for; the user then took one in
+  SD-JWT VC, from an issuer this record cannot name. If it was the reference issuer's, it verified
+  through the seven reference anchors the TEST PID list carries.
+- The name the wallet showed for the Relying Party, the nine form fields on screen, and the two-minute
+  target: seen by the user, not recorded here.
+
+**What is on the VM now**, beyond the image: organisation `ff38dbdc…`, Relying Party `96ffb5e8…`
+(`TEST-ES-BANCO-HORIZONTE`, a placeholder), service `1440cd43…`; engine tenant **`horizonte-1`** with
+an access certificate from the development Access CA (leaf SHA-256 `49:72:BA:EB…`, valid to **3 January
+2027**), key binding `85da380b…`; the TEST PID list loaded on it as `edtp-test-pid-providers`; intended
+use `edtp-test-bank-onboarding` and policy **`8e7c4b3a…` v1**. In `.env`: the policy appended to
+`HOSTED_VERIFIER_POLICIES`, `HOSTED_VERIFIER_ORIGINS`, `HOSTED_VERIFIER_QR_POLICIES`,
+`ONBOARDING_POLICY`, `PORTAL_SHOW_ONBOARDING=true`. `cloudflared` has the route; the previous config is
+`/etc/cloudflared/config.yml.before-horizonte`. Public negative checks: 56 of 56 are `404`.
+
+**Found on the way:**
+
+- **Every presentation failed for an hour with `Trust anchor for certification path not found`, and
+  it was the phone's network.** A corporate VPN on the phone (F5 Access) resolved `murcata.es` hosts
+  to a web filter's block page, so the wallet's TLS handshake with the engine failed — the "intercepting
+  network" row of `tools/test-wallet/INSTALL-AND-PID.md`, which reads exactly like a trust failure in
+  the wallet. Found only in `adb logcat`; the engine logs nothing for a request that never arrives. Now
+  a check in [`demonstration-script.md`](demonstration-script.md) §6.
+- `cloudflared tunnel route dns <name> <host>` used the tunnel named in the local `config.yml`, not the
+  one given: the new hostname pointed at a tunnel with no connector (error 1033) until it was
+  overwritten by tunnel id with `--config /dev/null --overwrite-dns`.
+- The VM has no `node`: the registration scripts ran inside the platform image, and
+  `import-access-certificate.sh` with a `node` shim that does the same.
+- **Tienda Demo (`/edad`) answers 503**: its policy `eb1f5c2b…` has no trust anchors
+  (`trust_anchor_sources_missing`). `register-age-check.mjs` copies `latest.trustPolicy`, which the
+  API's view of a policy version does not carry — the fault `register-large-family.mjs` already
+  works around. **Open.**
+- The reference trust lists at `trustedlist.serviceproviders.eudiw.dev` were re-issued on 29 September
+  with one entity each, where there were seven. The TEST lists still carry the seven. **Not yet
+  assessed.**
+
+**Next:** run it by QR from a desktop; issue the demonstration's person from "PID (demo)" with the four
+address claims, and a spare; fix the age check's policy.
+
 ## 5 October 2026 — **Banco Horizonte, the bank onboarding demonstration: built, not yet run with a wallet**
 
 A new demonstration, `apps/demo-onboarding`: a fictitious bank opens an account three ways — today's

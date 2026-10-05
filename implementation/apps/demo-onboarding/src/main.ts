@@ -104,7 +104,7 @@ const requestSummary = (
     const inner = new URL(walletUri).searchParams.get("request_uri");
     if (inner) {
       const u = new URL(inner);
-      requestUri = `${u.origin}${u.pathname.replace(/[^/]{12,}/g, (s) => `${s.slice(0, 6)}…`)}`;
+      requestUri = `${u.origin}${u.pathname.replace(/[0-9a-f-]{20,}/gi, (s) => `${s.slice(0, 8)}…`)}`;
     }
   } catch {
     // A URI the page cannot parse is still one a wallet may open; the panel shows no request URI.

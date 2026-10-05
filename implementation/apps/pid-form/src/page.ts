@@ -77,6 +77,22 @@ export const BRANDS: Readonly<Record<string, Brand>> = {
     mark: "C",
   },
   /**
+   * The fictitious payroll provider that issues the income certificate Banco Horizonte's loan asks
+   * for. Not a real organisation: a text mark and generic colours, shown on public hosts too.
+   */
+  nominas: {
+    key: "nominas",
+    organisation: "Nóminas Demo",
+    logoAlt: "Nóminas Demo",
+    client: false,
+    colour: "#5a3e85",
+    colourDark: "#402b61",
+    service: "Portal del empleado",
+    serviceSub: "Certificados de ingresos",
+    crumbs: "Inicio › Portal del empleado › Certificados",
+    mark: "N",
+  },
+  /**
    * The Gobierno de Canarias electronic office, for a demonstration of the Large Family Title to it.
    * A real organisation's look, so a client brand: shown only on the Access-protected host while a
    * client profile configures it, and only with the organisation's written permission (ADR 0010 §2).

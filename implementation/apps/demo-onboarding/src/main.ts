@@ -3,12 +3,18 @@ import { clientKey, RateLimiter } from "@edtp/shared";
 import express, { type Response } from "express";
 import qrcode from "qrcode-generator";
 import { z } from "zod";
-import { FIELDS, REQUESTED_CLAIMS, toOnboardingData } from "./claims.js";
+import {
+  FIELDS,
+  INCOME_REQUESTED_CLAIMS,
+  REQUESTED_CLAIMS,
+  toIncomeData,
+  toOnboardingData,
+} from "./claims.js";
 import { CLIENT_JS } from "./client.js";
 import { dictionary } from "./i18n.js";
 import { APP_CSS, CONTENT_SECURITY_POLICY, renderPlain, renderShell } from "./page.js";
 import { CrossDevicePolls } from "./polls.js";
-import { RECORDED_CLAIMS, RECORDED_STATUSES } from "./recorded.js";
+import { RECORDED_CLAIMS, RECORDED_INCOME_CLAIMS, RECORDED_STATUSES } from "./recorded.js";
 
 /**
  * Banco Horizonte — the bank onboarding demonstration.
@@ -46,6 +52,15 @@ const schema = z.object({
   ),
   /** The presentation policy `scripts/register-bank-onboarding.mjs` prints. Unset: recording only. */
   ONBOARDING_POLICY: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().uuid().optional(),
+  ),
+  /**
+   * The loan's second presentation: the income certificate's policy, from
+   * `register-large-family.mjs presentation` with the income definition. Unset: the loan decides on
+   * an income the person types, and says so.
+   */
+  ONBOARDING_INCOME_POLICY: z.preprocess(
     (v) => (v === "" ? undefined : v),
     z.string().uuid().optional(),
   ),
@@ -92,8 +107,16 @@ const qrSvg = (value: string): string => {
   return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
 };
 
+/** The two things the page asks a wallet for. */
+type Kind = "pid" | "ingresos";
+const CREDENTIALS = {
+  pid: { vct: "urn:eudi:pid:1", requestedClaims: REQUESTED_CLAIMS },
+  ingresos: { vct: "urn:edtp:income-certificate:1", requestedClaims: INCOME_REQUESTED_CLAIMS },
+} as const;
+
 /** What the technical panel shows of the request: its shape, never a secret and never content. */
 const requestSummary = (
+  kind: Kind,
   presentationId: string,
   interactionType: string,
   walletUri: string,
@@ -114,8 +137,8 @@ const requestSummary = (
     presentationId: `${presentationId.slice(0, 8)}…`,
     interactionType,
     ...(requestUri ? { requestUri } : {}),
-    credential: { format: "dc+sd-jwt", vct: "urn:eudi:pid:1" },
-    requestedClaims: REQUESTED_CLAIMS,
+    credential: { format: "dc+sd-jwt", vct: CREDENTIALS[kind].vct },
+    requestedClaims: CREDENTIALS[kind].requestedClaims,
     expiresAt,
   };
 };
@@ -132,6 +155,11 @@ const main = (): void => {
   }
   const config = parsed.data;
   const policy = config.HOSTED_VERIFIER_SECRET ? config.ONBOARDING_POLICY : undefined;
+  // The income step exists only on top of the identification: never one without the other.
+  const incomePolicy = policy ? config.ONBOARDING_INCOME_POLICY : undefined;
+  const policyFor = (kind: Kind): string | undefined =>
+    kind === "pid" ? policy : incomePolicy;
+  const kindOf = (value: unknown): Kind => (value === "ingresos" ? "ingresos" : "pid");
   const polls = new CrossDevicePolls();
   const today = () => new Date().toISOString().slice(0, 10);
 
@@ -146,7 +174,9 @@ const main = (): void => {
   const recorded = {
     statuses: RECORDED_STATUSES,
     fields: toOnboardingData(RECORDED_CLAIMS, today()).fields,
-    request: requestSummary("00000000", "RECORDED", "", null),
+    request: requestSummary("pid", "00000000", "RECORDED", "", null),
+    income: toIncomeData(RECORDED_INCOME_CLAIMS),
+    incomeRequest: requestSummary("ingresos", "00000000", "RECORDED", "", null),
   };
 
   const app = express();
@@ -170,14 +200,16 @@ const main = (): void => {
     response.status(429).json({ error: "rate_limited" });
   });
 
-  const shell = (lang: unknown, resume?: string): string => {
+  const shell = (lang: unknown, resume?: string, resumeKind?: Kind): string => {
     const { lang: chosen, t } = dictionary(typeof lang === "string" ? lang : undefined);
     return renderShell({
       lang: chosen,
       t,
       assets,
       live: Boolean(policy),
-      ...(resume ? { resume } : {}),
+      // With no policy at all the page plays its recording, income certificate included.
+      income: Boolean(incomePolicy) || !policy,
+      ...(resume ? { resume, resumeKind: resumeKind ?? "pid" } : {}),
       recorded,
     });
   };
@@ -192,11 +224,18 @@ const main = (): void => {
     secureHeaders(response);
     const presentationId =
       typeof request.query["presentation"] === "string" ? request.query["presentation"] : "";
-    if (!policy || request.query["policy"] !== policy || !UUID.test(presentationId)) {
+    const returned = request.query["policy"];
+    const kind: Kind | undefined =
+      policy && returned === policy
+        ? "pid"
+        : incomePolicy && returned === incomePolicy
+          ? "ingresos"
+          : undefined;
+    if (!kind || !UUID.test(presentationId)) {
       response.redirect(303, "./");
       return;
     }
-    response.send(shell(request.query["lang"], presentationId));
+    response.send(shell(request.query["lang"], presentationId, kind));
   });
 
   app.get(`/${assets}/app.css`, (_request, response) => {
@@ -210,7 +249,9 @@ const main = (): void => {
 
   app.post("/api/presentaciones", async (request, response) => {
     secureHeaders(response);
-    if (!policy) {
+    const kind = kindOf(request.body?.tipo);
+    const target = policyFor(kind);
+    if (!target) {
       response.status(503).json({ error: "not_configured" });
       return;
     }
@@ -218,7 +259,7 @@ const main = (): void => {
     const started = await platform(
       config,
       "POST",
-      `/v1/hosted-verifications/${encodeURIComponent(policy)}`,
+      `/v1/hosted-verifications/${encodeURIComponent(target)}`,
       { interactionType },
     ).catch(() => undefined);
     const walletUri = started?.json["walletUri"];
@@ -232,7 +273,7 @@ const main = (): void => {
       id,
       walletUri,
       expiresAt,
-      request: requestSummary(id, interactionType, walletUri, expiresAt),
+      request: requestSummary(kind, id, interactionType, walletUri, expiresAt),
       ...(interactionType === "QR"
         ? { qrSvg: qrSvg(walletUri), token: polls.remember(id) }
         : {}),
@@ -243,8 +284,10 @@ const main = (): void => {
     secureHeaders(response);
     const id = request.params.id;
     const token = request.headers["x-onboarding-token"];
+    const kind = kindOf(request.query["tipo"]);
+    const target = policyFor(kind);
     if (
-      !policy ||
+      !target ||
       !UUID.test(id) ||
       !polls.allows(id, typeof token === "string" ? token : undefined)
     ) {
@@ -254,7 +297,7 @@ const main = (): void => {
     const outcome = await platform(
       config,
       "GET",
-      `/v1/hosted-verifications/${encodeURIComponent(policy)}/${encodeURIComponent(id)}`,
+      `/v1/hosted-verifications/${encodeURIComponent(target)}/${encodeURIComponent(id)}`,
     ).catch(() => undefined);
     if (!outcome || outcome.status !== 200) {
       response.status(outcome?.status === 404 ? 404 : 503).json({ error: "unavailable" });
@@ -268,6 +311,11 @@ const main = (): void => {
     // The verified claims, to the page the person is looking at. Only the form's fields: anything
     // else a result might carry stops here.
     const claims = (outcome.json["claims"] as Record<string, unknown>) ?? {};
+    if (kind === "ingresos") {
+      const income = toIncomeData(claims);
+      response.json(income ? { status, income } : { status: "POLICY_NOT_SATISFIED" });
+      return;
+    }
     response.json({ status, ...toOnboardingData(claims, today()) });
   });
 

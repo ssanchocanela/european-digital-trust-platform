@@ -24,6 +24,12 @@
  *    uses: category and expiry date, and nothing else. The issuer anchor is the EDTP TEST list of
  *    non-qualified EAA providers, which must carry the issuing provider's certificate.
  *
+ * ## Other attestations of the same shape
+ *
+ * `EDTP_ATTESTATION_DEFINITION=<file>` reads another definition with the same structure, for an
+ * attestation issued the same way: `scripts/income/income-certificate.json` is the income
+ * certificate Banco Horizonte's loan asks for (`scripts/setup-income-issuer.sh`).
+ *
  * ## Where the definition comes from
  *
  * `scripts/large-family/large-family-title.json`, in this repository. Unlike the Power of X
@@ -80,11 +86,11 @@ const api = async (method, path, body) => {
   return parsed;
 };
 
-const DEFINITION = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "large-family",
-  "large-family-title.json",
-);
+// Another attestation of the same shape — identified by PID, everything else fixed — is another
+// definition: EDTP_ATTESTATION_DEFINITION=scripts/income/income-certificate.json.
+const DEFINITION =
+  process.env.EDTP_ATTESTATION_DEFINITION ??
+  join(dirname(fileURLToPath(import.meta.url)), "large-family", "large-family-title.json");
 const doc = JSON.parse(readFileSync(DEFINITION, "utf8"));
 
 const issuance = async (t, providerId, identifyPolicyId) => {
@@ -105,8 +111,9 @@ const issuance = async (t, providerId, identifyPolicyId) => {
     intendedUseId: identify.intendedUseId,
     name: idSpec.name,
     description:
+      idSpec.description ??
       "Identifies the family member before a Large Family Title is issued from the presentation. " +
-      "Asks for names and date of birth, and nothing else.",
+        "Asks for names and date of birth, and nothing else.",
   });
   const idVersion = await api(
     "POST",
@@ -229,7 +236,7 @@ const presentation = async (t, serviceId, trustListUrl) => {
   process.stdout.write(
     `Intended use          ${use.intendedUseId} (${spec.intendedUseIdentifier})\n` +
       `Presentation policy   ${policy.policyId} v${version.version} (${version.status})\n\n` +
-      "Add it to HOSTED_VERIFIER_POLICIES and to DEMO_BANK_POLICIES as fibra=<policyId>.\n",
+      `${spec.next ?? "Add it to HOSTED_VERIFIER_POLICIES and to DEMO_BANK_POLICIES as fibra=<policyId>."}\n`,
   );
 };
 

@@ -16,6 +16,7 @@ authorised anything.** `TEST` environment only.
 | Power of Attorney | `dc+sd-jwt` | `urn:edtp:pox:power-of-attorney:1` | the same | as above |
 | Power of Employee | `dc+sd-jwt` | `urn:edtp:pox:power-of-employee:1` | the same | as above |
 | Large Family Title | `dc+sd-jwt` | `urn:edtp:large-family:1` | this project's own model | **ours, a working model** — no Rulebook exists |
+| Income certificate | `dc+sd-jwt` | `urn:edtp:income-certificate:1` | this project's own model | **ours, a working model** — no Rulebook exists |
 
 ## The first two are read, not remembered
 
@@ -160,6 +161,40 @@ Relying Party (security limitation P10).
 **Trust.** `fam-1` signs with a self-signed certificate, like `rpi-1`, so the EDTP TEST list of EAA
 providers now carries two anchors (`make-test-lote.mjs --ca a.crt,b.crt`). A title is verifiable only
 once that list is republished and reloaded.
+
+## The income certificate — a second model of our own
+
+Written 5 October 2026, for Banco Horizonte's loan. What an employer's payroll could attest for a
+lender: who employs the person, on what contract, since when, and what they are paid net each month.
+**No Rulebook defines it.** The model is this project's and lives in
+[`scripts/income/income-certificate.json`](../scripts/income/income-certificate.json), the same
+structure as the Large Family Title's and read by the same script
+(`EDTP_ATTESTATION_DEFINITION=… node scripts/register-large-family.mjs`).
+
+| Block | Claims | Where the value comes from |
+|---|---|---|
+| Holder | `family_name`, `given_name`, `birthdate` | a verified PID |
+| Employment | `employer_name`, `contract_type` (`permanent` / `temporary`), `employed_since` | fixed, fictitious |
+| Income | `net_monthly_income` (whole euros) | fixed, fictitious |
+| Issue | `date_of_issuance`, `issuing_country` | fixed |
+
+Valid for 90 days: a lender wants a recent one. **Every holder gets the same employer and the same
+salary**, so the attestation proves the platform can issue and verify this structure and nothing about
+anyone's income.
+
+**Issued by its own issuer**, engine tenant `nominas-1`, "Nóminas Demo", a fictitious payroll
+provider with a neutral brand of its own. Set up with `scripts/setup-income-issuer.sh`. For the
+wallet's own list to offer it, the test wallet needs a fourth WD-5 issuer (W9).
+
+**Verified by Banco Horizonte**, as the loan's second presentation — a V0 policy asks for one
+credential, so the PID and the certificate are two requests. Its policy asks for the income, the
+contract type and the seniority, and for the holder's names and date of birth: not to learn them, the
+PID already gave them, but because nothing else ties the second presentation to the first person. The
+employer is not asked for. The page compares the two results; a production lender would do that in its
+back end.
+
+**Trust.** `nominas-1` signs with a self-signed certificate, so the EDTP TEST list of EAA providers
+gains a third anchor, and must be republished and loaded on `horizonte-1`.
 
 ## Adding to the catalogue
 

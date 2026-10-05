@@ -66,6 +66,15 @@ with the PID, a pre-approved offer, the simulated signature. **The credit decisi
 an income the person types, and every screen of it says so: a PID says who someone is, not what they
 can repay. A version that decides on a verified income attestation is the next step.
 
+**And that version, built and not set up.** With `ONBOARDING_INCOME_POLICY` the loan asks for a second
+presentation: an **income certificate** (`urn:edtp:income-certificate:1`, this project's own model,
+[`credential-catalogue.md`](credential-catalogue.md)) from "Nóminas Demo", a fictitious payroll
+provider on its own engine tenant, `nominas-1`. Two presentations, because a V0 policy asks for one
+credential. The decision then reads the certificate's income — verified, and fictitious: every holder
+gets the same salary. **Nothing of it exists on the VM yet**, and the wallet's list needs a fourth
+issuer (W9). Steps: [`infra/demo-vm/README.md`](../infra/demo-vm/README.md), *The loan's income
+certificate*.
+
 **Next:** run it by QR from a desktop; issue the demonstration's person from "PID (demo)" with the four
 address claims, and a spare; fix the age check's policy.
 

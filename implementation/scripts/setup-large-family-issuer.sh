@@ -40,6 +40,15 @@ KEY="${PLATFORM_TENANT_API_KEY:?set PLATFORM_TENANT_API_KEY; it is a secret and 
 ENGINE_TENANT_REF="${ENGINE_TENANT_REF:-fam-1}"
 STATE="${EDTP_LARGE_FAMILY_ISSUER_STATE:-$HOME/.edtp/large-family-issuer.json}"
 CERT_OUT="${EDTP_LARGE_FAMILY_CERT:-$HOME/.edtp/eaa-provider/$ENGINE_TENANT_REF.crt}"
+# Another fictitious issuer of the same kind sets these four and its own state file and tenant:
+# scripts/setup-income-issuer.sh does, for the income certificate. The defaults are the community's.
+ISSUER_LEGAL_NAME="${ISSUER_LEGAL_NAME:-Comunidad Autonoma Demo, Consejeria de Familia - TEST ONLY, fictitious}"
+ISSUER_PUBLIC_BODY="${ISSUER_PUBLIC_BODY:-true}"
+ISSUER_EUID="${ISSUER_EUID:-ESTEST.EDTPFAM1}"
+ISSUER_PROVIDER_IDENTIFIER="${ISSUER_PROVIDER_IDENTIFIER:-ESTEST.EDTP-FAM-PROVIDER-1}"
+ISSUER_CERT_SUBJECT="${ISSUER_CERT_SUBJECT:-/CN=Comunidad Autonoma Demo - large family titles - TEST ONLY/O=EDTP development/C=ES}"
+ISSUER_DISPLAY_NAME="${ISSUER_DISPLAY_NAME:-Comunidad Autónoma Demo}"
+ISSUER_NEXT="${ISSUER_NEXT:-node scripts/register-large-family.mjs issuance}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 for tool in curl jq openssl node; do
@@ -84,16 +93,14 @@ fi
 
 if [ "$PROVIDER_STATE" = "absent" ]; then
   echo "==> Organisation"
-  ORG_ID="$(need "Register the organisation" "$(api POST "$T/organisations" '{
-    "legalName": "Comunidad Autonoma Demo, Consejeria de Familia - TEST ONLY, fictitious",
-    "memberState": "ES",
-    "isPublicSectorBody": true,
-    "officialIdentifiers": [{ "scheme": "http://data.europa.eu/eudi/id/EUID", "value": "ESTEST.EDTPFAM1" }]
-  }')" organisationId)"
+  ORG_ID="$(need "Register the organisation" "$(api POST "$T/organisations" "$(jq -n \
+    --arg name "$ISSUER_LEGAL_NAME" --arg euid "$ISSUER_EUID" --argjson public "$ISSUER_PUBLIC_BODY" \
+    '{legalName:$name, memberState:"ES", isPublicSectorBody:$public,
+      officialIdentifiers:[{scheme:"http://data.europa.eu/eudi/id/EUID", value:$euid}]}')")" organisationId)"
   echo "==> Attestation Provider (TEST)"
   PROVIDER_ID="$(need "Register the provider" "$(api POST "$T/attestation-providers" "$(jq -n \
-    --arg org "$ORG_ID" \
-    '{organisationId:$org, registrarAssignedIdentifier:"ESTEST.EDTP-FAM-PROVIDER-1",
+    --arg org "$ORG_ID" --arg id "$ISSUER_PROVIDER_IDENTIFIER" \
+    '{organisationId:$org, registrarAssignedIdentifier:$id,
       registrar:"none - TEST, no Registrar involved", trustEnvironment:"TEST"}')")" attestationProviderId)"
   remember attestationProviderId "$PROVIDER_ID"
   PROVIDER_STATE="registered"
@@ -104,7 +111,7 @@ if [ "$PROVIDER_STATE" = "registered" ]; then
   mkdir -p "$(dirname "$CERT_OUT")"
   ENGINE_TENANT_REF="$ENGINE_TENANT_REF" PLATFORM_TENANT_API_KEY="$KEY" BASE_URL="$BASE_URL" \
     CERT_DAYS="${CERT_DAYS:-365}" SAVE_SIGNING_CERT="$CERT_OUT" \
-    CERT_SUBJECT="/CN=Comunidad Autonoma Demo - large family titles - TEST ONLY/O=EDTP development/C=ES" \
+    CERT_SUBJECT="$ISSUER_CERT_SUBJECT" \
     "$HERE/rotate-attestation-key.sh" "$PROVIDER_ID"
 else
   echo "==> Reusing Attestation Provider $PROVIDER_ID (already provisioned; not re-keyed)"
@@ -121,6 +128,6 @@ Signing certificate: $CERT_OUT
 Next:
   1. add $CERT_OUT to the EDTP TEST list of EAA providers (make-test-lote.mjs --kind eaa), publish
      it, and reload it into the engine — see this script's header;
-  2. node scripts/register-large-family.mjs issuance $PROVIDER_ID <identifyPolicyId>
-  3. name the issuer for the wallet: ENGINE_ISSUER_DISPLAY_NAMES gains "$ENGINE_TENANT_REF=Comunidad Autónoma Demo".
+  2. $ISSUER_NEXT $PROVIDER_ID <identifyPolicyId>
+  3. name the issuer for the wallet: ENGINE_ISSUER_DISPLAY_NAMES gains "$ENGINE_TENANT_REF=$ISSUER_DISPLAY_NAME".
 NEXT

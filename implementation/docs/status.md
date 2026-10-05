@@ -8,6 +8,53 @@ linked rather than repeated.
 
 ---
 
+## 5 October 2026, night — **Banco Horizonte's loan run end to end: PID, then a verified income certificate**
+
+The loan of PRs #28 and #29 is deployed (image `4f32d15792c0`, engine unchanged) and was run by the
+user with the EDTP test wallet **W9** — a modified wallet, `wd-2,wd-3,wd-4,wd-5,wd-6,wd-7`, four listed
+issuers, `eu.europa.ec.euidi.edtptest9`, APK SHA-256 `a926aed9…e900` — on a Pixel 9a, Android 17.
+**It says nothing about an official Reference Wallet build.**
+
+| UTC | What | Outcome |
+|---|---|---|
+| 21:06:13 | PID from "PID (demo)" (`pid-1`) | **`ISSUED`** |
+| 21:06:41 | Identification with that PID, for the income certificate | **`VERIFIED`** |
+| 21:06:58 | Income certificate from "Nóminas Demo" (`nominas-1`) | **`ISSUED`** |
+| 21:07:50 | Banco Horizonte's loan, first presentation: the PID, `SAME_DEVICE` | **`VERIFIED`** |
+| 21:08:23 | The loan, second presentation: the income certificate, `SAME_DEVICE` | **`VERIFIED`** |
+| 21:13:43 | Banco Horizonte, the PID again, **`QR`** | **`VERIFIED`** |
+
+Reported by the user, not recorded by the platform: the loan reached its last screen with the offer
+computed on the certificate's 2,450 EUR; the wallet named "Banco Horizonte" on both requests; W9 was
+used throughout.
+
+**So, as of now:** the two-presentation loan works same-device; **cross-device by QR has completed
+once, for the PID** (ADR 0012's flow, exercised for the first time); the income certificate has not yet
+been presented by QR. Every value on the certificate is the fixed, fictitious one.
+
+**What is on the VM now**, beyond the image: engine tenant **`nominas-1`**, its Attestation Provider
+`5aa86466…` with a self-signed signing certificate (SHA-256 `07:31:02:A3…`, valid to **5 October 2027**)
+and its wallet-provider trust list; credential type `d2bc15e3…` (`urn:edtp:income-certificate:1`),
+identification policy `e55eccb9…`, issuance policy `27e85971…` v1, provisioned; on Banco Horizonte's
+service, intended use `edtp-test-bank-loan-income` and presentation policy **`909401e7…` v1**. The TEST
+list of EAA providers with **three** anchors (`NextUpdate` 3 January 2027) is loaded on `horizonte-1`.
+In `.env`: `nominas-1` in `EDTP_FORM_TENANTS`, `HOSTED_FORM_BRANDS`, `ENGINE_ISSUER_DISPLAY_NAMES`
+and `HOSTED_FORM_POLICIES`; the policy in `HOSTED_VERIFIER_POLICIES`, `HOSTED_VERIFIER_ORIGINS`,
+`HOSTED_VERIFIER_QR_POLICIES` and `ONBOARDING_INCOME_POLICY`.
+
+**Open:**
+
+- **The published EAA list is behind the one in use.** `gh-pages` still carries two anchors; the
+  three-anchor list was loaded into the engine from a file (`load-issuer-trust-list.mjs --lote-file`)
+  and awaits the user's go-ahead to be published. `rpi-1`, which verifies Fibra Demo, still holds the
+  two-anchor copy, which is all it needs.
+- **`GET /v1/issuances` showed both issuances as `AWAITING_WALLET` until each was read by id**, when
+  they became `ISSUED`: the list does not advance a transaction, a read does. Not yet looked into.
+- The W8 and W9 tooling is in PR #30, not merged.
+- The image for `4f32d15792c0` took forty minutes to start building: a GitHub Actions incident
+  (hosted runners not assigned). The registration ran meanwhile from a copy of the merged scripts
+  beside the VM's checkout (`~/edtp-scripts-next`), which can be deleted.
+
 ## 5 October 2026, evening — **Banco Horizonte deployed, and one presentation `VERIFIED` from the test wallet**
 
 `apps/demo-onboarding` runs on the permanent environment at <https://edtp-horizonte.murcata.es>, in
@@ -71,8 +118,7 @@ presentation: an **income certificate** (`urn:edtp:income-certificate:1`, this p
 [`credential-catalogue.md`](credential-catalogue.md)) from "Nóminas Demo", a fictitious payroll
 provider on its own engine tenant, `nominas-1`. Two presentations, because a V0 policy asks for one
 credential. The decision then reads the certificate's income — verified, and fictitious: every holder
-gets the same salary. **Nothing of it exists on the VM yet**, and the wallet's list needs a fourth
-issuer (W9). Steps: [`infra/demo-vm/README.md`](../infra/demo-vm/README.md), *The loan's income
+gets the same salary. It was set up and run the same night: see the entry above. Steps: [`infra/demo-vm/README.md`](../infra/demo-vm/README.md), *The loan's income
 certificate*.
 
 **Next:** run it by QR from a desktop; issue the demonstration's person from "PID (demo)" with the four

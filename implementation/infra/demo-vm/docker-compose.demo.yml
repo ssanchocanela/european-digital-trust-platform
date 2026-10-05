@@ -47,6 +47,7 @@ services:
       PORTAL_SHOW_AV_DEMOS: ${PORTAL_SHOW_AV_DEMOS:-false}
       # true once Banco Horizonte is registered and its hostname routed (ADR 0012).
       PORTAL_SHOW_ONBOARDING: ${PORTAL_SHOW_ONBOARDING:-false}
+      PORTAL_SHOW_INCOME: ${PORTAL_SHOW_INCOME:-false}
       PORTAL_PROFILE_DIR: /profile-requests
     volumes:
       # The scheduled negative checks' last result, read-only (infra/demo-vm/scheduled-checks.sh).

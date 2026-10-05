@@ -111,6 +111,31 @@ until it is configured, plays a recording under a banner that says so. To make i
    `files/cloudflared-config.yml`. Run `negative-checks.sh` with `EDTP_CHECK_ONBOARDING=1`.
 6. **The card.** `PORTAL_SHOW_ONBOARDING=true` in `.env`.
 
+### The loan's income certificate
+
+Banco Horizonte's loan decides on a typed income until this is set up, and says so. With it, the loan
+asks for a second presentation: an income certificate from "Nóminas Demo", a fictitious payroll
+provider (`docs/credential-catalogue.md`). Each step needs the operator:
+
+1. **The issuer.** `./scripts/create-engine-tenant.sh nominas-1 "Nominas Demo"`, recreate
+   `platform-api`, then `PLATFORM_TENANT_API_KEY=… ./scripts/setup-income-issuer.sh`. It prints the
+   provider id and saves the signing certificate as `~/.edtp/eaa-provider/nominas-1.crt`.
+2. **The TEST list of EAA providers**, with a third anchor: `node scripts/make-test-lote.mjs --kind eaa
+   --ca <the two already listed>,~/.edtp/eaa-provider/nominas-1.crt …`, published on `gh-pages`, then
+   loaded on **`horizonte-1`**, the tenant that verifies it:
+   `node scripts/load-issuer-trust-list.mjs --tenant horizonte-1 --lote <EAAProviders.jwt URL>
+   --signer-sha256 <pin> --id edtp-test-eaa-providers`.
+3. **Issuance.** `EDTP_ATTESTATION_DEFINITION=scripts/income/income-certificate.json node
+   scripts/register-large-family.mjs issuance <providerId> <identifyPolicyId>`, then the printed entry
+   in `HOSTED_FORM_POLICIES` and `POST …/issuance-policies/<id>/provision`. In `.env`: `nominas-1`
+   in **`EDTP_FORM_TENANTS`**, `nominas-1=nominas` in `HOSTED_FORM_BRANDS`, and
+   `nominas-1=Nóminas Demo` in `ENGINE_ISSUER_DISPLAY_NAMES`.
+4. **Verification.** The same script with `presentation <Banco Horizonte's serviceId>
+   <EAAProviders.jwt URL>`. The printed policy goes in `HOSTED_VERIFIER_POLICIES`,
+   `HOSTED_VERIFIER_ORIGINS` and `HOSTED_VERIFIER_QR_POLICIES`, as the onboarding policy is, and in
+   **`ONBOARDING_INCOME_POLICY`**.
+5. **The wallet.** A build whose list offers the fourth issuer, `…/issuers/nominas-1` (W9).
+
 **The test PID must carry the four address claims** the policy asks for (street, postal code, locality,
 country): they are optional in the Rulebook, and a wallet whose PID lacks one reports that it holds
 nothing suitable. Issue the demonstration's person, and a spare, from the hosted form with all four.

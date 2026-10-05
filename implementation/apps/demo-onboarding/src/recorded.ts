@@ -31,3 +31,13 @@ export const RECORDED_CLAIMS: Readonly<Record<string, unknown>> = {
   "address.locality": "Barcelona",
   "address.country": "ES",
 };
+
+/** The recorded income certificate: the same fictitious person, and a fictitious salary. */
+export const RECORDED_INCOME_CLAIMS: Readonly<Record<string, unknown>> = {
+  net_monthly_income: 2450,
+  contract_type: "permanent",
+  employed_since: "2019-03-01",
+  given_name: "Laura",
+  family_name: "Martínez Soler",
+  birthdate: "1992-03-14",
+};

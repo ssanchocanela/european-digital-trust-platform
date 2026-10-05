@@ -79,3 +79,57 @@ export const toOnboardingData = (
   const birthdate = text(read(claims, "birthdate"));
   return { fields, adult: birthdate !== undefined && isAdult(birthdate, today) };
 };
+
+/**
+ * What the loan asks an income certificate for (`scripts/income/income-certificate.json`): the three
+ * figures the decision uses, and the holder's names and date of birth — not to learn them, the PID
+ * already gave them, but to check the certificate is the same person's.
+ */
+export const INCOME_REQUESTED_CLAIMS: readonly (readonly string[])[] = [
+  ["net_monthly_income"],
+  ["contract_type"],
+  ["employed_since"],
+  ["given_name"],
+  ["family_name"],
+  ["birthdate"],
+];
+
+export interface IncomeData {
+  readonly netMonthlyIncome: number;
+  readonly contractType: string;
+  readonly employedSince: string;
+  /** Whose certificate it is, for the page to match against the PID it was shown. */
+  readonly holder: {
+    readonly givenName: string;
+    readonly familyName: string;
+    readonly birthdate: string;
+  };
+}
+
+/** The verified income certificate as the loan uses it, or nothing when a figure is missing. */
+export const toIncomeData = (
+  claims: Readonly<Record<string, unknown>>,
+): IncomeData | undefined => {
+  const income = read(claims, "net_monthly_income");
+  const contractType = text(read(claims, "contract_type"));
+  const employedSince = text(read(claims, "employed_since"));
+  if (
+    typeof income !== "number" ||
+    !Number.isFinite(income) ||
+    income < 0 ||
+    contractType === undefined ||
+    employedSince === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    netMonthlyIncome: income,
+    contractType,
+    employedSince,
+    holder: {
+      givenName: text(read(claims, "given_name")) ?? "",
+      familyName: text(read(claims, "family_name")) ?? "",
+      birthdate: text(read(claims, "birthdate")) ?? "",
+    },
+  };
+};

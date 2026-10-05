@@ -1,0 +1,199 @@
+{
+  "_note": [
+    "Certificado de ingresos (income certificate), as a demonstration attestation. Read by scripts/register-large-family.mjs with EDTP_ATTESTATION_DEFINITION pointing here.",
+    "A platform-defined model, not a Rulebook: no EU or national Rulebook exists for this attestation. It is the least a lender plausibly needs from an employer's payroll: who employs the person, on what kind of contract, since when, and what they are paid net each month. A working model, not a final one.",
+    "The holder's names and date of birth come from the PID they identify with. Everything else is FICTITIOUS test data and the same for every holder: the employer, the contract and the salary exist nowhere, and the attestation proves nothing about anyone's income.",
+    "vct is a project placeholder. The issuer, 'Nóminas Demo', is a fictitious payroll provider."
+  ],
+  "rulebook": {
+    "identifier": "urn:edtp:rulebook:income-certificate",
+    "version": "0.1",
+    "anchorSource": "RULEBOOK_ONLY"
+  },
+  "validitySeconds": 7776000,
+  "reusePolicy": { "method": "LIMITED_TIME", "reissueBeforeExpirySeconds": 604800 },
+  "type": {
+    "key": "ci",
+    "name": "Certificado de ingresos",
+    "vct": "urn:edtp:income-certificate:1",
+    "display": [
+      { "lang": "es", "value": "Certificado de ingresos" },
+      { "lang": "en", "value": "Income certificate" }
+    ],
+    "claims": [
+      {
+        "path": ["family_name"],
+        "display": [
+          { "lang": "en", "value": "Family name" },
+          { "lang": "es", "value": "Apellidos" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["given_name"],
+        "display": [
+          { "lang": "en", "value": "Given name" },
+          { "lang": "es", "value": "Nombre" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["birthdate"],
+        "display": [
+          { "lang": "en", "value": "Date of birth" },
+          { "lang": "es", "value": "Fecha de nacimiento" }
+        ],
+        "mandatory": true,
+        "valueType": "date"
+      },
+      {
+        "path": ["employer_name"],
+        "display": [
+          { "lang": "en", "value": "Employer" },
+          { "lang": "es", "value": "Empleador" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["contract_type"],
+        "display": [
+          { "lang": "en", "value": "Type of contract" },
+          { "lang": "es", "value": "Tipo de contrato" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      },
+      {
+        "path": ["employed_since"],
+        "display": [
+          { "lang": "en", "value": "Employed since" },
+          { "lang": "es", "value": "Antigüedad desde" }
+        ],
+        "mandatory": true,
+        "valueType": "date"
+      },
+      {
+        "path": ["net_monthly_income"],
+        "display": [
+          { "lang": "en", "value": "Net monthly income (EUR)" },
+          { "lang": "es", "value": "Ingreso neto mensual (EUR)" }
+        ],
+        "mandatory": true,
+        "valueType": "integer"
+      },
+      {
+        "path": ["date_of_issuance"],
+        "display": [
+          { "lang": "en", "value": "Date of issue" },
+          { "lang": "es", "value": "Fecha de emisión" }
+        ],
+        "mandatory": true,
+        "valueType": "date"
+      },
+      {
+        "path": ["issuing_country"],
+        "display": [
+          { "lang": "en", "value": "Issuing country" },
+          { "lang": "es", "value": "País emisor" }
+        ],
+        "mandatory": true,
+        "valueType": "string"
+      }
+    ],
+    "codeLists": {
+      "contract_type": [
+        { "code": "permanent", "es": "Indefinido", "en": "Permanent" },
+        { "code": "temporary", "es": "Temporal", "en": "Temporary" }
+      ]
+    },
+    "fixedClaims": {
+      "employer_name": "Empresa Ficticia S.L. - TEST ONLY",
+      "contract_type": "permanent",
+      "employed_since": "2019-03-01",
+      "net_monthly_income": 2450,
+      "date_of_issuance": "2026-10-01",
+      "issuing_country": "ES"
+    }
+  },
+  "fromPid": {
+    "family_name": "family_name",
+    "given_name": "given_name",
+    "birthdate": "birthdate"
+  },
+  "identification": {
+    "name": "Identify with PID, for an income certificate",
+    "purpose": [
+      { "lang": "en", "value": "Identify you, to issue your income certificate" },
+      { "lang": "es", "value": "Identificarle para expedir su certificado de ingresos" }
+    ],
+    "requestedClaims": [["family_name"], ["given_name"], ["birthdate"]],
+    "anchorSources": [
+      {
+        "kind": "ETSI_TS_119_602_LOTE",
+        "domain": "PID_PROVIDER",
+        "ref": "https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt"
+      }
+    ]
+  },
+  "presentation": {
+    "intendedUseIdentifier": "edtp-test-bank-loan-income",
+    "intendedUsePurpose": [
+      { "lang": "es", "value": "Estudiar tu solicitud de préstamo" },
+      { "lang": "en", "value": "Assess your loan application" }
+    ],
+    "name": "Banco Horizonte — income certificate, for a loan",
+    "description": "Checks an income certificate to decide a loan: net monthly income, type of contract and seniority, and the holder's names and date of birth to match them against the PID already presented. Not the employer.",
+    "purpose": [
+      { "lang": "es", "value": "Acreditar tus ingresos para estudiar tu préstamo" },
+      { "lang": "en", "value": "Prove your income, to assess your loan" }
+    ],
+    "requestedClaims": [
+      ["net_monthly_income"],
+      ["contract_type"],
+      ["employed_since"],
+      ["given_name"],
+      ["family_name"],
+      ["birthdate"]
+    ],
+    "next": "Add it to HOSTED_VERIFIER_POLICIES, HOSTED_VERIFIER_ORIGINS and HOSTED_VERIFIER_QR_POLICIES as the onboarding policy is, and set ONBOARDING_INCOME_POLICY to it."
+  },
+  "payloadSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:edtp:schema:income-certificate:1",
+    "title": "Certificado de ingresos (urn:edtp:income-certificate:1), SD-JWT VC, disclosed claims",
+    "type": "object",
+    "required": [
+      "vct",
+      "family_name",
+      "given_name",
+      "birthdate",
+      "employer_name",
+      "contract_type",
+      "employed_since",
+      "net_monthly_income",
+      "date_of_issuance",
+      "issuing_country"
+    ],
+    "$defs": {
+      "date": {
+        "type": "string",
+        "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$"
+      }
+    },
+    "properties": {
+      "vct": { "const": "urn:edtp:income-certificate:1" },
+      "family_name": { "type": "string", "minLength": 1 },
+      "given_name": { "type": "string", "minLength": 1 },
+      "birthdate": { "$ref": "#/$defs/date" },
+      "employer_name": { "type": "string", "minLength": 1 },
+      "contract_type": { "enum": ["permanent", "temporary"] },
+      "employed_since": { "$ref": "#/$defs/date" },
+      "net_monthly_income": { "type": "integer", "minimum": 0 },
+      "date_of_issuance": { "$ref": "#/$defs/date" },
+      "issuing_country": { "const": "ES" }
+    }
+  }
+}

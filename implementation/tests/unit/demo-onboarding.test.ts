@@ -3,8 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   FIELDS,
+  INCOME_REQUESTED_CLAIMS,
   isAdult,
   REQUESTED_CLAIMS,
+  toIncomeData,
   toOnboardingData,
 } from "../../apps/demo-onboarding/src/claims.js";
 import { CLIENT_JS } from "../../apps/demo-onboarding/src/client.js";
@@ -20,7 +22,10 @@ import {
   renderShell,
 } from "../../apps/demo-onboarding/src/page.js";
 import { CrossDevicePolls } from "../../apps/demo-onboarding/src/polls.js";
-import { RECORDED_CLAIMS } from "../../apps/demo-onboarding/src/recorded.js";
+import {
+  RECORDED_CLAIMS,
+  RECORDED_INCOME_CLAIMS,
+} from "../../apps/demo-onboarding/src/recorded.js";
 
 /**
  * Banco Horizonte, the bank onboarding demonstration. A fictitious bank, so the band is on every
@@ -154,5 +159,57 @@ describe("the fictitious loan", () => {
     expect(CLIENT_JS).toContain("LOAN.affordable = ");
     expect(DICTIONARIES["es"]?.loanDecisionNote).toMatch(/simulada/);
     expect(DICTIONARIES["es"]?.loanFictitious).toMatch(/ficticios/);
+  });
+});
+
+describe("the income certificate the loan asks for", () => {
+  const definition = JSON.parse(
+    readFileSync(resolve(__dirname, "../../scripts/income/income-certificate.json"), "utf8"),
+  ) as {
+    type: { claims: { path: string[] }[]; fixedClaims: Record<string, unknown> };
+    fromPid: Record<string, string>;
+    presentation: { requestedClaims: string[][] };
+    payloadSchema: { required: string[] };
+  };
+  const claims = definition.type.claims.map((c) => c.path.join("."));
+
+  it("is asked for exactly what its policy requests", () => {
+    expect(INCOME_REQUESTED_CLAIMS).toEqual(definition.presentation.requestedClaims);
+  });
+
+  it("requests only claims the certificate carries, and never the employer", () => {
+    for (const path of definition.presentation.requestedClaims)
+      expect(claims).toContain(path.join("."));
+    expect(JSON.stringify(INCOME_REQUESTED_CLAIMS)).not.toContain("employer");
+  });
+
+  it("has a value for every claim: from the PID, or fixed", () => {
+    const supplied = [
+      ...Object.keys(definition.fromPid),
+      ...Object.keys(definition.type.fixedClaims),
+    ];
+    expect([...supplied].sort()).toEqual([...claims].sort());
+    expect(definition.payloadSchema.required.filter((r) => r !== "vct").sort()).toEqual(
+      [...claims].sort(),
+    );
+  });
+
+  it("is read as figures, and refused when one is missing", () => {
+    expect(toIncomeData(RECORDED_INCOME_CLAIMS)).toEqual({
+      netMonthlyIncome: 2450,
+      contractType: "permanent",
+      employedSince: "2019-03-01",
+      holder: { givenName: "Laura", familyName: "Martínez Soler", birthdate: "1992-03-14" },
+    });
+    expect(
+      toIncomeData({ ...RECORDED_INCOME_CLAIMS, net_monthly_income: "2450" }),
+    ).toBeUndefined();
+    expect(toIncomeData({ contract_type: "permanent" })).toBeUndefined();
+  });
+
+  it("belongs, in the recording, to the person the recorded PID names", () => {
+    const income = toIncomeData(RECORDED_INCOME_CLAIMS);
+    expect(income?.holder.givenName).toBe(RECORDED_CLAIMS["given_name"]);
+    expect(income?.holder.birthdate).toBe(RECORDED_CLAIMS["birthdate"]);
   });
 });

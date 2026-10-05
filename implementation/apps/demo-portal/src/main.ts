@@ -50,6 +50,11 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  // The income certificate Banco Horizonte's loan asks for. Off until its issuer is set up.
+  PORTAL_SHOW_INCOME: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
   PORTAL_ONBOARDING_URL: url.default("https://edtp-horizonte.murcata.es/"),
   CHECK_ONBOARDING_URL: url.default("http://demo-onboarding:3205/"),
   PORTAL_LUMEN_URL: url.default("https://av-lumen.murcata.es/"),
@@ -239,6 +244,22 @@ const cards = async (config: Config): Promise<DemoCard[]> => {
             qrSvg: await qr(config.PORTAL_ONBOARDING_URL),
             health: all(platform, engine, await health(config.CHECK_ONBOARDING_URL)),
           },
+          ...(config.PORTAL_SHOW_INCOME
+            ? [
+                {
+                  key: "ingresos",
+                  title: "Obtener un certificado de ingresos",
+                  summary:
+                    "Expedido por una gestora de nóminas ficticia, con su identidad tomada del PID. El empleador y el salario son ficticios. Banco Horizonte lo pide para el préstamo.",
+                  steps: [
+                    "En la cartera, Añadir documento → Desde lista → «Nóminas Demo».",
+                    "Elija el certificado de ingresos e identifíquese presentando su PID.",
+                    "Revise los datos y solicítelo.",
+                  ],
+                  health: all(platform, engine, form),
+                },
+              ]
+            : []),
         ]
       : []),
     ...(config.PORTAL_SHOW_AV_DEMOS ? await avCards(config) : []),

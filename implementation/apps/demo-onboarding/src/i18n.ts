@@ -183,6 +183,30 @@ const es = {
   loanSuccessTitle: "¡Hecho, {name}!",
   loanSuccessLead: "Hemos abonado {amount} en tu cuenta (ficticia).",
 
+  // --- the loan's second presentation: an income certificate ---
+  incomeIntroTitle: "Acredita tus ingresos",
+  incomeIntroBody:
+    "Sin nóminas en PDF: comparte tu certificado de ingresos desde la cartera. Pedimos solo lo necesario para estudiar el préstamo.",
+  incomeAskIncome: "Ingreso neto mensual",
+  incomeAskIncomeWhy: "Para calcular la cuota que puedes asumir",
+  incomeAskContract: "Tipo de contrato",
+  incomeAskContractWhy: "Para valorar la estabilidad de tus ingresos",
+  incomeAskSince: "Antigüedad",
+  incomeAskSinceWhy: "Desde cuándo trabajas en tu empresa",
+  incomeCta: "Compartir mi certificado de ingresos",
+  incomeConnectTitle: "Comparte tu certificado de ingresos",
+  incomeVerifiedTitle: "Ingresos acreditados",
+  incomeVerifiedLead: "Los datos llegan firmados por la entidad que emitió tu certificado.",
+  incomeNet: "Ingreso neto mensual",
+  incomeContract: "Tipo de contrato",
+  incomeSince: "Antigüedad desde",
+  incomeContract_permanent: "Indefinido",
+  incomeContract_temporary: "Temporal",
+  errorHolderMismatch:
+    "El certificado de ingresos no corresponde a la persona identificada con el PID.",
+  loanDecisionNoteVerified:
+    "Regla de demostración aplicada al ingreso de tu certificado, que está verificado. Los datos del certificado son ficticios.",
+
   // --- current flow ---
   currentFormTitle: "Rellena tus datos",
   currentTyped: "Campos escritos a mano",

@@ -26,6 +26,7 @@ ${LOAN_JS}${String.raw`(function () {
   var flows = [];
   var advanceTarget = null;
   var T0_KEY = "horizonte.t0";
+  var SESSION_KEY = "horizonte.session";
 
   // --- small helpers -----------------------------------------------------------------------------
 
@@ -64,6 +65,18 @@ ${LOAN_JS}${String.raw`(function () {
       if (value === null) window.localStorage.removeItem(T0_KEY);
       else window.localStorage.setItem(T0_KEY, String(value));
     } catch (e) { /* a private window: the timer restarts on return, nothing else */ }
+  }
+  // What a same-device return needs to pick the flow up again: which product, the loan's amount and
+  // term, and the id of the PID presentation. Ids and figures the person chose; never a claim.
+  function saveSession(value) {
+    try {
+      if (value === null) window.localStorage.removeItem(SESSION_KEY);
+      else window.localStorage.setItem(SESSION_KEY, JSON.stringify(value));
+    } catch (e) { /* as above */ }
+  }
+  function loadSession() {
+    try { return JSON.parse(window.localStorage.getItem(SESSION_KEY) || "null"); }
+    catch (e) { return null; }
   }
   function stored() {
     try { var v = Number(window.localStorage.getItem(T0_KEY)); return v > 0 ? v : null; }
@@ -188,10 +201,15 @@ ${LOAN_JS}${String.raw`(function () {
   };
 
   function eudiFlow(host, opts) {
-    var timers = Timers(), clock = Clock(1), head = flowHeader(t("modeEudi"), 3, false);
+    // A loan that can ask for an income certificate has one more step: a second presentation.
+    var LAST = opts.product === "loan" && CFG.income ? 4 : 3;
+    var timers = Timers(), clock = Clock(1), head = flowHeader(t("modeEudi"), LAST, false);
     var body = el("div", "flow-body");
     var primary = null, typed = 0, data = null, done = false;
-    var loan = opts.product === "loan" ? { amount: LOAN.defaultAmount, months: LOAN.defaultMonths, income: 0, granted: 0 } : null;
+    var loan = opts.product === "loan"
+      ? { amount: LOAN.defaultAmount, months: LOAN.defaultMonths, income: 0, granted: 0, verified: false, pidId: null }
+      : null;
+    function remember() { if (loan) saveSession({ product: "loan", amount: loan.amount, months: loan.months, pidId: loan.pidId }); }
     add(host, head.node, body);
     timers.every(function () { head.setTime(fmt(clock.ms())); }, 250);
 
@@ -232,7 +250,7 @@ ${LOAN_JS}${String.raw`(function () {
           add(el("div", "field"), el("label", "", t("loanTerm")), months),
           add(el("div", "loan-result"), el("span", "", t("loanMonthly")), quota,
             el("small", "", t("loanRate", { rate: String(LOAN.annualRatePercent).replace(".", ",") }))));
-        primary = function () { clock.start(); store(Date.now()); consent(); };
+        primary = function () { clock.start(); store(Date.now()); remember(); consent(); };
         var cta = button(t("loanCta"), "btn-primary btn-wide", primary);
         add(cta, el("span", "badge-new", t("badgeNew")));
         add(hero, sim, add(el("div", "actions"), cta), el("p", "note", t("loanFictitious")));
@@ -285,12 +303,14 @@ ${LOAN_JS}${String.raw`(function () {
       };
     }
 
-    function phoneFrame() {
+    function phoneFrame(kind) {
       var phone = el("div", "phone");
       var inner = el("div", "phone-screen");
       add(inner, el("div", "phone-title", t("phoneAsks")));
       var ul = el("ul", "phone-list");
-      ["consentName", "consentBirth", "consentNationality", "consentDocument", "consentAddress"].forEach(function (k) {
+      (kind === "ingresos"
+        ? ["incomeAskIncome", "incomeAskContract", "incomeAskSince", "consentName", "consentBirth"]
+        : ["consentName", "consentBirth", "consentNationality", "consentDocument", "consentAddress"]).forEach(function (k) {
         add(ul, add(el("li"), el("span", "phone-check", "✓"), el("span", "", t(k))));
       });
       add(inner, ul, el("p", "phone-body", t("phoneBody")), el("div", "phone-pin", "● ● ● ● ● ●"));
@@ -298,12 +318,16 @@ ${LOAN_JS}${String.raw`(function () {
       return add(el("figure", "phone-wrap"), phone, el("figcaption", "", t("phoneNote")));
     }
 
-    function connect(mode, resumeId) {
-      screen(2, function (s) {
+    function connect(mode, resumeId, kind) {
+      kind = kind || "pid";
+      var income = kind === "ingresos";
+      // The panel follows one presentation at a time: the second replaces the first.
+      if (income && !resumeId) tech.reset();
+      screen(income ? 3 : 2, function (s) {
         var left = el("div", "connect-main"), status = statusSteps(), box = el("div", "connect-box");
         var note = el("p", "note"), error = el("div", "error"); error.hidden = true;
-        add(left, el("h1", "", t("connectTitle")), box, note, status.node, error);
-        add(s, add(el("div", "connect"), left, opts.compact ? null : phoneFrame()));
+        add(left, el("h1", "", t(income ? "incomeConnectTitle" : "connectTitle")), box, note, status.node, error);
+        add(s, add(el("div", "connect"), left, opts.compact ? null : phoneFrame(kind)));
         status.set("AWAITING_WALLET");
 
         function fail(key) {
@@ -311,7 +335,7 @@ ${LOAN_JS}${String.raw`(function () {
           timers.every(function () { head.setTime(fmt(clock.ms())); }, 250);
           clear(box); note.textContent = "";
           error.hidden = false; error.textContent = t(key);
-          primary = function () { connect(mode); };
+          primary = function () { connect(mode, null, kind); };
           add(box, button(t("connectRetry"), "btn-secondary", primary));
         }
         function settle(view) {
@@ -319,6 +343,12 @@ ${LOAN_JS}${String.raw`(function () {
           if (view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" || view.status === "VERIFIED") {
             tech.mark(2, null, { notObserved: true });
             tech.mark(3, { status: view.status });
+          }
+          if (view.status === "VERIFIED" && income) {
+            tech.mark(4, { issuerTrust: "ETSI TS 119 602 list, EAA_PROVIDER, TEST", statusCheckMode: "STRICT", outcome: "VERIFIED" });
+            tech.mark(5, { status: "VERIFIED", trustEnvironment: "TEST", claims: mask(view.income) });
+            timers.later(function () { incomeVerified(view.income); }, 700);
+            return true;
           }
           if (view.status === "VERIFIED") {
             tech.mark(4, { issuerTrust: "ETSI TS 119 602 list, PID_PROVIDER, TEST", statusCheckMode: "STRICT", outcome: "VERIFIED" });
@@ -338,7 +368,7 @@ ${LOAN_JS}${String.raw`(function () {
           timers.every(function () {
             if (busy) return;
             busy = true;
-            fetch("api/presentaciones/" + encodeURIComponent(id), {
+            fetch("api/presentaciones/" + encodeURIComponent(id) + (income ? "?tipo=ingresos" : ""), {
               headers: token ? { "x-onboarding-token": token } : {}
             }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
               .then(function (view) { busy = settle(view) === true; })
@@ -346,14 +376,16 @@ ${LOAN_JS}${String.raw`(function () {
           }, 1500);
         }
         function playRecorded() {
-          tech.mark(1, CFG.recorded.request);
+          tech.mark(1, income ? CFG.recorded.incomeRequest : CFG.recorded.request);
           add(box, el("div", "qr qr-recorded", "QR"));
           note.textContent = t("recordedRibbon");
           CFG.recorded.statuses.forEach(function (x) {
             timers.later(function () {
-              settle(x.status === "VERIFIED"
-                ? { status: "VERIFIED", fields: CFG.recorded.fields, adult: true }
-                : { status: x.status });
+              settle(x.status !== "VERIFIED"
+                ? { status: x.status }
+                : income
+                  ? { status: "VERIFIED", income: CFG.recorded.income }
+                  : { status: "VERIFIED", fields: CFG.recorded.fields, adult: true });
             }, x.afterMs);
           });
         }
@@ -364,11 +396,12 @@ ${LOAN_JS}${String.raw`(function () {
         add(box, el("p", "note", t("connectStarting")));
         fetch("api/presentaciones", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ modo: mode })
+          body: JSON.stringify({ modo: mode, tipo: kind })
         }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
           .then(function (p) {
             clear(box);
             tech.mark(1, p.request);
+            if (loan && !income) { loan.pidId = p.id; remember(); }
             if (mode === "qr") {
               var svg = new DOMParser().parseFromString(p.qrSvg, "image/svg+xml").documentElement;
               add(box, add(el("div", "qr"), document.importNode(svg, true)), el("p", "qr-caption", t("connectQr")));
@@ -376,13 +409,13 @@ ${LOAN_JS}${String.raw`(function () {
               timers.every(function () {
                 note.textContent = t("connectQrNote", { s: Math.max(0, Math.round((until - Date.now()) / 1000)) });
               }, 500);
-              add(box, button(t("connectUsePhone"), "btn-link", function () { connect("movil"); }));
+              add(box, button(t("connectUsePhone"), "btn-link", function () { connect("movil", null, kind); }));
             } else {
               var a = el("a", "btn btn-primary", t("connectOpen"));
               a.href = p.walletUri;
               primary = function () { window.location.href = p.walletUri; };
               add(box, el("p", "", t("connectOpenBody")), a,
-                button(t("connectUseQr"), "btn-link", function () { connect("qr"); }));
+                button(t("connectUseQr"), "btn-link", function () { connect("qr", null, kind); }));
             }
             poll(p.id, p.token);
           })
@@ -420,7 +453,9 @@ ${LOAN_JS}${String.raw`(function () {
         var email = input("kycEmail", "email", t("kycEmailSample"));
         var phone = input("kycPhone", "tel", t("kycPhoneSample"));
         var income = null;
-        if (loan) {
+        if (loan && CFG.income) {
+          // Nothing more to type: the income comes from a certificate, in the next step.
+        } else if (loan) {
           select("loanEmployment", "loanEmploymentOptions");
           income = input("loanIncome", "number", t("loanIncomeSample"));
           income.min = "0"; income.step = "50";
@@ -430,19 +465,74 @@ ${LOAN_JS}${String.raw`(function () {
         }
         primary = function () {
           [email, phone, income].forEach(function (i) { if (i && !i.value) i.value = i.dataset.sample; });
-          typed = loan ? 3 : 2;
-          if (loan) { loan.income = Math.max(0, Number(income.value) || 0); decision(); }
+          typed = income ? 3 : 2;
+          if (loan && CFG.income) incomeIntro();
+          else if (loan) { loan.income = Math.max(0, Number(income.value) || 0); decision(); }
           else sign();
         };
         add(s, el("h2", "", t("kycTitle")), kyc, add(el("div", "actions"), button(t("continue"), "btn-primary", primary)));
       });
     }
 
-    // The "decision" is a rule on a figure the person typed. Nothing is assessed, and the screen says so.
+    function field(name) {
+      var f = (data.fields || []).filter(function (x) { return x.path === name; })[0];
+      return f ? f.value : "";
+    }
+    function same(a, b) { return String(a).trim().toLowerCase() === String(b).trim().toLowerCase(); }
+
+    function incomeIntro() {
+      screen(3, function (s) {
+        add(s, el("h1", "", t("incomeIntroTitle")), el("p", "lead", t("incomeIntroBody")));
+        var ul = el("ul", "asked");
+        [["incomeAskIncome", "💶"], ["incomeAskContract", "📄"], ["incomeAskSince", "📆"]].forEach(function (x) {
+          add(ul, add(el("li"), el("span", "asked-icon", x[1]),
+            add(el("span", "asked-text"), el("strong", "", t(x[0])), el("small", "", t(x[0] + "Why")))));
+        });
+        primary = function () { connect(MOBILE() ? "movil" : "qr", null, "ingresos"); };
+        add(s, ul, add(el("div", "actions"), button(t("incomeCta"), "btn-primary", primary)));
+      });
+    }
+
+    // The certificate must be the same person's as the PID. The page compares what the two results
+    // say; a production lender would do it in its back end.
+    function incomeVerified(income) {
+      var h = income.holder || {};
+      if (!same(h.givenName, field("given_name")) || !same(h.familyName, field("family_name")) || !same(h.birthdate, field("birthdate"))) {
+        screen(3, function (s) {
+          add(s, el("h1", "", t("incomeIntroTitle")));
+          var error = el("div", "error", t("errorHolderMismatch"));
+          primary = incomeIntro;
+          add(s, error, add(el("div", "actions"), button(t("connectRetry"), "btn-secondary", primary)));
+        });
+        return;
+      }
+      loan.income = income.netMonthlyIncome; loan.verified = true;
+      screen(3, function (s) {
+        add(s, el("h1", "", t("incomeVerifiedTitle")), el("p", "lead", t("incomeVerifiedLead")));
+        var form = el("div", "form");
+        var contract = t("incomeContract_" + income.contractType);
+        [[t("incomeNet"), euros(income.netMonthlyIncome)],
+         [t("incomeContract"), contract.indexOf("incomeContract_") === 0 ? income.contractType : contract],
+         [t("incomeSince"), income.employedSince]].forEach(function (r, i) {
+          var row = el("div", "field field-verified"), value = el("div", "field-value");
+          add(row, el("label", "", r[0]), value,
+            add(el("span", "seal"), el("span", "seal-icon", "🛡"), el("span", "", t("verifiedSeal"))));
+          add(form, row);
+          timers.later(function () { row.classList.add("in"); value.textContent = r[1]; }, 250 + i * 300);
+        });
+        primary = decision;
+        add(s, form, add(el("div", "actions"), button(t("continue"), "btn-primary", primary)));
+      });
+    }
+
+    function decisionNote() { return t(loan.verified ? "loanDecisionNoteVerified" : "loanDecisionNote"); }
+
+    // The "decision" is a rule on one figure: typed by the person, or read from a certificate whose
+    // values are fictitious. Nothing is assessed, and the screen says which.
     function decision() {
-      screen(2, function (s) {
+      screen(LAST - 1, function (s) {
         s.classList.add("review");
-        add(s, el("h1", "", t("loanDecisionTitle")), el("div", "hourglass", "⚙"), el("p", "note", t("loanDecisionNote")));
+        add(s, el("h1", "", t("loanDecisionTitle")), el("div", "hourglass", "⚙"), el("p", "note", decisionNote()));
         primary = offer;
         timers.later(offer, 1800);
       });
@@ -450,9 +540,9 @@ ${LOAN_JS}${String.raw`(function () {
 
     function offer() {
       loan.granted = LOAN.affordable(loan.amount, loan.income, loan.months, LOAN.annualRatePercent, LOAN.maxPaymentShare, LOAN.stepAmount);
-      screen(2, function (s) {
+      screen(LAST - 1, function (s) {
         if (loan.granted < LOAN.minAmount) {
-          add(s, el("h1", "", t("loanRefusedTitle")), el("p", "lead", t("loanRefusedBody")), el("p", "note", t("loanDecisionNote")));
+          add(s, el("h1", "", t("loanRefusedTitle")), el("p", "lead", t("loanRefusedBody")), el("p", "note", decisionNote()));
           primary = reset;
           add(s, add(el("div", "actions"), button(t("compareAgain"), "btn-secondary", reset)));
           return;
@@ -467,7 +557,7 @@ ${LOAN_JS}${String.raw`(function () {
           add(card, add(el("div", "kv"), el("span", "", r[0]), el("strong", "", r[1])));
         });
         primary = sign;
-        add(s, card, el("p", "note", t("loanDecisionNote")), add(el("div", "actions"), button(t("loanAccept"), "btn-primary", primary)));
+        add(s, card, el("p", "note", decisionNote()), add(el("div", "actions"), button(t("loanAccept"), "btn-primary", primary)));
       });
     }
 
@@ -491,7 +581,7 @@ ${LOAN_JS}${String.raw`(function () {
     }
 
     function sign() {
-      screen(3, function (s) {
+      screen(LAST, function (s) {
         add(s, el("h1", "", t("signTitle")));
         var card = el("div", "summary");
         (loan
@@ -517,12 +607,13 @@ ${LOAN_JS}${String.raw`(function () {
     }
 
     function loanSuccess(ms) {
-      screen(3, function (s) {
+      saveSession(null);
+      screen(LAST, function (s) {
         s.classList.add("success");
         add(s, el("div", "success-mark", "✓"), el("h1", "", t("loanSuccessTitle", { name: name() })),
           el("p", "lead", t("loanSuccessLead", { amount: euros(loan.granted) })));
         var metrics = el("div", "metrics");
-        [[fmt(ms), t("compareTime")], ["3", t("compareSteps")], ["0", t("compareDocs")], [euros(payment(loan.granted), 2), t("loanMonthly")]]
+        [[fmt(ms), t("compareTime")], [String(LAST), t("compareSteps")], ["0", t("compareDocs")], [euros(payment(loan.granted), 2), t("loanMonthly")]]
           .forEach(function (m) { add(metrics, add(el("div", "metric"), el("strong", "", m[0]), el("span", "", m[1]))); });
         primary = reset;
         add(s, metrics, el("p", "note", t("loanFictitious")), add(el("div", "actions"), button(t("compareAgain"), "btn-secondary", reset)));
@@ -555,7 +646,22 @@ ${LOAN_JS}${String.raw`(function () {
 
     if (opts.resume) {
       clock.start(stored() || Date.now());
-      connect("movil", opts.resume);
+      var session = loadSession() || {};
+      if (loan) {
+        loan.amount = Number(session.amount) || loan.amount;
+        loan.months = Number(session.months) || loan.months;
+        loan.pidId = session.pidId || null;
+      }
+      if (loan && opts.resume.kind === "ingresos" && loan.pidId) {
+        // Back from the second presentation: the first one's result is read again by its id.
+        fetch("api/presentaciones/" + encodeURIComponent(loan.pidId))
+          .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then(function (view) {
+            if (view.status !== "VERIFIED") throw new Error(view.status);
+            data = view; connect("movil", opts.resume.id, "ingresos");
+          })
+          .catch(function () { product(); });
+      } else connect("movil", opts.resume.id);
     } else product();
 
     return {
@@ -766,7 +872,7 @@ ${LOAN_JS}${String.raw`(function () {
     var flow = kind === "eudi"
       ? eudiFlow(pane, { resume: resume, onClassic: function () { go("current"); } })
       : kind === "loan"
-        ? eudiFlow(pane, { product: "loan" })
+        ? eudiFlow(pane, { product: "loan", resume: resume })
         : currentFlow(pane, { auto: false });
     flows.push(flow); advanceTarget = flow;
   }
@@ -818,7 +924,7 @@ ${LOAN_JS}${String.raw`(function () {
     leave();
     if (view === "eudi") solo("eudi", resume);
     else if (view === "current") solo("current");
-    else if (view === "loan") solo("loan");
+    else if (view === "loan") solo("loan", resume);
     else if (view === "side") side();
     else if (view === "compare") compare();
     else cover();
@@ -827,7 +933,7 @@ ${LOAN_JS}${String.raw`(function () {
 
   function reset() {
     results = { eudi: null, current: null };
-    store(null);
+    store(null); saveSession(null);
     tech.reset();
     if (CFG.resume) { window.location.href = "./"; return; }
     go("cover");
@@ -857,6 +963,9 @@ ${LOAN_JS}${String.raw`(function () {
   document.getElementById("restart").addEventListener("click", reset);
 
   setRecorded(false);
-  if (CFG.resume) go("eudi", CFG.resume); else go("cover");
+  if (CFG.resume) {
+    var returning = loadSession();
+    go(returning && returning.product === "loan" ? "loan" : "eudi", { id: CFG.resume, kind: CFG.resumeKind || "pid" });
+  } else go("cover");
 })();
 `}`;

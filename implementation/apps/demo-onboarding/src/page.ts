@@ -46,8 +46,11 @@ export interface ShellOptions {
   readonly assets: string;
   /** Whether a presentation policy is configured. Without one the page plays the recording. */
   readonly live: boolean;
-  /** A presentation the wallet has just returned from, same-device. */
+  /** Whether the loan can ask for an income certificate. Without it, the income is typed. */
+  readonly income?: boolean;
+  /** A presentation the wallet has just returned from, same-device, and what it was of. */
   readonly resume?: string;
+  readonly resumeKind?: string;
   readonly recorded: unknown;
 }
 
@@ -97,7 +100,9 @@ export const renderShell = (o: ShellOptions): string => {
   ${dataBlock("i18n", t)}
   ${dataBlock("cfg", {
     live: o.live,
+    income: o.income ?? false,
     resume: o.resume ?? null,
+    resumeKind: o.resumeKind ?? null,
     fields: FIELDS,
     recorded: o.recorded,
   })}

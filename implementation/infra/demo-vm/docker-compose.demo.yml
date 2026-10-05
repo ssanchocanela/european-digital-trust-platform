@@ -36,12 +36,17 @@ services:
   demo-bank:
     <<: *platform-image
 
+  demo-onboarding:
+    <<: *platform-image
+
   demo-portal:
     <<: *platform-image
     environment:
       PORTAL_STATUS_FILE: /status/checks.json
       # true once the age verification demos are deployed (ADR 0011); the VM's .env sets it.
       PORTAL_SHOW_AV_DEMOS: ${PORTAL_SHOW_AV_DEMOS:-false}
+      # true once Banco Horizonte is registered and its hostname routed (ADR 0012).
+      PORTAL_SHOW_ONBOARDING: ${PORTAL_SHOW_ONBOARDING:-false}
       PORTAL_PROFILE_DIR: /profile-requests
     volumes:
       # The scheduled negative checks' last result, read-only (infra/demo-vm/scheduled-checks.sh).

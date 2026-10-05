@@ -45,6 +45,13 @@ const schema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  // Banco Horizonte, the bank onboarding demonstration (ADR 0012). Off until it is deployed.
+  PORTAL_SHOW_ONBOARDING: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  PORTAL_ONBOARDING_URL: url.default("https://edtp-horizonte.murcata.es/"),
+  CHECK_ONBOARDING_URL: url.default("http://demo-onboarding:3205/"),
   PORTAL_LUMEN_URL: url.default("https://av-lumen.murcata.es/"),
   PORTAL_PLAZA_URL: url.default("https://av-plaza.murcata.es/"),
   // Another compose project, so probed through its public name: that is also what a visitor reaches.
@@ -216,6 +223,24 @@ const cards = async (config: Config): Promise<DemoCard[]> => {
       qrSvg: fibreQr,
       health: all(platform, engine, bank),
     },
+    ...(config.PORTAL_SHOW_ONBOARDING
+      ? [
+          {
+            key: "horizonte",
+            title: "Banco Horizonte: hacerse cliente con el PID",
+            summary:
+              "Un banco ficticio abre una cuenta con los datos del PID, y lo compara con el alta de hoy, simulada.",
+            steps: [
+              "Abra la página en un ordenador y elija «Onboarding con EUDI Wallet».",
+              "Escanee el código con la cartera y comparta los datos de su PID.",
+              "El formulario se rellena solo. La firma final es simulada.",
+            ],
+            url: config.PORTAL_ONBOARDING_URL,
+            qrSvg: await qr(config.PORTAL_ONBOARDING_URL),
+            health: all(platform, engine, await health(config.CHECK_ONBOARDING_URL)),
+          },
+        ]
+      : []),
     ...(config.PORTAL_SHOW_AV_DEMOS ? await avCards(config) : []),
   ];
 };

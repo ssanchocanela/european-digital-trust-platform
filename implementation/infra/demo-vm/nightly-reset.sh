@@ -26,7 +26,7 @@ trap 'on_error $LINENO' ERR
 
 logger -t edtp-nightly "nightly reset: start"
 "$HERE/demo-profile.sh" generic
-"${C[@]}" up -d --force-recreate operator-console test-start pid-form demo-bank demo-portal gateway >/dev/null 2>&1
+"${C[@]}" up -d --force-recreate operator-console test-start pid-form demo-bank demo-onboarding demo-portal gateway >/dev/null 2>&1
 # The age verification demos (ADR 0011), once deployed: Plaza keeps its accounts and posts in memory, so
 # recreating Lumen and Plaza is their reset. The verifier holds nothing between sessions and is left up.
 if [ -f "$HOME/.av/demos.env" ] && grep -q '^AV_IMAGE_TAG=[0-9a-f]\{12\}$' "$HOME/.av/demos.env"; then

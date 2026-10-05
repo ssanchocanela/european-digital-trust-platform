@@ -16,18 +16,25 @@
 set -uo pipefail
 if [ "${1:-}" = "--local" ]; then
   ENGINE=http://127.0.0.1:3010 PLATFORM=http://127.0.0.1:3011 FORM=http://127.0.0.1:3202 BANK=http://127.0.0.1:3203
-  PORTAL=http://127.0.0.1:3204
+  PORTAL=http://127.0.0.1:3204 ONBOARDING=http://127.0.0.1:3205
   LUMEN=http://127.0.0.1:3211 PLAZA=http://127.0.0.1:3212 AV_VERIFIER=
   CURL=(curl)
 else
   ENGINE=https://edtp-engine.murcata.es PLATFORM=https://edtp-platform.murcata.es
   FORM=https://edtp-pid.murcata.es BANK=https://edtp-banco.murcata.es PORTAL=https://demo.murcata.es
+  ONBOARDING=https://edtp-horizonte.murcata.es
   LUMEN=https://av-lumen.murcata.es PLAZA=https://av-plaza.murcata.es AV_VERIFIER=https://av-verifier.murcata.es
   CURL=(curl --doh-url "${EDTP_PROBE_DOH:-https://cloudflare-dns.com/dns-query}")
 fi
 # The age verification demos (ADR 0011), once they are deployed: on the VM, once ~/.av/demos.env exists;
 # anywhere, with EDTP_CHECK_AV=1. Probing hostnames that do not exist yet would read as "did not answer".
 if [ -z "${EDTP_CHECK_AV:-}" ]; then EDTP_CHECK_AV=0; [ -f "$HOME/.av/demos.env" ] && EDTP_CHECK_AV=1; fi
+# Banco Horizonte (ADR 0012), once it is deployed: when the checkout's .env names its policy; anywhere,
+# with EDTP_CHECK_ONBOARDING=1. Same reason as above.
+if [ -z "${EDTP_CHECK_ONBOARDING:-}" ]; then
+  EDTP_CHECK_ONBOARDING=0
+  grep -q '^ONBOARDING_POLICY=.' "$(dirname "${BASH_SOURCE[0]}")/../../.env" 2>/dev/null && EDTP_CHECK_ONBOARDING=1
+fi
 engine_paths=(/api/docs-json /api/tenant /api/key-chain /api/verifier/config /api/oauth2/token /health /storage/x /docs /docs-json /)
 platform_paths=(/v1/tenants /v1/presentations /health /openapi)
 page_paths=(/v1/hosted-forms /v1/hosted-verifications /v1/tenants /internal/engine/pid-1/attributes /api/tenant /health)
@@ -56,6 +63,7 @@ probe engine "$ENGINE" "${engine_paths[@]}"
 probe platform "$PLATFORM" "${platform_paths[@]}"
 probe form "$FORM" "${page_paths[@]}"
 probe bank "$BANK" "${page_paths[@]}"
+[ "$EDTP_CHECK_ONBOARDING" = 1 ] && probe onboarding "$ONBOARDING" "${page_paths[@]}"
 # The portal holds no secret, but nothing of the platform's may be reachable through it either.
 [ "${EDTP_CHECK_PORTAL:-1}" = 1 ] && probe portal "$PORTAL" "${page_paths[@]}"
 if [ "$EDTP_CHECK_AV" = 1 ]; then

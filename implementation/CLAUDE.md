@@ -245,7 +245,10 @@ Each of these contradicts a plausible assumption, including assumptions in the o
    [ADR 0009](docs/adr/0009-cross-device-presentation-mitigations.md). Two of the five challenges
    cannot be addressed by a Relying Party at all, so **never state that `OIA_08d` is satisfied**, and
    never present `QR` as the demonstrated flow. The residual risks ride in every cross-device audit
-   record; do not remove them.
+   record; do not remove them. **One exception, decided 5 October 2026:** the bank onboarding
+   demonstration (`apps/demo-onboarding`) may be shown with its QR code, described as the discouraged
+   flow it is. The hosted verifier creates `QR` only for the policies in
+   `HOSTED_VERIFIER_QR_POLICIES` — [ADR 0012](docs/adr/0012-cross-device-from-a-hosted-verifier-page.md).
 10. **EUDIPLO's documentation diverges from its code in at least seven places.** Write the adapter
     against the source and the OpenAPI document. Known: `POST /client` not `/clients`; no
     `PATCH …/status-list/{listId}/entry/{index}` route; `/issuers/:tenantId/chained-as/*` not
@@ -462,7 +465,7 @@ migrations up from an empty database.
 | Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
-| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment**, **0011 the age verification demos on the demonstration VM**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
+| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment**, **0011 the age verification demos on the demonstration VM**, **0012 cross-device from a hosted verifier page**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
 
 Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
 checkpoint**: Q1 → **Path A** — enrol a real access certificate at the reference RP Registration

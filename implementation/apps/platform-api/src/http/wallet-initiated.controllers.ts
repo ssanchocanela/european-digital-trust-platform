@@ -344,14 +344,20 @@ export class HostedFormController {
 
 export const HOSTED_VERIFIER_SECRET_HEADER = "x-edtp-verifier-secret";
 
+/** The body is optional: a page that sends none gets the tested path. */
+const hostedVerificationSchema = z
+  .object({ interactionType: z.enum(["SAME_DEVICE", "QR"]).default("SAME_DEVICE") })
+  .strict();
+
 /**
  * The hosted verifier — a demonstration Relying Party page that asks a wallet to present and shows
  * the outcome, used to exercise the platform's attestations the way a customer would.
  *
  * The page is public and holds no tenant key: one secret, accepted only for the presentation policies
- * configured for it. The platform creates the presentation, `SAME_DEVICE`, and decides where the
- * wallet's return goes — the page's configured origin, keyed by presentation id — so neither a visitor
- * nor the page can point that redirect anywhere else.
+ * configured for it. The platform creates the presentation, `SAME_DEVICE` unless the policy is one
+ * configuration opens to `QR`, and decides where the wallet's return goes — the origin configured for
+ * the policy, keyed by presentation id — so neither a visitor nor the page can point that redirect
+ * anywhere else.
  */
 @ApiExcludeController()
 @Public()
@@ -368,28 +374,49 @@ export class HostedVerifierController {
   async start(
     @Headers(HOSTED_VERIFIER_SECRET_HEADER) secret: string | undefined,
     @Param("policyId") policyId: string,
+    @Body() body: unknown,
   ) {
     const binding = this.authorise(secret, policyId);
-    const origin = this.config.HOSTED_VERIFIER_PUBLIC_URL;
+    const { interactionType } = hostedVerificationSchema.parse(body ?? {});
+    const origin =
+      this.config.HOSTED_VERIFIER_ORIGINS[binding.policyId] ??
+      this.config.HOSTED_VERIFIER_PUBLIC_URL;
     if (!origin) {
       throw PlatformError.conflict(
         "hosted_verifier_not_configured",
         "The hosted verifier has no public origin to return the wallet to.",
       );
     }
+    // Cross-device is opened per policy, by configuration, never by the page asking (ADR 0012). The
+    // ADR 0009 mitigations then apply as for any `QR` presentation, and the audit record carries the
+    // residual risks.
+    if (
+      interactionType === "QR" &&
+      !this.config.HOSTED_VERIFIER_QR_POLICIES.includes(binding.policyId)
+    ) {
+      throw PlatformError.forbidden(
+        "hosted_verifier_cross_device_not_allowed",
+        "This presentation policy is not open to cross-device requests from the hosted verifier.",
+      );
+    }
     const view = await this.presentations.create({
       tenantId: asId<"TenantId">(binding.tenantId),
       policyId: asId<"PresentationPolicyId">(binding.policyId),
       businessReference: "hosted-verifier",
-      interactionType: "SAME_DEVICE",
+      interactionType,
       correlationId: newCorrelationId(),
     });
-    const next = new URL("resultado", origin.endsWith("/") ? origin : `${origin}/`);
-    next.searchParams.set("policy", binding.policyId);
-    next.searchParams.set("presentation", view.presentationId);
-    this.returns.remember(view.presentationId, next.toString(), view.expiresAt);
+    // A `QR` presentation has no return at all (`QR_NO_RESULT_VIA_INTERACTION_CHANNEL`): the page
+    // that started it reads the outcome below, and the device that scanned learns nothing.
+    if (interactionType === "SAME_DEVICE") {
+      const next = new URL("resultado", origin.endsWith("/") ? origin : `${origin}/`);
+      next.searchParams.set("policy", binding.policyId);
+      next.searchParams.set("presentation", view.presentationId);
+      this.returns.remember(view.presentationId, next.toString(), view.expiresAt);
+    }
     return {
       presentationId: view.presentationId,
+      interactionType,
       walletUri: view.interaction?.uri,
       expiresAt: view.expiresAt,
     };

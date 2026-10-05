@@ -1,8 +1,16 @@
 diff --git a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
-index 85a94f2..2d435c2 100644
+index 85a94f2..0c384bd 100644
 --- a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
 +++ b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
-@@ -675,6 +675,51 @@ class WalletCoreDocumentsControllerImpl(
+@@ -572,6 +572,7 @@ class WalletCoreDocumentsControllerImpl(
+             )
+             awaitClose()
+         }.safeAsync {
++            edtpDiagLog("issue by offer threw", it)
+             IssueDocumentsPartialState.Failure(
+                 errorMessage = documentErrorMessage
+             )
+@@ -675,6 +676,51 @@ class WalletCoreDocumentsControllerImpl(
              manager.resolveDocumentOffer(offerUri) { result ->
                  when (result) {
                      is OfferResult.Failure -> {
@@ -54,6 +62,50 @@ index 85a94f2..2d435c2 100644
                          val untrustedReason = result.cause.toUntrustedIssuerReasonOrNull()
  
                          trySendBlocking(
+@@ -922,6 +968,7 @@ class WalletCoreDocumentsControllerImpl(
+         val listener = OpenId4VciManager.OnIssueEvent { event ->
+             when (event) {
+                 is IssueEvent.DocumentFailed -> {
++                    edtpDiagLog("issue document failed (${event.docType})", event.cause)
+                     if (event.cause.toUntrustedIssuerReasonOrNull() != null) {
+                         untrustedDocuments[event.docType] = event.name
+                     } else {
+@@ -1002,6 +1049,7 @@ class WalletCoreDocumentsControllerImpl(
+                 }
+ 
+                 is IssueEvent.Failure -> {
++                    edtpDiagLog("issue failure", event.cause)
+                     val untrustedReason = event.cause.toUntrustedIssuerReasonOrNull()
+ 
+                     trySendBlocking(
+@@ -1162,4 +1210,25 @@ class WalletCoreDocumentsControllerImpl(
+         return manager?.let(Result.Companion::success)
+             ?: Result.failure(RuntimeException(errorMessage))
+     }
+-}
+\ No newline at end of file
++}
++
++// EDTP DIAGNOSTIC (diag-issuance). Logging only; no behaviour changes. The issuance paths reduce a
++// failure to the generic "Something went wrong issuing your document(s)" and keep nothing else, and
++// upstream reports them at DEBUG at most — which WD-7 drops in a release build. Printed at ERROR
++// through android.util.Log, so it survives WD-7: type, message and toString (a sealed
++// CredentialIssuanceError carries its detail in fields), top frames, along the cause chain. Never a
++// request or response body.
++private fun edtpDiagLog(label: String, cause: Throwable?) {
++    var t: Throwable? = cause
++    var depth = 0
++    if (t == null) android.util.Log.e("EDTP-DIAG", "$label: <no throwable>")
++    while (t != null && depth < 10) {
++        android.util.Log.e(
++            "EDTP-DIAG",
++            "$label [$depth] ${t::class.qualifiedName}: ${t.message ?: "<no message>"} | $t"
++        )
++        t.stackTrace.take(4).forEach { f -> android.util.Log.e("EDTP-DIAG", "    at $f") }
++        t = t.cause
++        depth += 1
++    }
++}
 diff --git a/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt b/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt
 index 2948af2..5f094b5 100644
 --- a/issuance-feature/src/main/java/eu/europa/ec/issuancefeature/interactor/DocumentOfferInteractor.kt
@@ -86,3 +138,100 @@ index 2948af2..5f094b5 100644
              ResolveDocumentOfferInteractorPartialState.Failure(
                  errorMessage = it.localizedMessage ?: genericErrorMsg
              )
+diff --git a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
+index e3404fa..7967552 100644
+--- a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
++++ b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
+@@ -27,6 +27,7 @@ import io.ktor.client.plugins.logging.DEFAULT
+ import io.ktor.client.plugins.logging.LogLevel
+ import io.ktor.client.plugins.logging.Logger
+ import io.ktor.client.plugins.logging.Logging
++import io.ktor.client.statement.bodyAsText
+ import io.ktor.http.ContentType
+ import io.ktor.serialization.kotlinx.json.json
+ import kotlinx.serialization.json.Json
+@@ -65,6 +66,84 @@ fun provideHttpClient(json: Json, configLogic: ConfigLogic): HttpClient {
+                 contentType = ContentType.Application.Json
+             )
+         }
++
++        // EDTP DIAGNOSTIC (diag-issuance). Logging only; no behaviour changes. Prints the client
++        // authentication headers of an outgoing request — the Wallet Instance Attestation, its PoP
++        // and the DPoP proof — so an issuer that rejects them can be handed the exact JWTs. Wallet
++        // Core issues through this client (withKtorHttpClientFactory). Never a body, never any other
++        // header: these carry a TEST wallet instance identity and public keys, no credential and no
++        // PID data. At ERROR through android.util.Log, so WD-7 does not drop it; chunked, because
++        // logcat truncates a line at about 4 KB.
++        install(
++            io.ktor.client.plugins.api.createClientPlugin("EdtpDiagClientAuthHeaders") {
++                onRequest { request, _ ->
++                    listOf(
++                        "OAuth-Client-Attestation",
++                        "OAuth-Client-Attestation-PoP",
++                        "DPoP"
++                    ).forEach { name ->
++                        request.headers[name]?.let { value ->
++                            val target = "${request.method.value} ${request.url.buildString().substringBefore('?')}"
++                            val chunks = value.chunked(3000)
++                            chunks.forEachIndexed { i, chunk ->
++                                android.util.Log.e(
++                                    "EDTP-DIAG",
++                                    "header $name (${i + 1}/${chunks.size}) $target: $chunk"
++                                )
++                            }
++                        }
++                    }
++                }
++                // The HEADER of each JWT proof in an outgoing credential request — where the key
++                // attestation travels (`key_attestation`) — so an issuer that rejects it can be handed
++                // the exact attestation. Only the first segment of each JWT is decoded and printed:
++                // never its payload, its signature or anything else in the body. A credential request
++                // carries proofs and a configuration id, no credential and no PID data. Read at Send,
++                // once the body has been serialised.
++                on(io.ktor.client.plugins.api.Send) { request ->
++                    val text = (request.body as? io.ktor.http.content.TextContent)?.text
++                    if (text != null && text.contains("\"proof")) {
++                        val target = "${request.method.value} ${request.url.buildString().substringBefore('?')}"
++                        Regex("eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+").findAll(text)
++                            .forEachIndexed { n, m ->
++                                val header = runCatching {
++                                    String(
++                                        java.util.Base64.getUrlDecoder()
++                                            .decode(m.value.substringBefore('.')),
++                                        Charsets.UTF_8
++                                    )
++                                }.getOrElse { "<undecodable>" }
++                                val chunks = header.chunked(3000)
++                                chunks.forEachIndexed { i, chunk ->
++                                    android.util.Log.e(
++                                        "EDTP-DIAG",
++                                        "proof header #$n (${i + 1}/${chunks.size}) $target: $chunk"
++                                    )
++                                }
++                            }
++                    }
++                    proceed(request)
++                }
++                // The body of an ERROR response only (status >= 400): an OAuth / OpenID4VCI error
++                // object, never a credential. Wallet Core turns a failed credential response into
++                // IllegalStateException("CredentialIssuanceError") and drops the issuer's reason,
++                // which is otherwise unrecoverable. Ktor 3 keeps the body, so reading it here does not
++                // consume it for the library. Capped at 2000 characters.
++                onResponse { response ->
++                    if (response.status.value >= 400) {
++                        val target = "${response.call.request.method.value} " +
++                            response.call.request.url.toString().substringBefore('?')
++                        val body = runCatching {
++                            response.bodyAsText()
++                        }.getOrElse { "<unreadable: ${it::class.simpleName}>" }
++                        android.util.Log.e(
++                            "EDTP-DIAG",
++                            "error response ${response.status.value} $target: ${body.take(2000)}"
++                        )
++                    }
++                }
++            }
++        )
+     }
+ }
+ 

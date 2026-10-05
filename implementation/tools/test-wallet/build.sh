@@ -23,9 +23,10 @@
 #
 #   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
 #   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
-#   --issuer <url>[,<url>[,<url>]]  required by wd-5. The ONLY issuers "Add document > From list"
-#                           offers, in list order: one or two reuse upstream's two slots; a third is
-#                           a copy of the second slot's settings, pointed at the third URL.
+#   --issuer <url>[,<url>…]  required by wd-5, up to four. The ONLY issuers "Add document > From
+#                           list" offers, in list order: one or two reuse upstream's two slots; a
+#                           third and a fourth are copies of the second slot's settings, each
+#                           pointed at its own URL.
 #   --pid-label <text>      optional with wd-5. Replaces upstream's "PID Combined" row label.
 #
 # `wd-6` accepts an issuer that does not offer credential response encryption (Wallet Core's
@@ -158,8 +159,8 @@ if [ "$DEVIATIONS" != "none" ]; then
             *) die "--issuer must be https. The wallet will not fetch issuer metadata over cleartext." ;;
           esac
         done
-        [ "$(printf '%s' "$ISSUER_URL" | tr ',' '\n' | grep -c .)" -le 3 ] ||
-          die "--issuer takes at most three URLs: upstream's two issuer slots, and one copy of the second."
+        [ "$(printf '%s' "$ISSUER_URL" | tr ',' '\n' | grep -c .)" -le 4 ] ||
+          die "--issuer takes at most four URLs: upstream's two issuer slots, and two copies of the second."
         WANT_WD5=yes
         ;;
       wd-6)
@@ -395,31 +396,34 @@ if [ "$WANT_WD5" = "yes" ]; then
     die "the upstream issuer URLs are not in $WD5_FILE exactly once each; WD-5 must be regenerated."
   WD5_URL1="${ISSUER_URL%%,*}"
   WD5_URL2=""
-  WD5_URL3=""
+  WD5_EXTRA=""
   case "$ISSUER_URL" in *,*) WD5_URL2="${ISSUER_URL#*,}" ;; esac
-  case "$WD5_URL2" in *,*) WD5_URL3="${WD5_URL2#*,}"; WD5_URL2="${WD5_URL2%%,*}" ;; esac
+  case "$WD5_URL2" in *,*) WD5_EXTRA="${WD5_URL2#*,}"; WD5_URL2="${WD5_URL2%%,*}" ;; esac
   WD5_COUNT=1
   if [ -n "$WD5_URL2" ]; then
     # Two issuers: the second slot, pointed at the second URL. Same settings as the first.
     sed -i.bak "s|$WD5_SECOND|issuerUrl = \"$WD5_URL2\",|" "$WD5_FILE" && rm -f "$WD5_FILE.bak"
     WD5_COUNT=2
-    if [ -n "$WD5_URL3" ]; then
-      # Three issuers: the one addition WD-5 makes. The second slot's block is emitted again, as the
-      # last element of the list, with only its URL and its `order` (2) changed; every client setting
+    if [ -n "$WD5_EXTRA" ]; then
+      # More issuers: the one addition WD-5 makes. The second slot's block is emitted again for each,
+      # at the end of the list, with only its URL and its `order` (2, 3) changed; every client setting
       # — attestation-based client authentication, redirect, PAR, DPoP, reuse policies — is the
       # second slot's, which is upstream's. The wallet builds its list from `issuersConfig`
       # generically (associateWith, sorted by `order`); nothing counts to two.
-      awk -v marker="issuerUrl = \"$WD5_URL2\"," -v third="$WD5_URL3" '
+      awk -v marker="issuerUrl = \"$WD5_URL2\"," -v extra="$WD5_EXTRA" '
+        BEGIN { n = split(extra, urls, ",") }
         /^ *VciConfig\($/ { buf = $0 "\n"; inblock = 1; next }
         inblock {
           if ($0 ~ /^ {12}\),?$/) {
             inblock = 0
             if (index(buf, marker) > 0) {
               printf "%s            ),\n", buf
-              copy = buf
-              gsub(/issuerUrl = "[^"]*",/, "issuerUrl = \"" third "\",", copy)
-              gsub(/order = 1$/, "order = 2", copy); gsub(/order = 1\n/, "order = 2\n", copy)
-              printf "%s%s\n", copy, $0
+              for (i = 1; i <= n; i++) {
+                copy = buf
+                gsub(/issuerUrl = "[^"]*",/, "issuerUrl = \"" urls[i] "\",", copy)
+                gsub(/order = 1$/, "order = " (i + 1), copy); gsub(/order = 1\n/, "order = " (i + 1) "\n", copy)
+                printf "%s%s\n", copy, (i < n ? "            )," : $0)
+              }
             } else {
               printf "%s%s\n", buf, $0
             }
@@ -431,8 +435,12 @@ if [ "$WANT_WD5" = "yes" ]; then
         }
         { print }
       ' "$WD5_FILE" > "$WD5_FILE.new" && mv "$WD5_FILE.new" "$WD5_FILE"
-      grep -q "order = 2" "$WD5_FILE" || die "the third WD-5 issuer did not take order 2."
-      WD5_COUNT=3
+      WD5_ORDER=2
+      for u in $(printf '%s' "$WD5_EXTRA" | tr ',' ' '); do
+        grep -q "order = $WD5_ORDER" "$WD5_FILE" || die "an added WD-5 issuer did not take order $WD5_ORDER."
+        WD5_ORDER=$((WD5_ORDER + 1))
+        WD5_COUNT=$((WD5_COUNT + 1))
+      done
     fi
   else
   # One issuer: drop the second VciConfig block whole (from its `VciConfig(` to its closing `)`).
@@ -450,8 +458,9 @@ if [ "$WANT_WD5" = "yes" ]; then
   grep -qF "issuerUrl = \"$WD5_URL1\"," "$WD5_FILE" || die "substituting the WD-5 issuer did not take effect."
   [ -z "$WD5_URL2" ] || grep -qF "issuerUrl = \"$WD5_URL2\"," "$WD5_FILE" ||
     die "substituting the second WD-5 issuer did not take effect."
-  [ -z "$WD5_URL3" ] || grep -qF "issuerUrl = \"$WD5_URL3\"," "$WD5_FILE" ||
-    die "adding the third WD-5 issuer did not take effect."
+  for u in $(printf '%s' "$WD5_EXTRA" | tr ',' ' '); do
+    grep -qF "issuerUrl = \"$u\"," "$WD5_FILE" || die "adding the WD-5 issuer $u did not take effect."
+  done
   if [ -n "$PID_LABEL" ]; then
     # Upstream labels an issuer's merged PID row with a fixed "PID Combined". A flavour resource
     # overrides that one string and nothing else; the XML-special characters are escaped.

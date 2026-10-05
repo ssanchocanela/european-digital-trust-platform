@@ -358,6 +358,23 @@ Prepared 2 October 2026 (`--prepare-only`, and the patched modules compile for `
 **alongside** W7, so it starts with no documents. W7 is not rebuilt in place, because W7 is the build
 recorded in earlier runs.
 
+## W9 — a fourth listed issuer, on top of W8
+
+Prepared 5 October 2026 (`--prepare-only`: four `VciConfig` slots, `order` 0 to 3, WD-6 on all four);
+**not built**: the signed APK is built by the operator, who holds the key password. Release, our
+`OU=TEST ONLY` key, `.edtptest9`, "EDTP TEST 9", deviations `wd-2,wd-3,wd-4,wd-5,wd-6,wd-7` — no new
+deviation: WD-5 now takes up to four issuers, the fourth being another copy of the second slot's
+settings. The fourth is `…/issuers/nominas-1`, "Nóminas Demo", which issues the income certificate
+Banco Horizonte's loan asks for (`docs/credential-catalogue.md`). It installs **alongside** W8, so it
+starts with no documents.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-2,wd-3,wd-4,wd-5,wd-6,wd-7 \
+      --wrpac-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/WRPACProviders.jwt \
+      --pid-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt \
+      --issuer https://edtp-engine.murcata.es/issuers/pid-1,https://edtp-engine.murcata.es/issuers/rpi-1,https://edtp-engine.murcata.es/issuers/fam-1,https://edtp-engine.murcata.es/issuers/nominas-1 \
+      --pid-label "PID (demo)" --app-id-suffix .edtptest9 --app-name "EDTP TEST 9"
+
 ---
 
 ## What a test run must record

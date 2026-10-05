@@ -183,6 +183,13 @@ footer p { opacity:.8; max-width:760px; margin:10px auto 0; }
 .cover-card p { color:var(--muted); flex:1; margin:0 0 18px; }
 .cover-card .btn { align-self:flex-start; }
 
+.cover-more { max-width:864px; margin:28px auto 0; background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 28px; display:flex; align-items:center; justify-content:space-between; gap:20px; text-align:left; }
+.cover-more h2 { margin:0 0 4px; } .cover-more p { margin:0; color:var(--muted); }
+.loan-sim { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:20px; align-items:end; background:#fff; border-radius:12px; padding:20px; margin-top:8px; }
+.loan-sim input[type=range] { padding:0; min-height:28px; border:0; accent-color:var(--primary); }
+.loan-amount, .loan-quota { display:block; font-size:26px; color:var(--primary-dark); }
+.loan-result small { display:block; color:var(--muted); font-size:12px; }
+.loan-result span { display:block; font-size:13px; color:var(--muted); }
 .pane { background:#fff; border:1px solid var(--line); border-radius:16px; overflow:hidden; min-width:0; }
 .pane-solo { max-width:980px; margin:8px auto 0; }
 .flow-head { display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px; padding:14px 24px 0; position:relative; }
@@ -309,7 +316,8 @@ footer p { opacity:.8; max-width:760px; margin:10px auto 0; }
   main { padding:8px 12px 40px; }
   h1 { font-size:23px; } .hero h1 { font-size:26px; }
   .flow-body { padding:20px 16px 28px; } .flow-head { padding:12px 16px 0; } .progress { margin:6px -16px 0; }
-  .cover-cards, .form, .side-grid, .connect { grid-template-columns:1fr; }
+  .cover-cards, .form, .side-grid, .connect, .loan-sim { grid-template-columns:1fr; }
+  .cover-more { flex-direction:column; align-items:flex-start; }
   .metrics { grid-template-columns:repeat(2, minmax(0, 1fr)); }
   .phone-wrap { display:none; }
   .btn-wide { width:100%; justify-content:center; }

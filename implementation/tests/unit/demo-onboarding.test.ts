@@ -10,6 +10,11 @@ import {
 import { CLIENT_JS } from "../../apps/demo-onboarding/src/client.js";
 import { DICTIONARIES, dictionary } from "../../apps/demo-onboarding/src/i18n.js";
 import {
+  affordableAmount,
+  LOAN_TERMS,
+  monthlyPayment,
+} from "../../apps/demo-onboarding/src/loan.js";
+import {
   CONTENT_SECURITY_POLICY,
   renderPlain,
   renderShell,
@@ -123,5 +128,31 @@ describe("the outcome of a cross-device presentation", () => {
     polls.remember("c");
     expect(polls.allows("c", undefined)).toBe(false);
     expect(polls.allows("a", undefined)).toBe(true);
+  });
+});
+
+describe("the fictitious loan", () => {
+  const { annualRatePercent: rate, maxPaymentShare: share, stepAmount: step } = LOAN_TERMS;
+
+  it("computes the constant payment of an amortising loan", () => {
+    expect(monthlyPayment(10_000, 48, 6.95)).toBe(239.23);
+    expect(monthlyPayment(12_000, 12, 0)).toBe(1_000);
+  });
+
+  it("never offers more than was asked, nor a payment above the share of income", () => {
+    expect(affordableAmount(10_000, 2_400, 48, rate, share, step)).toBe(10_000);
+    const lower = affordableAmount(30_000, 1_200, 48, rate, share, step);
+    expect(lower).toBeLessThan(30_000);
+    expect(lower % step).toBe(0);
+    expect(monthlyPayment(lower, 48, rate)).toBeLessThanOrEqual(1_200 * share);
+    expect(monthlyPayment(lower + step, 48, rate)).toBeGreaterThan(1_200 * share);
+    expect(affordableAmount(10_000, 0, 48, rate, share, step)).toBe(0);
+  });
+
+  it("is the arithmetic the page runs, and says the decision is simulated", () => {
+    expect(CLIENT_JS).toContain("LOAN.monthly = ");
+    expect(CLIENT_JS).toContain("LOAN.affordable = ");
+    expect(DICTIONARIES["es"]?.loanDecisionNote).toMatch(/simulada/);
+    expect(DICTIONARIES["es"]?.loanFictitious).toMatch(/ficticios/);
   });
 });

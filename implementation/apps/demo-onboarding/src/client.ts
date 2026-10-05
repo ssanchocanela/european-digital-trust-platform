@@ -1,3 +1,5 @@
+import { affordableAmount, LOAN_TERMS, monthlyPayment } from "./loan.js";
+
 /**
  * The page's script, served as a file so `script-src 'self'` holds with no inline script.
  *
@@ -6,9 +8,15 @@
  * this process drew itself and the script parses as SVG, not HTML.
  *
  * Plain ES5-style JavaScript in a string, as the operator console's is: no build step, no bundle.
+ * The loan's arithmetic is the exception: it is the source of the tested functions in `loan.ts`.
  */
-export const CLIENT_JS = String.raw`"use strict";
-(function () {
+const LOAN_JS = `var LOAN = ${JSON.stringify(LOAN_TERMS)};
+LOAN.monthly = ${monthlyPayment.toString()};
+LOAN.affordable = ${affordableAmount.toString()};
+`;
+
+export const CLIENT_JS = `"use strict";
+${LOAN_JS}${String.raw`(function () {
   var T = JSON.parse(document.getElementById("i18n").textContent);
   var CFG = JSON.parse(document.getElementById("cfg").textContent);
   var app = document.getElementById("app");
@@ -60,6 +68,9 @@ export const CLIENT_JS = String.raw`"use strict";
   function stored() {
     try { var v = Number(window.localStorage.getItem(T0_KEY)); return v > 0 ? v : null; }
     catch (e) { return null; }
+  }
+  function euros(n, decimals) {
+    return n.toLocaleString("es-ES", { useGrouping: "always", minimumFractionDigits: decimals || 0, maximumFractionDigits: decimals || 0 }) + " €";
   }
   function mask(v) {
     if (typeof v === "string") return v.length > 1 ? v.charAt(0) + "•••" : "•";
@@ -180,6 +191,7 @@ export const CLIENT_JS = String.raw`"use strict";
     var timers = Timers(), clock = Clock(1), head = flowHeader(t("modeEudi"), 3, false);
     var body = el("div", "flow-body");
     var primary = null, typed = 0, data = null, done = false;
+    var loan = opts.product === "loan" ? { amount: LOAN.defaultAmount, months: LOAN.defaultMonths, income: 0, granted: 0 } : null;
     add(host, head.node, body);
     timers.every(function () { head.setTime(fmt(clock.ms())); }, 250);
 
@@ -194,7 +206,42 @@ export const CLIENT_JS = String.raw`"use strict";
       build(s);
     }
 
+    function payment(amount) { return LOAN.monthly(amount, loan.months, LOAN.annualRatePercent); }
+
+    function loanProduct() {
+      screen(0, function (s) {
+        var hero = el("div", "hero");
+        add(hero, el("h1", "", t("loanTitle")), el("p", "lead", t("loanLead")));
+        var amount = el("input"); amount.type = "range";
+        amount.min = LOAN.minAmount; amount.max = LOAN.maxAmount; amount.step = LOAN.stepAmount; amount.value = loan.amount;
+        var months = el("select");
+        LOAN.months.forEach(function (m) {
+          var o = el("option", "", t("loanMonths", { n: m })); o.value = m; o.selected = m === loan.months; add(months, o);
+        });
+        var amountLabel = el("strong", "loan-amount"), quota = el("strong", "loan-quota");
+        function refresh() {
+          loan.amount = Number(amount.value); loan.months = Number(months.value);
+          amountLabel.textContent = euros(loan.amount);
+          quota.textContent = euros(payment(loan.amount), 2);
+        }
+        amount.addEventListener("input", refresh); months.addEventListener("change", refresh);
+        refresh();
+        var sim = el("div", "loan-sim");
+        add(sim,
+          add(el("div", "field"), el("label", "", t("loanAmount")), amountLabel, amount),
+          add(el("div", "field"), el("label", "", t("loanTerm")), months),
+          add(el("div", "loan-result"), el("span", "", t("loanMonthly")), quota,
+            el("small", "", t("loanRate", { rate: String(LOAN.annualRatePercent).replace(".", ",") }))));
+        primary = function () { clock.start(); store(Date.now()); consent(); };
+        var cta = button(t("loanCta"), "btn-primary btn-wide", primary);
+        add(cta, el("span", "badge-new", t("badgeNew")));
+        add(hero, sim, add(el("div", "actions"), cta), el("p", "note", t("loanFictitious")));
+        add(s, hero);
+      });
+    }
+
     function product() {
+      if (loan) return loanProduct();
       screen(0, function (s) {
         var hero = el("div", "hero");
         add(hero, el("h1", "", t("productTitle")), el("p", "lead", t("productLead")));
@@ -211,7 +258,7 @@ export const CLIENT_JS = String.raw`"use strict";
 
     function consent() {
       screen(1, function (s) {
-        add(s, el("h1", "", t("consentTitle")), el("p", "lead", t("consentBody")));
+        add(s, el("h1", "", t("consentTitle")), el("p", "lead", t(loan ? "loanConsentBody" : "consentBody")));
         var ul = el("ul", "asked");
         [["consentName", "👤"], ["consentBirth", "📅"], ["consentNationality", "🌍"], ["consentDocument", "🪪"], ["consentAddress", "🏠"]]
           .forEach(function (x) {
@@ -372,14 +419,55 @@ export const CLIENT_JS = String.raw`"use strict";
         }
         var email = input("kycEmail", "email", t("kycEmailSample"));
         var phone = input("kycPhone", "tel", t("kycPhoneSample"));
-        select("kycActivity", "kycActivityOptions");
-        select("kycFunds", "kycFundsOptions");
+        var income = null;
+        if (loan) {
+          select("loanEmployment", "loanEmploymentOptions");
+          income = input("loanIncome", "number", t("loanIncomeSample"));
+          income.min = "0"; income.step = "50";
+        } else {
+          select("kycActivity", "kycActivityOptions");
+          select("kycFunds", "kycFundsOptions");
+        }
         primary = function () {
-          [email, phone].forEach(function (i) { if (!i.value) i.value = i.dataset.sample; });
-          typed = 2;
-          sign();
+          [email, phone, income].forEach(function (i) { if (i && !i.value) i.value = i.dataset.sample; });
+          typed = loan ? 3 : 2;
+          if (loan) { loan.income = Math.max(0, Number(income.value) || 0); decision(); }
+          else sign();
         };
         add(s, el("h2", "", t("kycTitle")), kyc, add(el("div", "actions"), button(t("continue"), "btn-primary", primary)));
+      });
+    }
+
+    // The "decision" is a rule on a figure the person typed. Nothing is assessed, and the screen says so.
+    function decision() {
+      screen(2, function (s) {
+        s.classList.add("review");
+        add(s, el("h1", "", t("loanDecisionTitle")), el("div", "hourglass", "⚙"), el("p", "note", t("loanDecisionNote")));
+        primary = offer;
+        timers.later(offer, 1800);
+      });
+    }
+
+    function offer() {
+      loan.granted = LOAN.affordable(loan.amount, loan.income, loan.months, LOAN.annualRatePercent, LOAN.maxPaymentShare, LOAN.stepAmount);
+      screen(2, function (s) {
+        if (loan.granted < LOAN.minAmount) {
+          add(s, el("h1", "", t("loanRefusedTitle")), el("p", "lead", t("loanRefusedBody")), el("p", "note", t("loanDecisionNote")));
+          primary = reset;
+          add(s, add(el("div", "actions"), button(t("compareAgain"), "btn-secondary", reset)));
+          return;
+        }
+        var q = payment(loan.granted);
+        add(s, el("h1", "", t(loan.granted < loan.amount ? "loanOfferLowerTitle" : "loanOfferTitle", { name: name() })));
+        if (loan.granted < loan.amount) add(s, el("p", "lead", t("loanOfferLowerBody", { asked: euros(loan.amount) })));
+        var card = el("div", "summary");
+        [[t("loanAmount"), euros(loan.granted)], [t("loanTerm"), t("loanMonths", { n: loan.months })],
+         [t("loanMonthly"), euros(q, 2)], [t("loanRateLabel"), String(LOAN.annualRatePercent).replace(".", ",") + " %"],
+         [t("loanTotal"), euros(q * loan.months, 2)]].forEach(function (r) {
+          add(card, add(el("div", "kv"), el("span", "", r[0]), el("strong", "", r[1])));
+        });
+        primary = sign;
+        add(s, card, el("p", "note", t("loanDecisionNote")), add(el("div", "actions"), button(t("loanAccept"), "btn-primary", primary)));
       });
     }
 
@@ -406,10 +494,13 @@ export const CLIENT_JS = String.raw`"use strict";
       screen(3, function (s) {
         add(s, el("h1", "", t("signTitle")));
         var card = el("div", "summary");
-        [[t("signProduct"), ""], [t("signHolder"), fullName()], [t("signFees"), t("signFeesValue")]].forEach(function (r) {
+        (loan
+          ? [[t("loanTitle"), euros(loan.granted)], [t("signHolder"), fullName()],
+             [t("loanMonthly"), euros(payment(loan.granted), 2) + " × " + loan.months]]
+          : [[t("signProduct"), ""], [t("signHolder"), fullName()], [t("signFees"), t("signFeesValue")]]).forEach(function (r) {
           add(card, add(el("div", "kv"), el("span", "", r[0]), el("strong", "", r[1])));
         });
-        var checks = ["signCheck1", "signCheck2"].map(function (k) {
+        var checks = [loan ? "loanCheck1" : "signCheck1", "signCheck2"].map(function (k) {
           var c = el("input"); c.type = "checkbox";
           add(card, add(el("label", "check"), c, el("span", "", t(k))));
           return c;
@@ -421,13 +512,28 @@ export const CLIENT_JS = String.raw`"use strict";
           checks.forEach(function (c) { c.checked = true; });
           otp(s, success);
         };
-        add(s, card, add(el("div", "actions"), button(t("signCta"), "btn-primary", primary)));
+        add(s, card, add(el("div", "actions"), button(t(loan ? "loanSignCta" : "signCta"), "btn-primary", primary)));
       });
+    }
+
+    function loanSuccess(ms) {
+      screen(3, function (s) {
+        s.classList.add("success");
+        add(s, el("div", "success-mark", "✓"), el("h1", "", t("loanSuccessTitle", { name: name() })),
+          el("p", "lead", t("loanSuccessLead", { amount: euros(loan.granted) })));
+        var metrics = el("div", "metrics");
+        [[fmt(ms), t("compareTime")], ["3", t("compareSteps")], ["0", t("compareDocs")], [euros(payment(loan.granted), 2), t("loanMonthly")]]
+          .forEach(function (m) { add(metrics, add(el("div", "metric"), el("strong", "", m[0]), el("span", "", m[1]))); });
+        primary = reset;
+        add(s, metrics, el("p", "note", t("loanFictitious")), add(el("div", "actions"), button(t("compareAgain"), "btn-secondary", reset)));
+      });
+      done = true;
     }
 
     function success() {
       clock.stop(); store(null);
       var ms = clock.ms();
+      if (loan) return loanSuccess(ms);
       screen(3, function (s) {
         s.classList.add("success");
         add(s, el("div", "success-mark", "✓"), el("h1", "", t("successTitle", { name: name() })), el("p", "lead", t("successLead")));
@@ -646,7 +752,10 @@ export const CLIENT_JS = String.raw`"use strict";
     }
     card("current", t("coverCurrentTitle"), t("coverCurrentBody"), t("coverCurrentCta"), "current");
     card("eudi", t("coverEudiTitle"), t("coverEudiBody"), t("coverEudiCta"), "eudi", true);
-    add(s, cards, add(el("div", "actions center"), button(t("coverCompare"), "btn-outline", function () { go("side"); })));
+    var more = el("div", "cover-more");
+    add(more, add(el("div"), el("h2", "", t("coverLoanTitle")), el("p", "", t("coverLoanBody"))),
+      button(t("coverLoanCta"), "btn-secondary", function () { go("loan"); }));
+    add(s, cards, add(el("div", "actions center"), button(t("coverCompare"), "btn-outline", function () { go("side"); })), more);
     add(app, s);
     advanceTarget = { advance: function () { go("eudi"); } };
   }
@@ -656,7 +765,9 @@ export const CLIENT_JS = String.raw`"use strict";
     add(app, pane);
     var flow = kind === "eudi"
       ? eudiFlow(pane, { resume: resume, onClassic: function () { go("current"); } })
-      : currentFlow(pane, { auto: false });
+      : kind === "loan"
+        ? eudiFlow(pane, { product: "loan" })
+        : currentFlow(pane, { auto: false });
     flows.push(flow); advanceTarget = flow;
   }
 
@@ -707,6 +818,7 @@ export const CLIENT_JS = String.raw`"use strict";
     leave();
     if (view === "eudi") solo("eudi", resume);
     else if (view === "current") solo("current");
+    else if (view === "loan") solo("loan");
     else if (view === "side") side();
     else if (view === "compare") compare();
     else cover();
@@ -747,4 +859,4 @@ export const CLIENT_JS = String.raw`"use strict";
   setRecorded(false);
   if (CFG.resume) go("eudi", CFG.resume); else go("cover");
 })();
-`;
+`}`;

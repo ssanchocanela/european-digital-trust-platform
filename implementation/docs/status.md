@@ -60,6 +60,12 @@ use `edtp-test-bank-onboarding` and policy **`8e7c4b3a…` v1**. In `.env`: the 
   with one entity each, where there were seven. The TEST lists still carry the seven. **Not yet
   assessed.**
 
+**Since, the same day — a loan, built and not deployed.** "Préstamo Horizonte", a second product on the
+same page and under the same policy, wallet only and with no comparison: amount and term, identify
+with the PID, a pre-approved offer, the simulated signature. **The credit decision is simulated**, from
+an income the person types, and every screen of it says so: a PID says who someone is, not what they
+can repay. A version that decides on a verified income attestation is the next step.
+
 **Next:** run it by QR from a desktop; issue the demonstration's person from "PID (demo)" with the four
 address claims, and a spare; fix the age check's policy.
 

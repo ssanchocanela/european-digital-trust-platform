@@ -209,6 +209,14 @@ ${LOAN_JS}${String.raw`(function () {
     var loan = opts.product === "loan"
       ? { amount: LOAN.defaultAmount, months: LOAN.defaultMonths, income: 0, granted: 0, verified: false, pidId: null }
       : null;
+    // The PID presentation's id, which is also the back office's case, when there is one.
+    var pidId = null;
+    function report(outcome) {
+      if (!pidId || recorded) return;
+      fetch("api/expedientes/" + encodeURIComponent(pidId), {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(outcome)
+      }).catch(function () { /* no back office, or the case has gone: nothing to tell the person */ });
+    }
     function remember() { if (loan) saveSession({ product: "loan", amount: loan.amount, months: loan.months, pidId: loan.pidId }); }
     add(host, head.node, body);
     timers.every(function () { head.setTime(fmt(clock.ms())); }, 250);
@@ -368,7 +376,8 @@ ${LOAN_JS}${String.raw`(function () {
           timers.every(function () {
             if (busy) return;
             busy = true;
-            fetch("api/presentaciones/" + encodeURIComponent(id) + (income ? "?tipo=ingresos" : ""), {
+            fetch("api/presentaciones/" + encodeURIComponent(id) +
+                (income ? "?tipo=ingresos" + (pidId ? "&pid=" + encodeURIComponent(pidId) : "") : ""), {
               headers: token ? { "x-onboarding-token": token } : {}
             }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
               .then(function (view) { busy = settle(view) === true; })
@@ -401,6 +410,7 @@ ${LOAN_JS}${String.raw`(function () {
           .then(function (p) {
             clear(box);
             tech.mark(1, p.request);
+            if (!income) pidId = p.id;
             if (loan && !income) { loan.pidId = p.id; remember(); }
             if (mode === "qr") {
               var svg = new DOMParser().parseFromString(p.qrSvg, "image/svg+xml").documentElement;
@@ -608,6 +618,7 @@ ${LOAN_JS}${String.raw`(function () {
 
     function loanSuccess(ms) {
       saveSession(null);
+      report({ product: "prestamo", signed: true, amount: loan.amount, months: loan.months, granted: loan.granted, monthlyPayment: payment(loan.granted) });
       screen(LAST, function (s) {
         s.classList.add("success");
         add(s, el("div", "success-mark", "✓"), el("h1", "", t("loanSuccessTitle", { name: name() })),
@@ -641,6 +652,7 @@ ${LOAN_JS}${String.raw`(function () {
       });
       done = true;
       results.eudi = { ms: ms, steps: 3, typed: typed, docs: 0, retries: 0, review: false, recorded: recorded };
+      report({ product: "cuenta", signed: true });
       if (opts.onDone) opts.onDone();
     }
 
@@ -652,6 +664,7 @@ ${LOAN_JS}${String.raw`(function () {
         loan.months = Number(session.months) || loan.months;
         loan.pidId = session.pidId || null;
       }
+      pidId = loan && opts.resume.kind === "ingresos" ? loan.pidId : opts.resume.id;
       if (loan && opts.resume.kind === "ingresos" && loan.pidId) {
         // Back from the second presentation: the first one's result is read again by its id.
         fetch("api/presentaciones/" + encodeURIComponent(loan.pidId))

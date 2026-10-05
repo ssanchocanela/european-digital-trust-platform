@@ -8,6 +8,16 @@ linked rather than repeated.
 
 ---
 
+## 5 October 2026, late — **a back office for Banco Horizonte, built and off**
+
+`/backoffice` on the onboarding page: the applications that came in, as the bank's fictitious staff
+would see them — verified PID data, verified income, and how the page says each ended (marked as
+declared). It refreshes itself. **It is the first thing this page keeps**: in memory, twenty cases,
+half an hour, nothing on disk. Off by default (`ONBOARDING_BACKOFFICE`), served only to a visitor
+Cloudflare Access has identified, and a `404` to anyone else. **Not deployed, and not to be switched on
+before the Access application exists** — the order is in
+[`infra/demo-vm/README.md`](../infra/demo-vm/README.md), *The back office*. Tried locally against a
+stand-in for the platform; not seen in a browser.
 ## 5 October 2026, night — **Banco Horizonte's loan run end to end: PID, then a verified income certificate**
 
 The loan of PRs #28 and #29 is deployed (image `4f32d15792c0`, engine unchanged) and was run by the

@@ -146,6 +146,43 @@ const es = {
   successCard: "Tarjeta virtual",
   successCompare: "Ver comparativa",
 
+  // --- the loan: wallet only, no comparison ---
+  coverLoanTitle: "Préstamo Horizonte",
+  coverLoanBody: "Pide un préstamo identificándote con tu cartera, sin fotocopias del DNI.",
+  coverLoanCta: "Pedir un préstamo con la cartera",
+  loanTitle: "Préstamo Horizonte",
+  loanLead: "Elige cuánto necesitas y en cuánto tiempo quieres devolverlo.",
+  loanAmount: "Importe",
+  loanTerm: "Plazo",
+  loanMonths: "{n} meses",
+  loanMonthly: "Cuota mensual",
+  loanRate: "TIN {rate} % (condiciones ficticias)",
+  loanRateLabel: "Tipo de interés nominal",
+  loanTotal: "Total a devolver",
+  loanCta: "Pídelo con tu Cartera Digital Europea",
+  loanFictitious: "Producto y condiciones ficticios. No se concede ningún préstamo.",
+  loanConsentBody:
+    "Para estudiar tu préstamo necesitamos identificarte. Tus datos llegan firmados por la entidad que emitió tu PID.",
+  loanEmployment: "Situación laboral",
+  loanEmploymentOptions: "Contrato indefinido|Contrato temporal|Autónoma|Jubilada|Otra",
+  loanIncome: "Ingresos netos mensuales (€)",
+  loanIncomeSample: "2400",
+  loanDecisionTitle: "Estudiando tu solicitud…",
+  loanDecisionNote:
+    "Decisión simulada: se calcula con los ingresos que has escrito. El PID acredita quién eres, no tu solvencia.",
+  loanOfferTitle: "{name}, tu préstamo está preconcedido",
+  loanOfferLowerTitle: "{name}, podemos ofrecerte un importe menor",
+  loanOfferLowerBody:
+    "Con los ingresos indicados no llegamos a los {asked} que pedías. Esta es nuestra oferta.",
+  loanAccept: "Aceptar la oferta",
+  loanRefusedTitle: "Ahora no podemos ofrecerte este préstamo",
+  loanRefusedBody:
+    "Con los ingresos indicados, la cuota superaría lo que consideramos asumible.",
+  loanCheck1: "He leído y acepto el contrato del préstamo y la información precontractual",
+  loanSignCta: "Firmar y recibir el préstamo",
+  loanSuccessTitle: "¡Hecho, {name}!",
+  loanSuccessLead: "Hemos abonado {amount} en tu cuenta (ficticia).",
+
   // --- current flow ---
   currentFormTitle: "Rellena tus datos",
   currentTyped: "Campos escritos a mano",

@@ -38,6 +38,11 @@
 set -euo pipefail
 
 SAN_DNS="${1:-localhost}"
+# A second Relying Party gets a leaf of its own under the same CA: its file prefix and its subject.
+#   EDTP_LEAF_NAME=horizonte EDTP_LEAF_SUBJECT="/CN=…/O=…/C=ES" ./scripts/make-dev-access-ca.sh <host>
+LEAF="${EDTP_LEAF_NAME:-access}"
+LEAF_SUBJECT="${EDTP_LEAF_SUBJECT:-/CN=EDTP EUDI Gate - TEST/O=EDTP Test Entity SL/C=ES}"
+[[ "$LEAF" =~ ^[a-z0-9-]+$ ]] || { echo "EDTP_LEAF_NAME must be lowercase letters, digits and dashes." >&2; exit 1; }
 OUT_DIR="${EDTP_DEV_CA_DIR:-$HOME/.edtp/dev-access-ca}"
 
 command -v openssl >/dev/null 2>&1 || { echo "openssl is required." >&2; exit 1; }
@@ -67,9 +72,9 @@ echo "==> Access certificate (leaf, EC P-256, 90 days, SAN DNS:$SAN_DNS)"
 # Regenerated on every run, deliberately. The leaf carries the public hostname as a SAN, and that
 # hostname changes with every quick tunnel — so a leaf is cheap and short-lived while the anchor,
 # which a wallet build is compiled against, is stable.
-openssl ecparam -name prime256v1 -genkey -noout -out access.key
-openssl req -new -key access.key -out access.csr -sha256 \
-  -subj "/CN=EDTP EUDI Gate - TEST/O=EDTP Test Entity SL/C=ES"
+openssl ecparam -name prime256v1 -genkey -noout -out "$LEAF".key
+openssl req -new -key "$LEAF".key -out "$LEAF".csr -sha256 \
+  -subj "$LEAF_SUBJECT"
 
 cat > leaf.ext <<EXT
 basicConstraints = critical,CA:FALSE
@@ -80,13 +85,13 @@ subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid,issuer
 EXT
 
-openssl x509 -req -in access.csr -CA ca.crt -CAkey ca.key -CAcreateserial \
-  -out access.crt -days 90 -sha256 -extfile leaf.ext
-rm -f access.csr leaf.ext
+openssl x509 -req -in "$LEAF".csr -CA ca.crt -CAkey ca.key -CAcreateserial \
+  -out "$LEAF".crt -days 90 -sha256 -extfile leaf.ext
+rm -f "$LEAF".csr leaf.ext
 
 # PKCS#8 for the engine's key-chain import, which takes a JWK derived from it — see
 # scripts/import-access-certificate.sh and interop-findings.md A8.
-openssl pkcs8 -topk8 -nocrypt -in access.key -out access.key8.pem
+openssl pkcs8 -topk8 -nocrypt -in "$LEAF".key -out "$LEAF".key8.pem
 
 # A PKCS#12 as well, so `verify-access-certificate-chain.sh` can be pointed at this the same way it
 # would be pointed at a real one. It will report that the leaf does not chain to a notified anchor,
@@ -96,7 +101,7 @@ if [ -z "${EDTP_DEV_CA_P12_PASSWORD:-}" ]; then
   read -r -s -p "Passphrase for the PKCS#12 bundle: " EDTP_DEV_CA_P12_PASSWORD; echo
   export EDTP_DEV_CA_P12_PASSWORD
 fi
-openssl pkcs12 -export -out access.p12 -inkey access.key -in access.crt -certfile ca.crt \
+openssl pkcs12 -export -out "$LEAF".p12 -inkey "$LEAF".key -in "$LEAF".crt -certfile ca.crt \
   -name "EDTP dev access certificate (TEST)" -passout "$PASS_SOURCE"
 unset EDTP_DEV_CA_P12_PASSWORD
 
@@ -105,8 +110,8 @@ chmod 600 ./*.key ./*.crt ./*.pem ./*.p12 2>/dev/null || true
 echo
 echo "==> Fingerprints, for the run record"
 printf '    CA   '; openssl x509 -in ca.crt -noout -fingerprint -sha256 | sed 's/.*=//'
-printf '    leaf '; openssl x509 -in access.crt -noout -fingerprint -sha256 | sed 's/.*=//'
-openssl x509 -in access.crt -noout -subject -issuer -dates | sed 's/^/    /'
+printf '    leaf '; openssl x509 -in "$LEAF".crt -noout -fingerprint -sha256 | sed 's/.*=//'
+openssl x509 -in "$LEAF".crt -noout -subject -issuer -dates | sed 's/^/    /'
 
 cat <<EOF
 
@@ -114,9 +119,9 @@ Written to $OUT_DIR (mode 700):
 
   ca.crt           the anchor. Goes into the wallet build as a raw resource — WD-3.
   ca.key           the CA private key. A secret. Needed only to issue another leaf.
-  access.crt       the leaf the engine presents.
-  access.key8.pem  its private key, PKCS#8, for the engine's key-chain import.
-  access.p12       both, bundled, for verify-access-certificate-chain.sh.
+  $LEAF.crt       the leaf the engine presents.
+  $LEAF.key8.pem  its private key, PKCS#8, for the engine's key-chain import.
+  $LEAF.p12       both, bundled, for verify-access-certificate-chain.sh.
 
 Next:
 
@@ -128,7 +133,7 @@ Next:
 
   3. Import the leaf into the engine:
        TENANT_ID=... PLATFORM_TENANT_API_KEY=... \\
-         ./scripts/import-access-certificate.sh <service-id> <engine-tenant-ref> $OUT_DIR/access.p12
+         ./scripts/import-access-certificate.sh <service-id> <engine-tenant-ref> $OUT_DIR/$LEAF.p12
 
   4. Re-issue the leaf with the real SAN once a tunnel hostname exists:
        ./scripts/make-dev-access-ca.sh <hostname>

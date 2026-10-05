@@ -1,12 +1,49 @@
 # Where the work stands
 
-Written 12 September 2026, updated 28 September. **The one page to read after `CLAUDE.md` when picking the work up.**
+Written 12 September 2026, updated 5 October. **The one page to read after `CLAUDE.md` when picking the work up.**
 
 Everything here is state that the code and the git history do not make obvious: what is in flight,
 what is blocked and why, and what the next action is. Findings live in their own documents and are
 linked rather than repeated.
 
 ---
+
+## 5 October 2026 — **Banco Horizonte, the bank onboarding demonstration: built, not yet run with a wallet**
+
+A new demonstration, `apps/demo-onboarding`: a fictitious bank opens an account three ways — today's
+onboarding, **simulated**; the same with a PID from a wallet, **real**; and both side by side — with a
+closing comparison, a technical panel and presenter shortcuts (→, R, T). Branch
+`feature/bank-onboarding-demo`. Specification: the user's, 5 October 2026.
+
+**What is real and what is not.** The wallet flow calls the hosted verifier under one policy and fills
+the form from the verified result. The current-onboarding flow, its timings and the signature step are
+simulated, and say so. A recorded fallback (key `G`) replaces the wallet, under a banner on every
+screen; with no `ONBOARDING_POLICY` the page runs on it alone.
+
+**Decided with the user, the same day:**
+
+- **Cross-device by QR is allowed for this demonstration** — [ADR 0012](adr/0012-cross-device-from-a-hosted-verifier-page.md),
+  amending ADR 0009. Per policy, by configuration; the ADR 0009 mitigations apply; `OIA_08d` is still
+  not met.
+- **Banco Horizonte is a Relying Party of its own**: its engine tenant (`horizonte-1`) and an access
+  certificate from the development Access CA. Only the modified wallet trusts it.
+- **The palette is the specification's.** No real bank's name, mark or typeface is used.
+
+**Three things the specification asked for that the platform does not have**, and what was built
+instead:
+
+- `age_over_18`: the PID has none. The bank receives `birthdate` and works out majority itself.
+- Signing with the wallet: the platform does not sign. A simulated one-time code, labelled.
+- A verifier event stream: there is none. The panel shows what the page observes — the request it
+  got, each status it polled, the result with values masked — and marks the wallet-side step as not
+  observable. It never shows a request object or a `vp_token`: the page never has them.
+
+**Not done, in order:** the six steps in [`infra/demo-vm/README.md`](../infra/demo-vm/README.md),
+*Banco Horizonte* — register the Relying Party, its tenant and certificate, load the PID list on the
+new tenant, register the policy, route `edtp-horizonte.murcata.es`, show the card. Then issue the test
+PID for the demonstration's person **with all four address claims**, and run it with the test wallet in
+both modes. Every deployment needs the user's approval. **Unverified until then:** that the wallet
+names "Banco Horizonte", that it scans the QR, and the two-minute target.
 
 ## 30 September 2026, afternoon — **the age verification demos live on Murcata, used from an iPhone**
 

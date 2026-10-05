@@ -182,6 +182,8 @@ services:
       HOSTED_VERIFIER_SECRET: ${HOSTED_VERIFIER_SECRET:-}
       HOSTED_VERIFIER_POLICIES: ${HOSTED_VERIFIER_POLICIES:-}
       HOSTED_VERIFIER_PUBLIC_URL: ${HOSTED_VERIFIER_PUBLIC_URL:-}
+      HOSTED_VERIFIER_ORIGINS: ${HOSTED_VERIFIER_ORIGINS:-}
+      HOSTED_VERIFIER_QR_POLICIES: ${HOSTED_VERIFIER_QR_POLICIES:-}
       ENGINE_ISSUER_BRANDING: ${ENGINE_ISSUER_BRANDING:-}
       ENGINE_ISSUER_DISPLAY_NAMES: ${ENGINE_ISSUER_DISPLAY_NAMES:-}
       JOB_INTERVAL_MS: "15000"
@@ -328,6 +330,26 @@ services:
       DEMO_PORTAL_PORT: "3204"
     ports:
       - "127.0.0.1:3204:3204"
+
+  # Banco Horizonte (apps/demo-onboarding): the bank onboarding demonstration. A fictional bank's
+  # account opening, simulated as it is today and real with a PID from a wallet. It holds the
+  # hosted-verifier secret, as the bank does, and one policy; without ONBOARDING_POLICY it plays a
+  # recording and says so. ADR 0012.
+  demo-onboarding:
+    image: edtp-v0-platform-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "apps/demo-onboarding/dist/main.js"]
+    restart: "no"
+    environment:
+      NODE_ENV: production
+      ONBOARDING_PORT: "3205"
+      PLATFORM_API_BASE_URL: http://platform-api:3100
+      HOSTED_VERIFIER_SECRET: ${HOSTED_VERIFIER_SECRET:-}
+      ONBOARDING_POLICY: ${ONBOARDING_POLICY:-}
+    ports:
+      - "127.0.0.1:3205:3205"
 
 volumes:
   platform-db-data:

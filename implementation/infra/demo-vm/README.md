@@ -86,6 +86,35 @@ list `fam-1` too (`pid-1,rpi-1,fam-1`), or the gateway lets the wallet past the 
 never identified, and the engine's request for the title's values gets a `404` — failing closed, with
 nothing issued. That is what happened on the first attempt, on 28 September 2026.
 
+## Banco Horizonte, the bank onboarding demonstration (ADR 0012)
+
+`apps/demo-onboarding`, on `edtp-horizonte.murcata.es` (port 3205). It starts with every deployment and,
+until it is configured, plays a recording under a banner that says so. To make it real, once, on the VM
+— each step needs the operator, and the deployment that follows needs the user's approval:
+
+1. **The Relying Party.** `PLATFORM_TENANT_API_KEY=… node scripts/register-bank-onboarding.mjs relying-party`
+   prints the service id.
+2. **Its engine tenant and access certificate.** `./scripts/create-engine-tenant.sh horizonte-1 "Banco
+   Horizonte"`; a leaf under the development Access CA with the engine's public hostname as its SAN
+   (`EDTP_LEAF_NAME=horizonte EDTP_LEAF_SUBJECT="/CN=Banco Horizonte - TEST/O=Banco Horizonte S.A.
+   (ficticio)/C=ES" ./scripts/make-dev-access-ca.sh edtp-engine.murcata.es`, where the CA's key is);
+   then `./scripts/import-access-certificate.sh <serviceId> horizonte-1 <horizonte.p12>`. Recreate
+   `platform-api` so it reads the new tenant's credentials.
+3. **The PID trust list on the new tenant**, under the id `ENGINE_ISSUER_TRUST_LISTS` already maps:
+   `node scripts/load-issuer-trust-list.mjs --tenant horizonte-1 --lote <PIDProviders.jwt URL>
+   --signer-sha256 <pin> --id edtp-test-pid-providers`. Without it every presentation fails as
+   `trust_list_unavailable`.
+4. **The policy.** `node scripts/register-bank-onboarding.mjs policy <serviceId> <PIDProviders.jwt URL>`
+   prints the four `.env` lines: `HOSTED_VERIFIER_POLICIES` (append), `HOSTED_VERIFIER_ORIGINS`,
+   `HOSTED_VERIFIER_QR_POLICIES` and `ONBOARDING_POLICY`.
+5. **The hostname.** Route `edtp-horizonte.murcata.es` to the tunnel and install
+   `files/cloudflared-config.yml`. Run `negative-checks.sh` with `EDTP_CHECK_ONBOARDING=1`.
+6. **The card.** `PORTAL_SHOW_ONBOARDING=true` in `.env`.
+
+**The test PID must carry the four address claims** the policy asks for (street, postal code, locality,
+country): they are optional in the Rulebook, and a wallet whose PID lacks one reports that it holds
+nothing suitable. Issue the demonstration's person, and a spare, from the hosted form with all four.
+
 ## The age verification demos (ADR 0011)
 
 Lumen and Plaza, from the `age_verification_platform` repository, with that repository's verifier, run

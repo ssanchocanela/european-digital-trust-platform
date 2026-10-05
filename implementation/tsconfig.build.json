@@ -45,6 +45,9 @@
     },
     {
       "path": "./apps/demo-portal"
+    },
+    {
+      "path": "./apps/demo-onboarding"
     }
   ]
 }

@@ -142,6 +142,10 @@ Say none of these, in a room, a slide or a follow-up email.
 | "We can issue credentials to wallets" | "We issue attestations end to end; no wallet can collect one yet, and the blocker is in the ecosystem" |
 | "Revocation is ARF compliant" | "Revocation is irreversible in the platform, as `AS-AP-07-007` requires" |
 | "Age verification from the PID" | "Age derived from the PID date of birth — the PID carries no age attribute" |
+| "Your data arrives signed by the State" (Banco Horizonte) | "Signed by the issuer of the PID — here a test provider, and the values were typed into a form" |
+| "Identity verified at assurance level high" | "Verified: the issuer's signature against a `TEST` trust list, validity and status. No level of assurance is established" |
+| "Signed with the wallet" | "The signature step is simulated; the platform does not sign" |
+| "The QR flow is the recommended one" | "Cross-device by QR is a flow the ARF discourages; four mitigations, four residual risks, `OIA_08d` not met (ADR 0012)" |
 | "Registered with the Registrar" | "Recorded what a registration would authorise, in a `TEST` environment. It is not a registration" |
 
 The first row is not pedantry. The whole reason the modified wallet exists is that an unmodified one

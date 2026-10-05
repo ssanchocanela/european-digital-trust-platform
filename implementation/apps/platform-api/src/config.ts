@@ -137,6 +137,45 @@ const schema = z.object({
       }
       return out;
     }),
+  /**
+   * A hosted verifier page on an origin of its own: `policyId=https://host`, comma-separated. The
+   * wallet's same-device return for that policy goes there instead of `HOSTED_VERIFIER_PUBLIC_URL`.
+   * Configuration, like that one: nothing a visitor or the page sends chooses it.
+   */
+  HOSTED_VERIFIER_ORIGINS: z
+    .string()
+    .default("")
+    .transform((value, ctx) => {
+      const out: Record<string, string> = {};
+      for (const entry of value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)) {
+        const at = entry.indexOf("=");
+        const policyId = entry.slice(0, at);
+        const origin = entry.slice(at + 1);
+        if (at < 1 || !z.string().url().safeParse(origin).success) {
+          ctx.addIssue({ code: "custom", message: `not a policyId=url entry: ${entry}` });
+          return z.NEVER;
+        }
+        out[policyId] = origin;
+      }
+      return out;
+    }),
+  /**
+   * The hosted-verifier policies that may also be requested cross-device (`QR`), by policy id,
+   * comma-separated. Off for every policy not named: `SAME_DEVICE` is the tested path and `QR` is
+   * discouraged (ADR 0009), so opening it is a per-policy decision — ADR 0012.
+   */
+  HOSTED_VERIFIER_QR_POLICIES: z
+    .string()
+    .default("")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean),
+    ),
   /** The secret the hosted form presents when it submits. */
   HOSTED_FORM_SECRET: unsetIfEmpty(z.string().min(32).optional()),
   /**

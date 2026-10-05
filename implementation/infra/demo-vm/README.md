@@ -136,6 +136,25 @@ provider (`docs/credential-catalogue.md`). Each step needs the operator:
    **`ONBOARDING_INCOME_POLICY`**.
 5. **The wallet.** A build whose list offers the fourth issuer, `…/issuers/nominas-1` (W9).
 
+### The back office
+
+`https://edtp-horizonte.murcata.es/backoffice` shows the bank's fictitious staff the applications that
+came in: the verified PID data, the verified income, and how the page says each ended. **It is the one
+place this page keeps what a wallet presented** — in memory, twenty cases at most, half an hour each,
+gone at a restart — so it is off by default and opened in this order, never another:
+
+1. **A person** creates a Cloudflare Access application for `edtp-horizonte.murcata.es/backoffice`,
+   with the operator-only policy, as `EDTP demo operador` is for the portal.
+2. **Check it from outside, logged out:** the path must answer with Access's login redirect, not with
+   the page's `404`. Until it does, do not go on.
+3. `ONBOARDING_BACKOFFICE=on` in `.env`, and recreate `demo-onboarding`.
+
+The page trusts the identity header Access injects, as the portal's `/operador` does. That means
+something only because no request reaches the process except through the tunnel and, on that path,
+through Access: with the switch on and no Access application, anyone could send the header. The
+negative checks do not probe the path: behind Access it answers a redirect, which they would read as an
+exposure.
+
 **The test PID must carry the four address claims** the policy asks for (street, postal code, locality,
 country): they are optional in the Rulebook, and a wallet whose PID lacks one reports that it holds
 nothing suitable. Issue the demonstration's person, and a spare, from the hosted form with all four.

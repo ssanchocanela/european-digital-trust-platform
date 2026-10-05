@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { CaseBook } from "../../apps/demo-onboarding/src/backoffice.js";
 import {
   FIELDS,
   INCOME_REQUESTED_CLAIMS,
@@ -18,6 +19,7 @@ import {
 } from "../../apps/demo-onboarding/src/loan.js";
 import {
   CONTENT_SECURITY_POLICY,
+  renderBackoffice,
   renderPlain,
   renderShell,
 } from "../../apps/demo-onboarding/src/page.js";
@@ -211,5 +213,64 @@ describe("the income certificate the loan asks for", () => {
     const income = toIncomeData(RECORDED_INCOME_CLAIMS);
     expect(income?.holder.givenName).toBe(RECORDED_CLAIMS["given_name"]);
     expect(income?.holder.birthdate).toBe(RECORDED_CLAIMS["birthdate"]);
+  });
+});
+
+describe("the back office's case book", () => {
+  const identity = toOnboardingData(RECORDED_CLAIMS, "2026-10-05");
+  const income = toIncomeData(RECORDED_INCOME_CLAIMS);
+
+  it("opens a case on a verified PID, once, and adds what follows to it", () => {
+    const book = new CaseBook();
+    book.identity("11111111-aaaa", identity);
+    book.identity("11111111-aaaa", { fields: [], adult: false });
+    expect(book.list()).toHaveLength(1);
+    expect(book.list()[0]?.identity.adult).toBe(true);
+    expect(income && book.income("11111111-aaaa", income)).toBe(true);
+    expect(
+      book.declare("11111111-aaaa", { product: "prestamo", signed: true, granted: 10_000 }),
+    ).toBe(true);
+    expect(book.list()[0]).toMatchObject({
+      reference: "11111111",
+      income: { netMonthlyIncome: 2450 },
+      declared: { product: "prestamo", signed: true },
+    });
+  });
+
+  it("takes nothing for a case no verified PID opened", () => {
+    const book = new CaseBook();
+    expect(book.declare("nobody", { product: "cuenta", signed: true })).toBe(false);
+    expect(income && book.income("nobody", income)).toBe(false);
+    expect(book.list()).toHaveLength(0);
+  });
+
+  it("forgets a case after its time, and holds only so many", () => {
+    let now = new Date("2026-10-05T10:00:00Z");
+    const book = new CaseBook(2, 30 * 60_000, () => now);
+    book.identity("a", identity);
+    book.identity("b", identity);
+    book.identity("c", identity);
+    expect(book.list().map((c) => c.reference)).toEqual(["c", "b"]);
+    now = new Date("2026-10-05T10:30:00Z");
+    expect(book.list()).toHaveLength(0);
+  });
+
+  it("is shown with the band, who is looking, and nothing parsed as markup", () => {
+    const book = new CaseBook();
+    book.identity("22222222-bbbb", {
+      fields: [{ path: "given_name", value: "<script>alert(1)</script>" }],
+      adult: true,
+    });
+    const page = renderBackoffice({
+      t,
+      assets: "assets/abc",
+      who: "operator@example.test",
+      cases: book.list(),
+      now: new Date(),
+    });
+    expect(page).toContain("Entorno de demostración");
+    expect(page).toContain("operator@example.test");
+    expect(page).not.toContain("<script>alert(1)");
+    expect(page).not.toMatch(/<script/);
   });
 });

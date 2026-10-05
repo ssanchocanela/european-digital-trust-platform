@@ -1,3 +1,4 @@
+import type { CaseRecord } from "./backoffice.js";
 import { FIELDS } from "./claims.js";
 import type { Dictionary } from "./i18n.js";
 
@@ -134,6 +135,95 @@ export const renderPlain = (
 </body>
 </html>`;
 
+const euros = (amount: number, decimals = 0): string =>
+  `${amount.toLocaleString("es-ES", { useGrouping: "always", minimumFractionDigits: decimals, maximumFractionDigits: decimals })} €`;
+
+export interface BackofficeOptions {
+  readonly t: Dictionary;
+  readonly assets: string;
+  /** Who Cloudflare Access says is looking. */
+  readonly who: string;
+  readonly cases: readonly CaseRecord[];
+  readonly now: Date;
+}
+
+/**
+ * The back office: the applications held in memory, newest first. No script — the page refreshes
+ * itself — and every value a wallet presented is escaped.
+ */
+export const renderBackoffice = (o: BackofficeOptions): string => {
+  const t = o.t;
+  const e = escapeHtml;
+  const labels = new Map(FIELDS.map((f) => [f.path, t[f.label as keyof Dictionary] ?? f.path]));
+  const contract = (code: string): string =>
+    code === "permanent"
+      ? t.incomeContract_permanent
+      : code === "temporary"
+        ? t.incomeContract_temporary
+        : code;
+  const card = (c: CaseRecord): string => {
+    const d = c.declared;
+    const product = d
+      ? d.product === "prestamo"
+        ? t.boProductLoan
+        : t.boProductAccount
+      : t.boProductUnknown;
+    const state = d?.signed ? t.boStateSigned : t.boStateOpen;
+    const identity = c.identity.fields
+      .map(
+        (f) =>
+          `<div class="kv"><span>${e(labels.get(f.path) ?? f.path)}</span><strong>${e(f.value)}</strong></div>`,
+      )
+      .join("");
+    const income = c.income
+      ? `<h3>${e(t.boIncome)} <span class="chip chip-ok">${e(t.boVerified)}</span></h3>
+         <div class="kv"><span>${e(t.incomeNet)}</span><strong>${e(euros(c.income.netMonthlyIncome))}</strong></div>
+         <div class="kv"><span>${e(t.incomeContract)}</span><strong>${e(contract(c.income.contractType))}</strong></div>
+         <div class="kv"><span>${e(t.incomeSince)}</span><strong>${e(c.income.employedSince)}</strong></div>`
+      : "";
+    const loan =
+      d?.product === "prestamo" && d.granted !== undefined
+        ? `<h3>${e(t.boDecision)} <span class="chip chip-warn">${e(t.boDeclared)}</span></h3>
+           <div class="kv"><span>${e(t.boAsked)}</span><strong>${e(euros(d.amount ?? 0))}</strong></div>
+           <div class="kv"><span>${e(t.boGranted)}</span><strong>${e(euros(d.granted))}</strong></div>
+           <div class="kv"><span>${e(t.loanMonthly)}</span><strong>${e(euros(d.monthlyPayment ?? 0, 2))} × ${e(String(d.months ?? ""))}</strong></div>`
+        : "";
+    const minutes = Math.max(0, Math.round((o.now.getTime() - c.openedAt.getTime()) / 60_000));
+    return `<article class="bo-case">
+      <header><strong>${e(product)}</strong><span class="chip ${d?.signed ? "chip-ok" : "chip-muted"}">${e(state)}</span>
+        <span class="bo-ref">#${e(c.reference)} · ${e(c.openedAt.toISOString().slice(11, 19))} UTC · ${e(t.boAgo.replace("{n}", String(minutes)))}</span></header>
+      <h3>${e(t.boIdentity)} <span class="chip chip-ok">${e(t.boVerified)}</span></h3>
+      ${identity}
+      <div class="kv"><span>${e(t.boAdult)}</span><strong>${e(c.identity.adult ? t.boYes : t.boNo)}</strong></div>
+      ${income}${loan}
+    </article>`;
+  };
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="refresh" content="5">
+<title>${e(t.boTitle)} — Banco Horizonte (demostración)</title>
+<link rel="stylesheet" href="${e(o.assets)}/app.css">
+</head>
+<body>
+  <div class="demo" role="note">${e(t.band)}</div>
+  <header class="top"><div class="bar"><a class="brand" href="./"><span class="mark" aria-hidden="true"></span><span>Banco Horizonte<small>${e(t.boTitle)}</small></span></a><span class="access">${e(o.who)}</span></div></header>
+  <main>
+    <section class="screen">
+      <h1>${e(t.boTitle)}</h1>
+      <p class="lead">${e(t.boLead)}</p>
+      <p class="note">${e(t.boNote)}</p>
+      ${o.cases.length === 0 ? `<p class="bo-empty">${e(t.boEmpty)}</p>` : `<div class="bo-grid">${o.cases.map(card).join("")}</div>`}
+    </section>
+  </main>
+</body>
+</html>`;
+};
+
 export const APP_CSS = `
 :root {
   --primary:#007EAE; --primary-dark:#00476B; --primary-light:#E5F2F7; --yellow:#FFC600; --red:#D6002A;
@@ -188,6 +278,14 @@ footer p { opacity:.8; max-width:760px; margin:10px auto 0; }
 .cover-card p { color:var(--muted); flex:1; margin:0 0 18px; }
 .cover-card .btn { align-self:flex-start; }
 
+.chip-ok { background:#DDF3E8; color:var(--success); }
+.bo-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px; margin-top:20px; }
+.bo-case { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; animation:in .3s ease; }
+.bo-case header { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:8px; }
+.bo-case h3 { font-size:13px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:14px 0 4px; }
+.bo-case .kv { font-size:14px; padding:5px 0; }
+.bo-ref { flex-basis:100%; color:var(--muted); font-size:12px; }
+.bo-empty { background:#fff; border:1px dashed var(--line); border-radius:12px; padding:32px; text-align:center; color:var(--muted); }
 .cover-more { max-width:864px; margin:28px auto 0; background:#fff; border:1px solid var(--line); border-radius:16px; padding:20px 28px; display:flex; align-items:center; justify-content:space-between; gap:20px; text-align:left; }
 .cover-more h2 { margin:0 0 4px; } .cover-more p { margin:0; color:var(--muted); }
 .loan-sim { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:20px; align-items:end; background:#fff; border-radius:12px; padding:20px; margin-top:8px; }

@@ -207,6 +207,29 @@ const es = {
   loanDecisionNoteVerified:
     "Regla de demostración aplicada al ingreso de tu certificado, que está verificado. Los datos del certificado son ficticios.",
 
+  // --- the back office: behind Cloudflare Access, in memory, half an hour ---
+  boTitle: "Back-office · Expedientes",
+  boLead: "Las solicitudes que han llegado con la cartera, según se verifican.",
+  boNote:
+    "Vista temporal de demostración: los expedientes viven en memoria, como mucho 30 minutos y 20 a la vez, y se pierden al reiniciar. Solo datos de prueba.",
+  boEmpty: "Aún no ha llegado ninguna solicitud.",
+  boProductAccount: "Cuenta Online Horizonte",
+  boProductLoan: "Préstamo Horizonte",
+  boProductUnknown: "Solicitud en curso",
+  boStateSigned: "Firmado",
+  boStateOpen: "En curso",
+  boIdentity: "Identidad (PID)",
+  boIncome: "Ingresos (certificado)",
+  boDecision: "Préstamo",
+  boVerified: "verificado",
+  boDeclared: "declarado por la página",
+  boAdult: "Mayor de edad",
+  boYes: "Sí",
+  boNo: "No",
+  boAsked: "Importe solicitado",
+  boGranted: "Importe concedido",
+  boAgo: "hace {n} min",
+
   // --- current flow ---
   currentFormTitle: "Rellena tus datos",
   currentTyped: "Campos escritos a mano",

@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { clientKey, RateLimiter } from "@edtp/shared";
-import express, { type Response } from "express";
+import express, { type Request, type Response } from "express";
 import qrcode from "qrcode-generator";
 import { z } from "zod";
+import { CaseBook } from "./backoffice.js";
 import {
   FIELDS,
   INCOME_REQUESTED_CLAIMS,
@@ -12,7 +13,13 @@ import {
 } from "./claims.js";
 import { CLIENT_JS } from "./client.js";
 import { dictionary } from "./i18n.js";
-import { APP_CSS, CONTENT_SECURITY_POLICY, renderPlain, renderShell } from "./page.js";
+import {
+  APP_CSS,
+  CONTENT_SECURITY_POLICY,
+  renderBackoffice,
+  renderPlain,
+  renderShell,
+} from "./page.js";
 import { CrossDevicePolls } from "./polls.js";
 import { RECORDED_CLAIMS, RECORDED_INCOME_CLAIMS, RECORDED_STATUSES } from "./recorded.js";
 
@@ -32,7 +39,10 @@ import { RECORDED_CLAIMS, RECORDED_INCOME_CLAIMS, RECORDED_STATUSES } from "./re
  * - It may ask for a cross-device (`QR`) presentation, because the platform's configuration opens
  *   this policy to it (ADR 0012). The ADR 0009 mitigations apply there, and this page adds its part
  *   of one: the outcome of a `QR` presentation is given only to the browser that asked for it.
- * - It shows the verified claims to the person who presented them, and keeps nothing.
+ * - It shows the verified claims to the person who presented them. It keeps nothing — unless the
+ *   back office is switched on (`ONBOARDING_BACKOFFICE=on`), when it holds the last few
+ *   applications in memory for half an hour and shows them at `/backoffice`, a page it serves only
+ *   to a visitor Cloudflare Access has identified (`backoffice.ts`).
  *
  * Without a policy it still runs: the simulation, and a recording in place of the wallet, announced
  * on every screen for as long as it plays.
@@ -64,11 +74,36 @@ const schema = z.object({
     (v) => (v === "" ? undefined : v),
     z.string().uuid().optional(),
   ),
+  /**
+   * The back office, and with it the only state this process keeps. Off by default, and to be
+   * switched on **only after** Cloudflare Access has been seen protecting `/backoffice` on the
+   * public hostname: the page trusts the identity header Access injects, which means something only
+   * when no request can reach this process without passing Access.
+   */
+  ONBOARDING_BACKOFFICE: z.enum(["on", "off"]).default("off"),
 });
 
 type Config = Readonly<z.infer<typeof schema>>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The identity Cloudflare Access injects once a visitor has logged in. */
+const accessIdentity = (request: Request): string | undefined => {
+  const email = request.header("cf-access-authenticated-user-email");
+  return email && /^[^\s@]{1,64}@[^\s@]{1,255}$/.test(email) ? email : undefined;
+};
+
+/** How the page says an application ended. Bounded: it is shown to the back office as declared. */
+const declaredSchema = z
+  .object({
+    product: z.enum(["cuenta", "prestamo"]),
+    signed: z.boolean(),
+    amount: z.number().int().min(0).max(1_000_000).optional(),
+    months: z.number().int().min(1).max(480).optional(),
+    granted: z.number().int().min(0).max(1_000_000).optional(),
+    monthlyPayment: z.number().min(0).max(1_000_000).optional(),
+  })
+  .strict();
 
 const secureHeaders = (response: Response): void => {
   response.setHeader("content-security-policy", CONTENT_SECURITY_POLICY);
@@ -161,6 +196,8 @@ const main = (): void => {
     kind === "pid" ? policy : incomePolicy;
   const kindOf = (value: unknown): Kind => (value === "ingresos" ? "ingresos" : "pid");
   const polls = new CrossDevicePolls();
+  // Only with the back office on is anything a wallet presented kept past the request.
+  const book = config.ONBOARDING_BACKOFFICE === "on" ? new CaseBook() : undefined;
   const today = () => new Date().toISOString().slice(0, 10);
 
   // Content-versioned, so a cache in front never serves yesterday's script with today's page.
@@ -313,10 +350,37 @@ const main = (): void => {
     const claims = (outcome.json["claims"] as Record<string, unknown>) ?? {};
     if (kind === "ingresos") {
       const income = toIncomeData(claims);
+      const caseId = request.query["pid"];
+      if (income && typeof caseId === "string" && UUID.test(caseId))
+        book?.income(caseId, income);
       response.json(income ? { status, income } : { status: "POLICY_NOT_SATISFIED" });
       return;
     }
-    response.json({ status, ...toOnboardingData(claims, today()) });
+    const identity = toOnboardingData(claims, today());
+    book?.identity(id, identity);
+    response.json({ status, ...identity });
+  });
+
+  // How an application ended, as the page worked it out. It lands on a case only a verified PID
+  // presentation can have opened, and is shown to the back office as declared.
+  app.post("/api/expedientes/:id", (request, response) => {
+    secureHeaders(response);
+    const declared = declaredSchema.safeParse(request.body);
+    if (!book || !UUID.test(request.params.id) || !declared.success) {
+      response.status(404).json({ error: "not_found" });
+      return;
+    }
+    response.status(book.declare(request.params.id, declared.data) ? 204 : 404).end();
+  });
+
+  // The back office. Served only when it is switched on and only to a visitor Access has
+  // identified; to anyone else this path does not exist.
+  app.get("/backoffice", (request, response, next) => {
+    const who = accessIdentity(request);
+    if (!book || !who) return next();
+    secureHeaders(response);
+    const { t } = dictionary(undefined);
+    response.send(renderBackoffice({ t, assets, who, cases: book.list(), now: new Date() }));
   });
 
   app.use((request, response) => {
@@ -333,7 +397,7 @@ const main = (): void => {
 
   app.listen(config.ONBOARDING_PORT, config.ONBOARDING_BIND_HOST, () => {
     process.stdout.write(
-      `${JSON.stringify({ level: "info", service: "demo-onboarding", message: "listening", port: config.ONBOARDING_PORT, live: Boolean(policy), fields: FIELDS.length })}\n`,
+      `${JSON.stringify({ level: "info", service: "demo-onboarding", message: "listening", port: config.ONBOARDING_PORT, live: Boolean(policy), fields: FIELDS.length, backoffice: Boolean(book) })}\n`,
     );
   });
 };

@@ -8,6 +8,30 @@ linked rather than repeated.
 
 ---
 
+## 6 October 2026 — **Banco Horizonte's back office seen working, and the loan run entirely by QR**
+
+The fix of PR #33 is deployed (image `6518b15f44cd`; `ONBOARDING_BACKOFFICE=on`, behind the Access
+application on `/backoffice`). The user then ran a loan and an account opening from a desktop, scanning
+with the modified test wallet W9, and watched the back office beside them:
+
+| UTC | What | Outcome |
+|---|---|---|
+| 06:42:43 | Loan, first presentation: the PID, `QR` | **`VERIFIED`** |
+| 06:43:08 | Loan, second presentation: the income certificate, `QR` | **`VERIFIED`** |
+| 06:43:58 | Account opening: the PID, `QR` | **`VERIFIED`** |
+
+**The income certificate has now been presented cross-device**, which the run of 5 October had not
+done: the loan's two presentations, 25 seconds apart, both by QR. ADR 0012's flow has completed for
+both credentials. `OIA_08d` is no more met than before.
+
+**The back office** — reported by the user, since it keeps no record: each card named its product from
+the start and listed its documents, the loan's income certificate included, and both applications
+reached "Firmado". It is the first time it was seen with cases from a wallet.
+
+Before the fix, on the night of 5 October, the same two applications had looked alike (see below).
+Checked from outside after each deployment: without an Access session the path redirects to the login,
+also with a forged identity header; public negative checks 56 of 56.
+
 ## 5 October 2026, late — **a back office for Banco Horizonte, built and off**
 
 `/backoffice` on the onboarding page: the applications that came in, as the bank's fictitious staff

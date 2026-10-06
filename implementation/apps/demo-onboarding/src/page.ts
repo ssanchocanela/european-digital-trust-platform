@@ -163,11 +163,17 @@ export const renderBackoffice = (o: BackofficeOptions): string => {
         : code;
   const card = (c: CaseRecord): string => {
     const d = c.declared;
-    const product = d
-      ? d.product === "prestamo"
+    const product =
+      c.product === "prestamo"
         ? t.boProductLoan
-        : t.boProductAccount
-      : t.boProductUnknown;
+        : c.product === "cuenta"
+          ? t.boProductAccount
+          : t.boProductUnknown;
+    const doc = (name: string, received: boolean): string =>
+      `<div class="kv"><span>${e(name)}</span><span class="chip ${received ? "chip-ok" : "chip-muted"}">${e(received ? t.boReceived : t.boPending)}</span></div>`;
+    const documents = `<h3>${e(t.boDocuments)}</h3>${doc(t.boDocPid, true)}${
+      c.expectsIncome || c.income ? doc(t.boDocIncome, Boolean(c.income)) : ""
+    }`;
     const state = d?.signed ? t.boStateSigned : t.boStateOpen;
     const identity = c.identity.fields
       .map(
@@ -192,6 +198,7 @@ export const renderBackoffice = (o: BackofficeOptions): string => {
     return `<article class="bo-case">
       <header><strong>${e(product)}</strong><span class="chip ${d?.signed ? "chip-ok" : "chip-muted"}">${e(state)}</span>
         <span class="bo-ref">#${e(c.reference)} · ${e(c.openedAt.toISOString().slice(11, 19))} UTC · ${e(t.boAgo.replace("{n}", String(minutes)))}</span></header>
+      ${documents}
       <h3>${e(t.boIdentity)} <span class="chip chip-ok">${e(t.boVerified)}</span></h3>
       ${identity}
       <div class="kv"><span>${e(t.boAdult)}</span><strong>${e(c.identity.adult ? t.boYes : t.boNo)}</strong></div>

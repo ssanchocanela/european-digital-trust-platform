@@ -18,6 +18,16 @@ Cloudflare Access has identified, and a `404` to anyone else. **Not deployed, an
 before the Access application exists** — the order is in
 [`infra/demo-vm/README.md`](../infra/demo-vm/README.md), *The back office*. Tried locally against a
 stand-in for the platform; not seen in a browser.
+
+**Switched on the same night, and its first two cases looked alike.** With the Access application
+seen redirecting, `ONBOARDING_BACKOFFICE=on` went onto the VM (image `6a24256de653`). The user ran an
+account opening and a loan by QR: both cards read "Solicitud en curso", PID only, although the platform
+had verified the loan's income certificate too. Two faults in one: a case could not say what it was
+for until its application ended, and the certificate reached the case only if the page passed the
+case's id on each poll. **Fixed on 6 October:** the page says which product it is when it asks for the
+PID, the server links the income presentation to its case when it is asked for, and every card lists
+its documents — the PID, and for a loan the income certificate, received or pending. Run end to end
+with the page's real script against a stand-in for the platform. **Not yet deployed.**
 ## 5 October 2026, night — **Banco Horizonte's loan run end to end: PID, then a verified income certificate**
 
 The loan of PRs #28 and #29 is deployed (image `4f32d15792c0`, engine unchanged) and was run by the

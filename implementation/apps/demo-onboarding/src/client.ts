@@ -376,8 +376,7 @@ ${LOAN_JS}${String.raw`(function () {
           timers.every(function () {
             if (busy) return;
             busy = true;
-            fetch("api/presentaciones/" + encodeURIComponent(id) +
-                (income ? "?tipo=ingresos" + (pidId ? "&pid=" + encodeURIComponent(pidId) : "") : ""), {
+            fetch("api/presentaciones/" + encodeURIComponent(id) + (income ? "?tipo=ingresos" : ""), {
               headers: token ? { "x-onboarding-token": token } : {}
             }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
               .then(function (view) { busy = settle(view) === true; })
@@ -405,7 +404,9 @@ ${LOAN_JS}${String.raw`(function () {
         add(box, el("p", "note", t("connectStarting")));
         fetch("api/presentaciones", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ modo: mode, tipo: kind })
+          body: JSON.stringify(income
+            ? { modo: mode, tipo: kind, pid: pidId || undefined }
+            : { modo: mode, tipo: kind, producto: loan ? "prestamo" : "cuenta" })
         }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
           .then(function (p) {
             clear(box);

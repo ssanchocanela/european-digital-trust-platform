@@ -306,6 +306,14 @@ const main = (): void => {
       return;
     }
     const expiresAt = started.json["expiresAt"];
+    // For the back office: what this application is for, said now so that a case in progress can
+    // be told from another, and which case a second document belongs to. Both are the page's word.
+    if (kind === "pid") {
+      const product = request.body?.producto === "prestamo" ? "prestamo" : "cuenta";
+      book?.expect(id, product, product === "prestamo" && Boolean(incomePolicy));
+    } else if (typeof request.body?.pid === "string" && UUID.test(request.body.pid)) {
+      book?.link(id, request.body.pid);
+    }
     response.status(201).json({
       id,
       walletUri,
@@ -350,9 +358,7 @@ const main = (): void => {
     const claims = (outcome.json["claims"] as Record<string, unknown>) ?? {};
     if (kind === "ingresos") {
       const income = toIncomeData(claims);
-      const caseId = request.query["pid"];
-      if (income && typeof caseId === "string" && UUID.test(caseId))
-        book?.income(caseId, income);
+      if (income) book?.income(id, income);
       response.json(income ? { status, income } : { status: "POLICY_NOT_SATISFIED" });
       return;
     }

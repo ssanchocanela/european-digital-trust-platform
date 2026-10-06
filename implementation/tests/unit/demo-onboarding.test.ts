@@ -226,7 +226,8 @@ describe("the back office's case book", () => {
     book.identity("11111111-aaaa", { fields: [], adult: false });
     expect(book.list()).toHaveLength(1);
     expect(book.list()[0]?.identity.adult).toBe(true);
-    expect(income && book.income("11111111-aaaa", income)).toBe(true);
+    book.link("99999999-cccc", "11111111-aaaa");
+    expect(income && book.income("99999999-cccc", income)).toBe(true);
     expect(
       book.declare("11111111-aaaa", { product: "prestamo", signed: true, granted: 10_000 }),
     ).toBe(true);
@@ -241,7 +242,35 @@ describe("the back office's case book", () => {
     const book = new CaseBook();
     expect(book.declare("nobody", { product: "cuenta", signed: true })).toBe(false);
     expect(income && book.income("nobody", income)).toBe(false);
+    book.link("income-1", "nobody");
+    expect(income && book.income("income-1", income)).toBe(false);
     expect(book.list()).toHaveLength(0);
+  });
+
+  it("knows from the start what an application is for, and which documents it is to bring", () => {
+    const book = new CaseBook();
+    book.expect("loan-pid", "prestamo", true);
+    book.expect("account-pid", "cuenta", false);
+    book.identity("loan-pid", identity);
+    book.identity("account-pid", identity);
+    const page = (reference: string) =>
+      renderBackoffice({
+        t,
+        assets: "assets/abc",
+        who: "operator@example.test",
+        cases: book.list().filter((c) => c.reference === reference),
+        now: new Date(),
+      });
+    expect(page("loan-pid")).toContain(t.boProductLoan);
+    expect(page("loan-pid")).toContain(t.boDocIncome);
+    expect(page("loan-pid")).toContain(t.boPending);
+    expect(page("account-")).toContain(t.boProductAccount);
+    expect(page("account-")).not.toContain(t.boDocIncome);
+
+    book.link("loan-income", "loan-pid");
+    if (income) book.income("loan-income", income);
+    expect(page("loan-pid")).not.toContain(t.boPending);
+    expect(page("loan-pid")).toContain(t.boDocIncome);
   });
 
   it("forgets a case after its time, and holds only so many", () => {

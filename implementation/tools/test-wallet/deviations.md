@@ -375,6 +375,21 @@ starts with no documents.
       --issuer https://edtp-engine.murcata.es/issuers/pid-1,https://edtp-engine.murcata.es/issuers/rpi-1,https://edtp-engine.murcata.es/issuers/fam-1,https://edtp-engine.murcata.es/issuers/nominas-1 \
       --pid-label "PID (demo)" --app-id-suffix .edtptest9 --app-name "EDTP TEST 9"
 
+## A client's look, and a build for a client's own issuers
+
+Decided 7 October 2026 (`CLAUDE.md` §6.22). Two things, neither a deviation:
+
+- **`--brand <name>`** copies a look from `brands/<name>` — logo, launcher icon, theme colours — over
+  the flavour's resources. Appearance only: the banner, the signing key and the `applicationId` are
+  untouched. `brands/fnmt` is FNMT-RCM's, at its request, from its published black-and-white logo.
+- **A build without WD-5** offers upstream's own issuers under "Add document > From list" again.
+  Which other deviations such a build needs depends on the issuers and verifiers it is to meet, and is
+  recorded here per build, as W1 to W9 are.
+
+A build that leaves our hands goes with [`DELIVERY-NOTICE.md`](DELIVERY-NOTICE.md), filled in.
+Prepared with `--prepare-only` and the resources merged and the theme compiled
+(`--deviations wd-7 --brand fnmt`); **no branded build has been built or delivered.**
+
 ---
 
 ## What a test run must record

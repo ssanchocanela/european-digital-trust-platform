@@ -347,6 +347,14 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     It must carry the EUPL 1.2 terms of the upstream wallet: the notices, a statement that it is
     modified and how, and a link to `tools/test-wallet/` as the source. The EUPL reading awaits legal
     confirmation. `docs/demo-hosting-proposal.md` §7.
+    **A second form, decided 7 October 2026: delivery to a client, at the client's request.** A build
+    may be handed to a client on its premises and placed in the client's own repository for its
+    demonstrations. That is the client's distribution, not ours: we still publish it nowhere. The
+    same conditions hold — a release build, our key, the EUPL 1.2 notices, the statement that it is
+    modified and how — and they travel with the file, as `tools/test-wallet/DELIVERY-NOTICE.md`
+    filled in for that build. It may wear the client's look (`build.sh --brand`), with the client's
+    permission and never without the modified-build banner: a branded build is still not the
+    client's application, and must not be handed over as one.
 ---
 
 ## 7. Trust environment

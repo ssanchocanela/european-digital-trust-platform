@@ -159,6 +159,23 @@ exposure.
 country): they are optional in the Rulebook, and a wallet whose PID lacks one reports that it holds
 nothing suitable. Issue the demonstration's person, and a spare, from the hosted form with all four.
 
+## Trust lists published by the portal
+
+`https://demo.murcata.es/lote/<name>.jwt` serves the files in `/var/lib/edtp-lote` on the VM, read-only
+and unchanged, when they are signed lists in compact form. It is for a demonstration whose trust lists
+are neither the reference environment's nor ours on GitHub Pages: a client's, handed over as files, for
+a wallet build that reads them from here.
+
+    sudo install -d -o edtp -g edtp -m 755 /var/lib/edtp-lote     # once, before the first deployment that mounts it
+    install -m 644 <file>.jwt /var/lib/edtp-lote/<Name>.jwt        # publishes it; replacing the file updates it
+
+**The portal vouches for nothing.** It signs no list and checks no signature: a list says who signed
+it, and a wallet decides whether to accept that. Before placing one, check what it is — who signed
+it, which certificates it carries, when it expires — and keep a note of where it came from. Publishing
+a list makes its anchors trusted by every wallet build pointed at it; `TEST` only, and only for the
+demonstration it was handed over for. A name is a file name and nothing else, so no path leads out of
+the directory.
+
 ## The age verification demos (ADR 0011)
 
 Lumen and Plaza, from the `age_verification_platform` repository, with that repository's verifier, run

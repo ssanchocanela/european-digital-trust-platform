@@ -8,6 +8,30 @@ linked rather than repeated.
 
 ---
 
+## 7 October 2026 — **a wallet build for FNMT-RCM, and a place on Murcata for trust lists**
+
+**F1, "FNMT-RCM Cartera demo"**, was built and installed by the user: the test wallet with FNMT-RCM's
+look (`build.sh --brand fnmt`), upstream's issuer list back, `wd-2,wd-4,wd-6,wd-7`
+([`deviations.md`](../tools/test-wallet/deviations.md), F1). The user reports that it looks right and
+works. `CLAUDE.md` §6.22 now allows handing a build to a client for its own demonstrations, with
+[`DELIVERY-NOTICE.md`](../tools/test-wallet/DELIVERY-NOTICE.md) travelling with it.
+
+**It refuses the PID of FNMT-RCM's test provider, as it should:** WD-4 points it at the EDTP TEST PID
+list, which does not carry that provider's certificate.
+
+**The trust lists for those demonstrations**, seen on 7 October as files from the user: six ETSI
+TS 119 602 lists (PID, WRPAC, WRPRC, public EAA, wallet providers, registrars), issued 5 October 2026,
+valid to 3 April 2027, each signed by "EUDI Local Test LoTE JAdES Signing" under an "FNMT-RCM Test Root
+CA" and carrying that root and one FNMT-RCM test certificate. The signature of the PID list verifies.
+They are **already published** at the address they declare, byte for byte the same as the files. They
+carry no reference anchor: a wallet list pointed at one of them stops trusting the reference
+environment's and ours for that domain.
+
+**The portal can publish lists too**: `https://demo.murcata.es/lote/<name>.jwt`, from a read-only
+directory on the VM, unchanged and unverified (security limitation P13). **Not deployed, and no list
+placed.** Open: which address each of the wallet's four lists is to read, and for anything but the PID
+and access-certificate lists, new build options.
+
 ## 5 October 2026, late — **a back office for Banco Horizonte, built and off**
 
 `/backoffice` on the onboarding page: the applications that came in, as the bank's fictitious staff

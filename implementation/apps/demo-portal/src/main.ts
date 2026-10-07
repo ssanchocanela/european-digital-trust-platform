@@ -14,6 +14,7 @@ import {
   renderOperator,
 } from "./page.js";
 import { decideProfileRequest } from "./profile-request.js";
+import { readTrustList } from "./trust-lists.js";
 
 /**
  * The demonstration portal (ADR 0010, `docs/demo-hosting-proposal.md` §3), at `demo.murcata.es`.
@@ -69,6 +70,11 @@ const schema = z.object({
    * writes `request.json` there; a systemd path unit on the VM applies it. Unset: no button.
    */
   PORTAL_PROFILE_DIR: z.string().min(1).optional(),
+  /**
+   * A directory of trust lists to publish at `/lote/<name>.jwt`, mounted read-only on the VM
+   * (`trust-lists.ts`). Unset: the path does not exist.
+   */
+  PORTAL_LOTE_DIR: z.string().min(1).optional(),
   PORTAL_PROFILES: z
     .string()
     .default("generic,fnmt-corpme,gobcan")
@@ -419,6 +425,17 @@ const main = (): void => {
       }),
     );
   };
+
+  // Trust lists, as files an operator placed in the directory. Public, like any trust list.
+  app.get("/lote/:name", async (request, response, next) => {
+    const list = await readTrustList(config.PORTAL_LOTE_DIR, request.params.name);
+    if (list === undefined) return next();
+    response.setHeader("x-content-type-options", "nosniff");
+    // Revalidated on every fetch: a replaced list must not be outlived by a cached copy.
+    response.setHeader("cache-control", "no-cache");
+    // The media type the reference environment serves its lists with.
+    response.type("application/octet-stream").send(list);
+  });
 
   app.get("/operador", async (request, response) => {
     secureHeaders(response);

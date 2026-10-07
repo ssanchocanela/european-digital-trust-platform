@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderAgeHome, renderAgeResult } from "../../apps/demo-bank/src/page.js";
 import { ageVerificationCards } from "../../apps/demo-portal/src/age-verification.js";
@@ -6,6 +9,7 @@ import {
   renderHome,
   renderOperator,
 } from "../../apps/demo-portal/src/page.js";
+import { readTrustList } from "../../apps/demo-portal/src/trust-lists.js";
 
 /**
  * The demonstration portal and Tienda Demo (ADR 0010). Public pages name no real organisation, carry
@@ -111,5 +115,29 @@ describe("the age verification demos' cards (ADR 0011)", () => {
 
   it("never promise a date of birth to the site", () => {
     expect(home).toMatch(/sin nombre ni fecha de nacimiento|no pide la fecha de nacimiento/);
+  });
+});
+
+describe("trust lists the portal publishes", () => {
+  const jws = (header: object) =>
+    `${Buffer.from(JSON.stringify(header)).toString("base64url")}.${Buffer.from("{}").toString("base64url")}.c2ln`;
+
+  it("serves a signed list by name, and nothing that is not one", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "edtp-lote-"));
+    writeFileSync(join(dir, "PIDProviders.jwt"), `${jws({ alg: "ES256" })}\n`);
+    writeFileSync(join(dir, "notes.jwt"), "not a list");
+    writeFileSync(join(dir, "unsigned.jwt"), jws({ typ: "x" }));
+    expect(await readTrustList(dir, "PIDProviders.jwt")).toBe(jws({ alg: "ES256" }));
+    expect(await readTrustList(dir, "notes.jwt")).toBeUndefined();
+    expect(await readTrustList(dir, "unsigned.jwt")).toBeUndefined();
+    expect(await readTrustList(dir, "missing.jwt")).toBeUndefined();
+  });
+
+  it("takes a file name only: no path out of the directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "edtp-lote-"));
+    writeFileSync(join(dir, "ok.jwt"), jws({ alg: "ES256" }));
+    for (const name of ["../ok.jwt", "sub/ok.jwt", "ok.jwt/..", ".jwt", "ok.txt", "ok.jwt.bak"])
+      expect(await readTrustList(dir, name)).toBeUndefined();
+    expect(await readTrustList(undefined, "ok.jwt")).toBeUndefined();
   });
 });

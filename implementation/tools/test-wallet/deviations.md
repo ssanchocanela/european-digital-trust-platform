@@ -388,7 +388,10 @@ Decided 7 October 2026 (`CLAUDE.md` §6.22). Two things, neither a deviation:
 
 ### F1 — "FNMT-RCM Cartera demo", the first build for FNMT-RCM
 
-Prepared 7 October 2026 (`--prepare-only`); **not built**: the operator holds the key password.
+**Built by the operator on 7 October 2026**: `eu.europa.ec.euidi.fnmtdemo1`, "FNMT-RCM Cartera demo", APK
+SHA-256 `433bf8fc9a4df6115cda766b9c07e29aad27d5a576fa4b8295bd8b166d9ebe5f`. Checked in the package: the identity, our signature, the deviations, upstream's two
+issuers, the TEST PID list, and the brand's launcher icon. **Not yet installed or seen on a device, and
+not delivered.**
 Release, our `OU=TEST ONLY` key, `.fnmtdemo1`, deviations **`wd-2,wd-4,wd-6,wd-7`**, look `fnmt`.
 
 | Choice | Why |

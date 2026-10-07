@@ -7,7 +7,7 @@ tag, what it is for, and whether it is compiled in.
 nothing; a deviation that is on is named in `BuildConfig.EDTP_DEVIATIONS`, printed by the banner on
 every screen, and must appear in the record of any test run it touched.
 
-`build.sh --deviations` accepts `none` and `wd-2` to `wd-7`, and **refuses anything else**, and
+`build.sh --deviations` accepts `none` and `wd-2` to `wd-9`, and **refuses anything else**, and
 any of them without what it needs, rather than accepting a flag that does nothing. An accepted-but-inert flag is how a test record comes to say
 "WD-1 active" about a build where it was not.
 
@@ -21,6 +21,8 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-5** | The wallet's issuer list (*From list*) offers our issuers only (one or two); optional relabel of the merged PID row | — | Configuration (which issuers the app offers) | **Built** (W6), 24 September 2026; two issuers the same day |
 | **WD-6** | Credential response encryption `REQUIRED` → `SUPPORTED`: an issuer that offers no encryption is accepted | — | **Security relaxation** | **Prepared** (W8), 2 October 2026 |
 | **WD-7** | A release build logs warnings and errors only: no HTTP bodies in logcat or in the log files | — | **Hardening** (no protocol behaviour changes) | **Prepared** (W8), 2 October 2026 |
+| **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
+| **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 
 ---
 
@@ -405,6 +407,45 @@ Release, our `OU=TEST ONLY` key, `.fnmtdemo1`, deviations **`wd-2,wd-4,wd-6,wd-7
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-2,wd-4,wd-6,wd-7 \
       --pid-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
+### WD-8 and WD-9 — the other two trust lists
+
+The wallet reads four trust lists, each from a single address: PID providers (WD-4), access-certificate
+providers (WD-3), registration-certificate providers and public-body EAA providers. `--wrprc-lote`
+(WD-8) and `--pubeaa-lote` (WD-9) set the last two, by replacing the exact upstream line, refused
+without an `https` address. As with WD-3 and WD-4, a single address **replaces** the notified list:
+the build trusts the anchors of the list it is pointed at and no others for that domain.
+
+### F2 — the FNMT-RCM build, reading FNMT-RCM's own test trust lists
+
+**Built by the operator on 7 October 2026**, APK SHA-256
+`bcacaa587a07993ebd2ca54103f079bc2139dbc851b5881e46829e6aa64ffed7`. Checked in the package: the identity, our signature, the deviations, the four list addresses and
+the brand's launcher icon. **Not yet installed.** It replaces
+F1 in place: the same `applicationId`, name, key and look. Deviations
+**`wd-2,wd-3,wd-4,wd-6,wd-7,wd-8,wd-9`**.
+
+F1 refused the PID of FNMT-RCM's test provider, as it should: its PID list was ours. F2 reads all four
+lists from where FNMT-RCM's test lists are published,
+`https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/<Name>.jwt` — the address each list
+declares as its own distribution point. Seen on 7 October: issued 5 October 2026, valid to 3 April
+2027, each signed by "EUDI Local Test LoTE JAdES Signing" under an "FNMT-RCM Test Root CA", each
+carrying that root and one FNMT-RCM test certificate; the PID list's signature verifies.
+
+**What follows from that, and was chosen by the user:** F2 trusts FNMT-RCM's test ecosystem **and
+nothing else**. A PID from the reference issuers that "Add document > From list" still offers will be
+refused, and so will a request from a verifier whose access certificate is ours or the reference
+environment's. Those lists are not notified lists, and their content is FNMT-RCM's to change.
+
+**Not known until it is tried:** whether the wallet loads these lists as they are. Their header differs
+from the reference lists' (`typ` `application/jose`, an `iat`, a two-certificate `x5c`).
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-2,wd-3,wd-4,wd-6,wd-7,wd-8,wd-9 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
       --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
 
 A build that leaves our hands goes with [`DELIVERY-NOTICE.md`](DELIVERY-NOTICE.md), filled in.

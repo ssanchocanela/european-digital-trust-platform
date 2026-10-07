@@ -28,6 +28,10 @@
 #                           third and a fourth are copies of the second slot's settings, each
 #                           pointed at its own URL.
 #   --pid-label <text>      optional with wd-5. Replaces upstream's "PID Combined" row label.
+#   --brand <name>          a look from ./brands/<name>: logo, launcher icon and theme colours. It
+#                           changes appearance only — the modified-build banner, the signing key and
+#                           the applicationId are untouched, so a branded build still says what it is.
+#                           A real organisation's look needs its permission (brands/<name>/README.md).
 #
 # `wd-6` accepts an issuer that does not offer credential response encryption (Wallet Core's
 # default is REQUIRED); the response is still encrypted whenever the issuer offers it. A relaxation.
@@ -75,6 +79,7 @@ PID_LOTE=""
 ISSUER_URL=""
 PID_LABEL=""
 APP_ID_SUFFIX=""
+BRAND=""
 APP_NAME=""
 BUILD_TYPE="release"
 
@@ -85,6 +90,7 @@ while [ $# -gt 0 ]; do
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
     --issuer) ISSUER_URL="${2:-}"; shift 2 ;;
+    --brand) BRAND="${2:-}"; shift 2 ;;
     --pid-label) PID_LABEL="${2:-}"; shift 2 ;;
     --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
@@ -547,6 +553,36 @@ step "Stamping the build"
 # The identity overrides travel through version.properties, which the build already reads for the
 # version and the deviation list — so a build can be given a distinct applicationId without a new
 # flavour, new source sets or a patch edit per build.
+if [ -n "$BRAND" ]; then
+  step "Applying the '$BRAND' look (appearance only)"
+  BRAND_DIR="$HERE/brands/$BRAND"
+  case "$BRAND" in *[!a-z0-9-]*) die "--brand takes a name: lowercase letters, digits and dashes." ;; esac
+  [ -d "$BRAND_DIR/res" ] && [ -f "$BRAND_DIR/colors.txt" ] ||
+    die "no brand at brands/$BRAND: it needs res/ and colors.txt."
+  # Resources: over the flavour's own, by name. A flavour resource overrides the main one of the
+  # same name, which is how the logo drawables — vectors upstream — are replaced by images.
+  cp -R "$BRAND_DIR/res/." "resources-logic/src/$EDTP_FLAVOR/res/"
+  # Colours: each named constant of the theme, exactly once, or the brand must be regenerated.
+  BRAND_COLORS="resources-logic/src/main/java/eu/europa/ec/resourceslogic/theme/values/ThemeColors.kt"
+  while read -r name value; do
+    case "$name" in ''|'#'*) continue ;; esac
+    case "$value" in 0x[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) ;;
+      *) die "brands/$BRAND/colors.txt: '$name' needs a colour as 0xAARRGGBB." ;; esac
+    [ "$(grep -cE "const val $name: Long =" "$BRAND_COLORS")" = "1" ] ||
+      die "the theme has no single constant '$name'; brands/$BRAND/colors.txt must be regenerated."
+    # The value may sit on the declaration's line or on the next one.
+    awk -v name="$name" -v value="$value" '
+      pending { sub(/[A-Za-z0-9_]+$/, value); pending = 0; print; next }
+      $0 ~ "const val " name ": Long =" {
+        if ($0 ~ /= *$/) { pending = 1; print; next }
+        sub(/= .*$/, "= " value); print; next
+      }
+      { print }
+    ' "$BRAND_COLORS" > "$BRAND_COLORS.new" && mv "$BRAND_COLORS.new" "$BRAND_COLORS"
+    grep -qE "const val $name: Long =( $value)?$" "$BRAND_COLORS" || die "colour '$name' did not take."
+  done < "$BRAND_DIR/colors.txt"
+  echo "    logo, launcher icon and theme colours from brands/$BRAND. The banner is unchanged."
+fi
 EFFECTIVE_APP_ID_SUFFIX="${APP_ID_SUFFIX:-$EDTP_APPLICATION_ID_SUFFIX}"
 EFFECTIVE_APP_NAME="${APP_NAME:-$EDTP_APP_NAME}"
 cat > version.properties <<EOF
@@ -559,6 +595,7 @@ EDTP_WRPAC_LOTE=$WRPAC_LOTE
 EDTP_PID_LOTE=$PID_LOTE
 EDTP_ISSUER_URL=$ISSUER_URL
 EDTP_PID_LABEL=$PID_LABEL
+EDTP_BRAND=$BRAND
 EOF
 [ -f local.properties ] || echo "sdk.dir=$SDK" > local.properties
 cat version.properties | sed 's/^/    /'

@@ -25,7 +25,10 @@ const EMBLEM = { left: 0, top: 0, width: 323, height: 392 };
 
 /** The ink of a black-on-white image as an alpha mask, painted in one colour. */
 const ink = async (input, colour) => {
-  const { data, info } = await sharp(input).greyscale().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(input)
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const rgba = Buffer.alloc(info.width * info.height * 4);
   for (let i = 0; i < info.width * info.height; i++) {
     rgba[i * 4] = colour;
@@ -33,7 +36,9 @@ const ink = async (input, colour) => {
     rgba[i * 4 + 2] = colour;
     rgba[i * 4 + 3] = 255 - data[i * info.channels];
   }
-  return sharp(rgba, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+  return sharp(rgba, { raw: { width: info.width, height: info.height, channels: 4 } })
+    .png()
+    .toBuffer();
 };
 
 const out = (...parts) => {
@@ -53,24 +58,42 @@ const centred = async (mark, size, inner, background) => {
 };
 
 const emblemSource = await sharp(source).extract(EMBLEM).toBuffer();
-for (const [qualifier, colour] of [["", 0], ["-night", 255]]) {
+for (const [qualifier, colour] of [
+  ["", 0],
+  ["-night", 255],
+]) {
   const logo = await ink(source, colour);
   const emblem = await ink(emblemSource, colour);
   // In-app: the splash mark (160 dp) and the header's logo (161 dp wide), at xxhdpi.
-  await (await centred(emblem, 480, 400, transparent)).png().toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon.png"));
-  await sharp(logo).resize({ width: 483 }).png().toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon_and_text.png"));
+  await (await centred(emblem, 480, 400, transparent))
+    .png()
+    .toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon.png"));
+  await sharp(logo)
+    .resize({ width: 483 })
+    .png()
+    .toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon_and_text.png"));
 }
 
 // The launcher icon: the black emblem on white. The adaptive foreground keeps to the 66 dp safe zone.
 const emblem = await ink(emblemSource, 0);
-for (const [density, scale] of [["mdpi", 1], ["hdpi", 1.5], ["xhdpi", 2], ["xxhdpi", 3], ["xxxhdpi", 4]]) {
+for (const [density, scale] of [
+  ["mdpi", 1],
+  ["hdpi", 1.5],
+  ["xhdpi", 2],
+  ["xxhdpi", 3],
+  ["xxxhdpi", 4],
+]) {
   const foreground = Math.round(108 * scale);
   const legacy = Math.round(48 * scale);
   await (await centred(emblem, foreground, Math.round(54 * scale), transparent))
     .webp({ lossless: true })
     .toFile(out(`mipmap-${density}`, "ic_launcher_foreground.webp"));
-  const square = await (await centred(emblem, legacy, Math.round(32 * scale), white)).png().toBuffer();
-  await sharp(square).webp({ lossless: true }).toFile(out(`mipmap-${density}`, "ic_launcher.webp"));
+  const square = await (await centred(emblem, legacy, Math.round(32 * scale), white))
+    .png()
+    .toBuffer();
+  await sharp(square)
+    .webp({ lossless: true })
+    .toFile(out(`mipmap-${density}`, "ic_launcher.webp"));
   const circle = Buffer.from(
     `<svg width="${legacy}" height="${legacy}"><circle cx="${legacy / 2}" cy="${legacy / 2}" r="${legacy / 2}"/></svg>`,
   );

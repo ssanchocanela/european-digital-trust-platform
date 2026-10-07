@@ -123,9 +123,11 @@ use `edtp-test-bank-onboarding` and policy **`8e7c4b3a…` v1**. In `.env`: the 
   (`trust_anchor_sources_missing`). `register-age-check.mjs` copies `latest.trustPolicy`, which the
   API's view of a policy version does not carry — the fault `register-large-family.mjs` already
   works around. **Open.**
-- The reference trust lists at `trustedlist.serviceproviders.eudiw.dev` were re-issued on 29 September
-  with one entity each, where there were seven. The TEST lists still carry the seven. **Not yet
-  assessed.**
+- The reference trust lists at `trustedlist.serviceproviders.eudiw.dev` were re-issued on 29 September.
+  **Assessed on 7 October, and nothing changed for us:** each list is one trusted entity carrying the
+  same seven anchors as before, byte for byte, and the EDTP TEST lists carry all seven. The note that
+  stood here until then — "one entity each, where there were seven" — compared entities with
+  certificates and was wrong.
 
 **Since, the same day — a loan, built and not deployed.** "Préstamo Horizonte", a second product on the
 same page and under the same policy, wallet only and with no comparison: amount and term, identify

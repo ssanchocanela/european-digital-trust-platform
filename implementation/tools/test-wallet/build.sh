@@ -23,6 +23,8 @@
 #
 #   --wrpac-lote <url>      required by wd-3. Where the wallet fetches WRPAC trust anchors.
 #   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
+#   --wrprc-lote <url>      required by wd-8. Where it fetches registration-certificate provider anchors.
+#   --pubeaa-lote <url>     required by wd-9. Where it fetches public-body EAA provider anchors.
 #   --issuer <url>[,<url>…]  required by wd-5, up to four. The ONLY issuers "Add document > From
 #                           list" offers, in list order: one or two reuse upstream's two slots; a
 #                           third and a fourth are copies of the second slot's settings, each
@@ -76,6 +78,8 @@ DIAGNOSTICS=no
 SKIP_BUILD="no"
 WRPAC_LOTE=""
 PID_LOTE=""
+WRPRC_LOTE=""
+PUBEAA_LOTE=""
 ISSUER_URL=""
 PID_LABEL=""
 APP_ID_SUFFIX=""
@@ -89,6 +93,8 @@ while [ $# -gt 0 ]; do
     --diagnostics) DIAGNOSTICS=yes; shift 1 ;;
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
+    --wrprc-lote) WRPRC_LOTE="${2:-}"; shift 2 ;;
+    --pubeaa-lote) PUBEAA_LOTE="${2:-}"; shift 2 ;;
     --issuer) ISSUER_URL="${2:-}"; shift 2 ;;
     --brand) BRAND="${2:-}"; shift 2 ;;
     --pid-label) PID_LABEL="${2:-}"; shift 2 ;;
@@ -118,6 +124,8 @@ WANT_WD3=no
 WANT_WD4=no
 WANT_WD5=no
 WANT_WD6=no
+WANT_WD8=no
+WANT_WD9=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -152,6 +160,27 @@ if [ "$DEVIATIONS" != "none" ]; then
         esac
         [ -f "$HERE/deviations/wd-4.kt" ] || die "deviations/wd-4.kt is missing."
         WANT_WD4=yes
+        ;;
+      wd-8)
+        # Refused without the URL, for the same reason as wd-3.
+        [ -n "$WRPRC_LOTE" ] ||
+          die "--deviations wd-8 requires --wrprc-lote <url>: the registration-certificate provider
+    list this build is to consult. See deviations.md."
+        case "$WRPRC_LOTE" in
+          https://*) ;;
+          *) die "--wrprc-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        esac
+        WANT_WD8=yes
+        ;;
+      wd-9)
+        [ -n "$PUBEAA_LOTE" ] ||
+          die "--deviations wd-9 requires --pubeaa-lote <url>: the public-body EAA provider list this
+    build is to consult. See deviations.md."
+        case "$PUBEAA_LOTE" in
+          https://*) ;;
+          *) die "--pubeaa-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        esac
+        WANT_WD9=yes
         ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
@@ -188,7 +217,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-7 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-9 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -386,6 +415,38 @@ if [ "$WANT_WD4" = "yes" ]; then
     die "substituting the WD-4 list URL did not take effect."
   echo "    pidProviders -> $PID_LOTE"
   echo "    this build trusts PIDs signed under our development CA. Every result says 'modified wallet'."
+fi
+
+# WD-8 and WD-9: the other two of the wallet's four trust lists, each a single Uri, replaced on its
+# exact upstream line. After WD-3, whose patch carries both lines as context. The comment written
+# above each says only what is true of any address: whose list it is, is in deviations.md per build.
+replace_lote() { # <deviation> <field> <upstream list name> <url>
+  local file="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  local line="$2 = Uri(\"https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/$3.jwt\"),"
+  [ "$(grep -cF "$line" "$file")" = "1" ] ||
+    die "the upstream $2 line is not in $file exactly once; $1 must be regenerated."
+  awk -v line="$line" -v dev="$1" -v field="$2" -v url="$4" '
+    index($0, line) {
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print pad "// EDTP deviation " dev ". `" field "` is a single Uri, so this REPLACES the"
+      print pad "// notified list: only the anchors of the list at this address are trusted. The"
+      print pad "// URL is substituted by build.sh. This build is a MODIFIED wallet."
+      print pad field " = Uri(\"" url "\"),"
+      next
+    }
+    { print }
+  ' "$file" > "$file.new" && mv "$file.new" "$file"
+  grep -qF "$line" "$file" && die "$1 left the notified $2 list in place."
+  grep -qF "$2 = Uri(\"$4\")," "$file" || die "substituting the $1 list URL did not take effect."
+  echo "    $2 -> $4"
+}
+if [ "$WANT_WD8" = "yes" ]; then
+  step "Applying WD-8 (wrprcProviders -> another list)"
+  replace_lote WD-8 wrprcProviders WRPRCProviders "$WRPRC_LOTE"
+fi
+if [ "$WANT_WD9" = "yes" ]; then
+  step "Applying WD-9 (pubEaaProviders -> another list)"
+  replace_lote WD-9 pubEaaProviders PubEAAProviders "$PUBEAA_LOTE"
 fi
 
 if [ "$WANT_WD5" = "yes" ]; then
@@ -593,6 +654,8 @@ EDTP_APP_ID_SUFFIX=$EFFECTIVE_APP_ID_SUFFIX
 EDTP_APP_NAME=$EFFECTIVE_APP_NAME
 EDTP_WRPAC_LOTE=$WRPAC_LOTE
 EDTP_PID_LOTE=$PID_LOTE
+EDTP_WRPRC_LOTE=$WRPRC_LOTE
+EDTP_PUBEAA_LOTE=$PUBEAA_LOTE
 EDTP_ISSUER_URL=$ISSUER_URL
 EDTP_PID_LABEL=$PID_LABEL
 EDTP_BRAND=$BRAND

@@ -386,9 +386,26 @@ Decided 7 October 2026 (`CLAUDE.md` §6.22). Two things, neither a deviation:
   Which other deviations such a build needs depends on the issuers and verifiers it is to meet, and is
   recorded here per build, as W1 to W9 are.
 
+### F1 — "FNMT-RCM Cartera demo", the first build for FNMT-RCM
+
+Prepared 7 October 2026 (`--prepare-only`); **not built**: the operator holds the key password.
+Release, our `OU=TEST ONLY` key, `.fnmtdemo1`, deviations **`wd-2,wd-4,wd-6,wd-7`**, look `fnmt`.
+
+| Choice | Why |
+|---|---|
+| No WD-5 | "Add document > From list" offers upstream's two issuers. FNMT-RCM's own issuers, still being set up, are reached by QR code or deep link; they join the list when their addresses are final |
+| WD-2, WD-6 | **Security relaxations, taken before knowing they are needed:** an issuer under construction may publish unsigned metadata and offer no response encryption, and without these the wallet refuses it outright. To be dropped if FNMT-RCM's issuers turn out to need neither |
+| WD-4, our TEST PID list | So the certificate that signs FNMT-RCM's PID can be trusted **without a rebuild**: it is added to the list and the list republished. The list carries the seven reference anchors too, so a reference PID is trusted as before |
+| No WD-3 | This build is not to present to our platform; presentation is another track. Access certificates are trusted from the reference list, as upstream |
+| WD-7 | A release build that leaves our hands must not log HTTP bodies |
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-2,wd-4,wd-6,wd-7 \
+      --pid-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
 A build that leaves our hands goes with [`DELIVERY-NOTICE.md`](DELIVERY-NOTICE.md), filled in.
-Prepared with `--prepare-only` and the resources merged and the theme compiled
-(`--deviations wd-7 --brand fnmt`); **no branded build has been built or delivered.**
+The branded resources merge and the theme compiles; **no branded build has been built or delivered.**
 
 ---
 

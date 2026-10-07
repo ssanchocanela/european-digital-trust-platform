@@ -21,8 +21,8 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-5** | The wallet's issuer list (*From list*) offers our issuers only (one or two); optional relabel of the merged PID row | — | Configuration (which issuers the app offers) | **Built** (W6), 24 September 2026; two issuers the same day |
 | **WD-6** | Credential response encryption `REQUIRED` → `SUPPORTED`: an issuer that offers no encryption is accepted | — | **Security relaxation** | **Prepared** (W8), 2 October 2026 |
 | **WD-7** | A release build logs warnings and errors only: no HTTP bodies in logcat or in the log files | — | **Hardening** (no protocol behaviour changes) | **Prepared** (W8), 2 October 2026 |
-| **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Prepared** (F2), 7 October 2026 |
-| **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Prepared** (F2), 7 October 2026 |
+| **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
+| **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 
 ---
 
@@ -419,7 +419,9 @@ the build trusts the anchors of the list it is pointed at and no others for that
 
 ### F2 — the FNMT-RCM build, reading FNMT-RCM's own test trust lists
 
-Prepared 7 October 2026 (`--prepare-only`, and the configuration compiles); **not built**. It replaces
+**Built by the operator on 7 October 2026**, APK SHA-256
+`bcacaa587a07993ebd2ca54103f079bc2139dbc851b5881e46829e6aa64ffed7`. Checked in the package: the identity, our signature, the deviations, the four list addresses and
+the brand's launcher icon. **Not yet installed.** It replaces
 F1 in place: the same `applicationId`, name, key and look. Deviations
 **`wd-2,wd-3,wd-4,wd-6,wd-7,wd-8,wd-9`**.
 

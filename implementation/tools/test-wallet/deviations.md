@@ -448,6 +448,44 @@ from the reference lists' (`typ` `application/jose`, an `iat`, a two-certificate
       --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
       --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
 
+### F3 — the FNMT-RCM build without WD-2, for the registration check
+
+Prepared 8 October 2026 (`--prepare-only`, `requireSignedMetadata()` back in the configuration);
+**not built**. It replaces F2 in place: the same `applicationId`, name, key, look and four list
+addresses. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9`** — F2's without the one security relaxation
+that concerned issuer authentication.
+
+**Why.** FNMT-RCM wants issuance to work with the wallet's *Check Registration Certificates* preference
+**on**. Under WD-2 it cannot: the wallet evaluates an issuer's registration only when it requires
+signed metadata (`docs/issuer-trust-model.md`), so with WD-2 the outcome is never established, and an
+outcome never established refuses. Seen on 7 October with F2's diagnostic variant: both offers resolved
+and both were shown as "Issuance blocked".
+
+**What the issuer must change before F3 can issue anything**, read from what it publishes on
+8 October — until then F3 refuses it outright, preference on or off, because it will not take unsigned
+metadata:
+
+| | Seen | Needed |
+|---|---|---|
+| Signed metadata | Served as `application/jwt` when that alone is asked for; signature verifies, and its three-certificate chain reaches an anchor of the issuer's own WRPAC list | — |
+| Content negotiation | Asked for `application/jwt, application/json`, which is what the wallet sends, it answers the unsigned JSON | The JWT whenever the client accepts it |
+| Registration certificate | No `issuer_info` in the signed payload | `issuer_info: [{format: "registration_cert", data: <jwt>}]` at its top level, from a provider on the WRPRC list, covering every attestation the issuer offers |
+
+**Not known until it is tried:** whether the registration certificate's content is what the wallet
+library expects, and whether the issuer's access certificate passes the wallet's profile validation,
+which is stricter than the path check made here. No issuer has passed this gate in our tests.
+
+**A diagnostic variant**, for our own phone only, never delivered: the same without WD-7, as
+`.fnmtdiag`, "FNMT diag". Without WD-7 a release build logs HTTP bodies, credentials included.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
 A build that leaves our hands goes with [`DELIVERY-NOTICE.md`](DELIVERY-NOTICE.md), filled in.
 The branded resources merge and the theme compiles; **no branded build has been built or delivered.**
 

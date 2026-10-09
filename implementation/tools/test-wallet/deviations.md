@@ -600,8 +600,11 @@ Wallet sends the same ambiguous request. Upstream draft, not filed:
 
 ### F5 — F4 with WD-11
 
-Prepared 9 October 2026 (`--prepare-only`, twice in a row, and the patched modules compile); **not
-built**. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11`**, the same identity, look and list
+**Built by the operator on 9 October 2026**, APK SHA-256
+`c85bcda7e5e01335789f6b7a0302c1ba68f0c1696962fbd76741a9c664a909fe`. Checked in the package: the
+identity (`eu.europa.ec.euidi.fnmtdemo1`, "FNMT-RCM Cartera demo"), our signature, the deviations, the
+four list addresses, upstream's two issuers, and the WD-10 serializer in the code. **Not yet installed
+or delivered**; a delivery notice was filled in for it. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11`**, the same identity, look and list
 addresses; its diagnostic variant is the same without WD-7, as `.fnmtdiag`.
 
 With it the wallet should, for the first time against FNMT-RCM's issuer, receive the signed metadata

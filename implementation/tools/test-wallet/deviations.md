@@ -523,7 +523,12 @@ did. The fix that counts is upstream: drafted, not filed, at
 
 ### F4 — the FNMT-RCM build that can read FNMT-RCM's lists
 
-Prepared 9 October 2026 (`--prepare-only`); **not built**. F3 with WD-10:
+**Built by the operator on 9 October 2026**: `eu.europa.ec.euidi.fnmtdemo1`, "FNMT-RCM Cartera demo", APK
+SHA-256 `a2a261eb448e002e070c15222342a3b1f14162fc3332b5db2bda6c9beb1fd572`; its diagnostic variant,
+`eu.europa.ec.euidi.fnmtdiag`, `0070644313b54316696356eb39e8578b38bdbf589e8987db57093943d538e70a`.
+Checked in both packages: the identity, our signature, the deviations, the four list addresses,
+upstream's two issuers, and the patched reader's presence. **Not yet installed, and not delivered.**
+F3 with WD-10:
 **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10`**, the same identity, look and list addresses. Its diagnostic
 variant, for our own phone only, is the same without WD-7, as `.fnmtdiag`.
 

@@ -1,0 +1,94 @@
+diff --git a/network-logic/src/main/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAccept.kt b/network-logic/src/main/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAccept.kt
+new file mode 100644
+index 0000000..0a3a96c
+--- /dev/null
++++ b/network-logic/src/main/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAccept.kt
+@@ -0,0 +1,44 @@
++/*
++ * EDTP deviation WD-11. Not upstream.
++ */
++
++package eu.europa.ec.networklogic.di
++
++import io.ktor.client.plugins.api.Send
++import io.ktor.client.plugins.api.createClientPlugin
++import io.ktor.http.HttpHeaders
++import io.ktor.http.encodedPath
++
++private const val ISSUER_METADATA_PATH = "/.well-known/openid-credential-issuer"
++private const val SIGNED_METADATA = "application/jwt"
++
++/**
++ * The `Accept` header a Credential Issuer Metadata request should carry, when it has to be changed.
++ *
++ * This build requires signed metadata, and the issuance library then asks for `application/jwt`
++ * alone. But the HTTP client the app hands it installs `ContentNegotiation` for JSON, which appends
++ * `application/json` to every request — so on the wire the wallet says it takes either, with no
++ * preference. OpenID4VCI 1.0 section 12.2.2 obliges an issuer to support the unsigned form and only
++ * recommends matching the `Accept` header, so an issuer may answer JSON; the wallet then refuses
++ * the answer it said it accepted.
++ *
++ * Returns `application/jwt` for a metadata request that asked for it, and `null` for anything else,
++ * which is left as it is.
++ */
++internal fun signedMetadataAccept(encodedPath: String, accept: List<String>): String? {
++    if (!encodedPath.contains(ISSUER_METADATA_PATH)) return null
++    val asked = accept.flatMap { it.split(",") }.map { it.substringBefore(";").trim().lowercase() }
++    return if (SIGNED_METADATA in asked && asked.any { it != SIGNED_METADATA }) SIGNED_METADATA else null
++}
++
++/** Applies [signedMetadataAccept] as the request leaves, after every other plugin has had its say. */
++val EdtpSignedMetadataAccept = createClientPlugin("EdtpSignedMetadataAccept") {
++    on(Send) { request ->
++        val accept = request.headers.getAll(HttpHeaders.Accept).orEmpty()
++        signedMetadataAccept(request.url.encodedPath, accept)?.let { only ->
++            request.headers.remove(HttpHeaders.Accept)
++            request.headers.append(HttpHeaders.Accept, only)
++        }
++        proceed(request)
++    }
++}
+diff --git a/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAcceptTest.kt b/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAcceptTest.kt
+new file mode 100644
+index 0000000..5b2c93d
+--- /dev/null
++++ b/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAcceptTest.kt
+@@ -0,0 +1,38 @@
++/*
++ * EDTP deviation WD-11. Not upstream.
++ */
++
++package eu.europa.ec.networklogic.di
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class EdtpSignedMetadataAcceptTest {
++
++    private val metadata = "/.well-known/openid-credential-issuer/issuer"
++
++    @Test
++    fun `a metadata request for signed metadata asks for nothing else`() {
++        assertEquals("application/jwt", signedMetadataAccept(metadata, listOf("application/jwt", "application/json")))
++        assertEquals("application/jwt", signedMetadataAccept(metadata, listOf("application/jwt, application/json")))
++        assertEquals("application/jwt", signedMetadataAccept(metadata, listOf("application/jwt;q=1", "*/*")))
++    }
++
++    @Test
++    fun `a metadata request that already asks for it alone is left as it is`() {
++        assertNull(signedMetadataAccept(metadata, listOf("application/jwt")))
++    }
++
++    @Test
++    fun `a metadata request that does not ask for signed metadata is left as it is`() {
++        assertNull(signedMetadataAccept(metadata, listOf("application/json")))
++        assertNull(signedMetadataAccept(metadata, emptyList()))
++    }
++
++    @Test
++    fun `no other request is touched`() {
++        assertNull(signedMetadataAccept("/issuer/credential-offer", listOf("application/jwt", "application/json")))
++        assertNull(signedMetadataAccept("/.well-known/oauth-authorization-server/pre-auth", listOf("application/jwt", "application/json")))
++    }
++}

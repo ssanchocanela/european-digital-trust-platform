@@ -23,6 +23,8 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-7** | A release build logs warnings and errors only: no HTTP bodies in logcat or in the log files | — | **Hardening** (no protocol behaviour changes) | **Prepared** (W8), 2 October 2026 |
 | **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 | **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
+| **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
+| **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
 
 ---
 
@@ -442,6 +444,176 @@ from the reference lists' (`typ` `application/jose`, an `iat`, a two-certificate
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-2,wd-3,wd-4,wd-6,wd-7,wd-8,wd-9 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
+### F3 — the FNMT-RCM build without WD-2, for the registration check
+
+Prepared 8 October 2026 (`--prepare-only`, `requireSignedMetadata()` back in the configuration);
+**not built**. It replaces F2 in place: the same `applicationId`, name, key, look and four list
+addresses. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9`** — F2's without the one security relaxation
+that concerned issuer authentication.
+
+**Why.** FNMT-RCM wants issuance to work with the wallet's *Check Registration Certificates* preference
+**on**. Under WD-2 it cannot: the wallet evaluates an issuer's registration only when it requires
+signed metadata (`docs/issuer-trust-model.md`), so with WD-2 the outcome is never established, and an
+outcome never established refuses. Seen on 7 October with F2's diagnostic variant: both offers resolved
+and both were shown as "Issuance blocked".
+
+**What the issuer must change before F3 can issue anything**, read from what it publishes on
+8 October — until then F3 refuses it outright, preference on or off, because it will not take unsigned
+metadata:
+
+| | Seen | Needed |
+|---|---|---|
+| Signed metadata | Served as `application/jwt` when that alone is asked for; signature verifies, and its three-certificate chain reaches an anchor of the issuer's own WRPAC list | — |
+| Content negotiation | Asked for `application/jwt, application/json`, which is what the wallet sends, it answers the unsigned JSON | **Nothing — corrected on 9 October.** This row first asked the issuer to prefer the JWT. The issuer is within OpenID4VCI 1.0 here, and the ambiguous request is the wallet's: see WD-11 |
+| Registration certificate | No `issuer_info` in the signed payload | `issuer_info: [{format: "registration_cert", data: <jwt>}]` at its top level, from a provider on the WRPRC list, covering every attestation the issuer offers |
+
+**Not known until it is tried:** whether the registration certificate's content is what the wallet
+library expects, and whether the issuer's access certificate passes the wallet's profile validation,
+which is stricter than the path check made here. No issuer has passed this gate in our tests.
+
+**A diagnostic variant**, for our own phone only, never delivered: the same without WD-7, as
+`.fnmtdiag`, "FNMT diag". Without WD-7 a release build logs HTTP bodies, credentials included.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
+### WD-10 — a multilingual `LoTELegalNotice` is read
+
+**The defect.** ETSI TS 119 602 V1.1.1 clause 6.3.11 says the `PolicyOrLegalNotice` component holds
+either `LoTEPolicy` elements, which are multilingual pointers, or "a sequence of `LoTELegalNotice`
+elements which shall be multilingual character strings (see clause 6.1.4)" — a language tag and a
+text. The wallet's library, `eudi-lib-kmp-etsi-1196x2`, models the first that way and the second as a
+plain string (`PolicyOrLegalNotice.LegalNotice.legalNotice: String`), at the pinned `v0.4.0-alpha.1`
+and still on `main` on 9 October 2026. A list that writes its legal notice as the clause says does
+not parse — `Expected JsonPrimitive, but had JsonObject … at element: $.LoTELegalNotice` — and a list
+that does not parse gives the wallet **no trust anchor at all**.
+
+**The specification does not agree with itself here, and the library follows one half of it.** The
+JSON schema the library bundles (`1960201_json_schema.json`, the schema of the same specification)
+declares `LoTELegalNotice` as `{"type": "string"}`. So the library is consistent with the schema, and
+FNMT-RCM's lists with the clause; a list written to the schema and a list written to the prose are
+both defensible, and only a reader that accepts both reads both. That is what the patch does, and it
+is why this is not described as the lists' defect nor simply as the library's.
+
+**Why it surfaced now.** The reference lists and ours carry a `LoTEPolicy`, never a legal notice.
+FNMT-RCM's four test lists carry a multilingual `LoTELegalNotice`. So **F2 and F3 never loaded any of
+them**: every certificate FNMT-RCM's ecosystem presented was untrusted for want of a list, whatever
+the lists contained.
+
+**The patch**, `deviations/wd-10.patch`, against the library, not the wallet: a serializer on that
+one property that accepts the multilingual form or a plain string and keeps the text. The property
+stays a `String`, so the class is unchanged for the library's other modules, which the wallet takes
+as published; the language tag is read past, and nothing in the wallet uses it. `build.sh` clones the
+library at its pinned commit into `./upstream-etsi`, applies the patch, builds the one module's jar,
+and points the wallet at it by a dependency substitution — under a group of our own
+(`eu.europa.ec.eudi.edtp`), from a repository of one module inside the wallet's tree.
+
+**The patch carries its tests** — the multilingual form, the plain form, a policy as before, and
+three malformed notices refused — and `build.sh` runs them before it builds the library: a build whose
+patched library fails them is not built.
+
+**Not done, on purpose: the pointer key.** The model reads `PointerToOtherLoTE`; the bundled schema,
+the reference lists and FNMT-RCM's all write `PointersToOtherLoTE`, so the model reads past it. Making
+it read the plural would not be a parsing fix but a change of behaviour: the library **follows**
+pointers (`LoadLoTEAndPointers`), so every list would start loading the lists it points to. In the
+lists seen, each points only to itself. Nothing is gained today, and what a wallet trusts would come
+to depend on a path nobody has exercised. Left as upstream has it, and noted in the draft issue.
+
+**Checked**, on 9 October, with the library's own test task: the reported exception reproduced on the
+unpatched source; with the patch both forms decode; and of five real lists — FNMT-RCM's four and the
+reference WRPAC list — the unpatched library reads one and the patched reads all five. The patched
+jar differs from the published one in the classes of that one source file and one added class. The
+wallet's code compiles against it and its runtime classpath resolves to it.
+
+**Not a fix for anyone else.** An unmodified Reference Wallet refuses FNMT-RCM's lists exactly as F2
+did. The fix that counts is upstream: drafted, not filed, at
+[`docs/upstream/etsi-lib-multilingual-legal-notice.md`](../../docs/upstream/etsi-lib-multilingual-legal-notice.md).
+
+### F4 — the FNMT-RCM build that can read FNMT-RCM's lists
+
+**Built by the operator on 9 October 2026**: `eu.europa.ec.euidi.fnmtdemo1`, "FNMT-RCM Cartera demo", APK
+SHA-256 `a2a261eb448e002e070c15222342a3b1f14162fc3332b5db2bda6c9beb1fd572`; its diagnostic variant,
+`eu.europa.ec.euidi.fnmtdiag`, `0070644313b54316696356eb39e8578b38bdbf589e8987db57093943d538e70a`.
+Checked in both packages: the identity, our signature, the deviations, the four list addresses,
+upstream's two issuers, and the patched reader's presence. **Not yet installed, and not delivered.**
+F3 with WD-10:
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10`**, the same identity, look and list addresses. Its diagnostic
+variant, for our own phone only, is the same without WD-7, as `.fnmtdiag`.
+
+It is the first of these builds that can load FNMT-RCM's lists at all. What F3's entry says about the
+issuer still holds: without WD-2 the wallet takes signed metadata only, and FNMT-RCM's issuer answers
+the unsigned document to the wallet's request and publishes no `issuer_info`.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
+### WD-11 — a request for signed metadata asks for nothing else
+
+**The defect, and whose it is.** A wallet that requires signed issuer metadata was telling the issuer
+it would take either form, and then refusing the unsigned one.
+
+- The issuance library does the right thing: under `RequireSigned` it asks for `application/jwt`
+  alone (`DefaultCredentialIssuerMetadataResolver.requestSigned`, `openid4vci-kt` 0.13.1, read from
+  the published jar); only under `PreferSigned` does it ask for both.
+- But the app hands Wallet Core its own HTTP client (`withKtorHttpClientFactory { httpClient }`,
+  `LogicCoreModule`), and that client installs Ktor's `ContentNegotiation` for JSON
+  (`NetworkModule.provideHttpClient`), which appends `application/json` to the `Accept` header of
+  every request. On the wire the metadata request reads `application/jwt, application/json`, with no
+  preference.
+- OpenID4VCI 1.0 section 12.2.2: the issuer "MUST support returning metadata in an unsigned form"
+  and "MAY support returning it in a signed form"; matching the `Accept` header is only
+  "RECOMMENDED". An issuer that answers JSON to that request is within the specification.
+
+Seen on 9 October with F4's diagnostic variant against FNMT-RCM's test issuer: the request carried
+both types, the answer was `application/json`, and the wallet showed "Issuance blocked" without
+consulting a single trust list. The same issuer answers the signed JWT when asked for it alone. An
+earlier note in this register (F3) put the change on the issuer; that was wrong, and the user said so.
+
+**The patch**, `deviations/wd-11.patch`, in `network-logic`: a client plugin, installed after
+`ContentNegotiation`, that on a request to `/.well-known/openid-credential-issuer` whose `Accept`
+includes `application/jwt` among others, sends `application/jwt` alone. No other request is touched,
+and a request that does not ask for signed metadata is left as it is. Four unit tests come with it and
+pass; the module compiles for the release variant.
+
+**Refused together with WD-2.** Under WD-2 the wallet prefers signed metadata and asks for both forms
+on purpose; narrowing that request would change what WD-2 means.
+
+**Not seen working on a device yet.** And it is a fix for our builds only: an unmodified Reference
+Wallet sends the same ambiguous request. Upstream draft, not filed:
+[`docs/upstream/wallet-app-signed-metadata-accept.md`](../../docs/upstream/wallet-app-signed-metadata-accept.md).
+
+### F5 — F4 with WD-11
+
+**Built by the operator on 9 October 2026**, APK SHA-256
+`c85bcda7e5e01335789f6b7a0302c1ba68f0c1696962fbd76741a9c664a909fe`. Checked in the package: the
+identity (`eu.europa.ec.euidi.fnmtdemo1`, "FNMT-RCM Cartera demo"), our signature, the deviations, the
+four list addresses, upstream's two issuers, and the WD-10 serializer in the code. **Not yet installed
+or delivered**; a delivery notice was filled in for it. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11`**, the same identity, look and list
+addresses; its diagnostic variant is the same without WD-7, as `.fnmtdiag`.
+
+With it the wallet should, for the first time against FNMT-RCM's issuer, receive the signed metadata
+and go on to validate their chain against the WRPAC list WD-10 lets it read. What then remains for
+issuance with *Check Registration Certificates* **on** is the issuer's own registration certificate in
+`issuer_info`, which its signed metadata still does not carry.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11 \
       --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
       --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
       --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \

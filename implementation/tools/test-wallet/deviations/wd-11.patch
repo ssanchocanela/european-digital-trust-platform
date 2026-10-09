@@ -48,21 +48,6 @@ index 0000000..0a3a96c
 +        proceed(request)
 +    }
 +}
-diff --git a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
-index e3404fa..a225330 100644
---- a/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
-+++ b/network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt
-@@ -65,6 +65,10 @@ fun provideHttpClient(json: Json, configLogic: ConfigLogic): HttpClient {
-                 contentType = ContentType.Application.Json
-             )
-         }
-+
-+        // EDTP WD-11: a Credential Issuer Metadata request that asks for signed metadata asks for
-+        // nothing else. Installed after ContentNegotiation, which is what adds the JSON type.
-+        install(EdtpSignedMetadataAccept)
-     }
- }
- 
 diff --git a/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAcceptTest.kt b/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpSignedMetadataAcceptTest.kt
 new file mode 100644
 index 0000000..5b2c93d

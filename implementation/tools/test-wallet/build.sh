@@ -643,9 +643,27 @@ if [ "$WANT_WD11" = "yes" ]; then
     die "wd-11 cannot be combined with wd-2: under wd-2 the wallet asks for signed and unsigned
     metadata on purpose, and wd-11 would turn that into a request for signed metadata only." ;;
   esac
+  # The plugin and its test are new files, and come from the patch. Installing the plugin is one
+  # line in NetworkModule.kt, placed by its anchor rather than by a patch hunk: --diagnostics adds a
+  # block at the very same spot, and a hunk written against either state fails on the other. Found
+  # on 9 October 2026, on the first build that asked for both.
   git apply --whitespace=nowarn "$HERE/deviations/wd-11.patch" ||
     die "failed to apply deviations/wd-11.patch against the pinned tag; it must be regenerated."
-  grep -q 'install(EdtpSignedMetadataAccept)' network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt ||
+  WD11_FILE="network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt"
+  [ "$(grep -c '^                contentType = ContentType.Application.Json$' "$WD11_FILE")" = "1" ] ||
+    die "NetworkModule.kt no longer has the ContentNegotiation block WD-11 anchors on."
+  awk '
+    /^                contentType = ContentType.Application.Json$/ { armed = 1 }
+    { print }
+    armed && /^        }$/ {
+      armed = 0
+      print ""
+      print "        // EDTP WD-11: a Credential Issuer Metadata request that asks for signed metadata asks for"
+      print "        // nothing else. Installed after ContentNegotiation, which is what adds the JSON type."
+      print "        install(EdtpSignedMetadataAccept)"
+    }
+  ' "$WD11_FILE" > "$WD11_FILE.new" && mv "$WD11_FILE.new" "$WD11_FILE"
+  [ "$(grep -c 'install(EdtpSignedMetadataAccept)' "$WD11_FILE")" = "1" ] ||
     die "WD-11 did not take effect."
   echo "    issuer metadata requests: 'Accept: application/jwt' alone when signed metadata is asked for."
 fi

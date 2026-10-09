@@ -498,6 +498,13 @@ and still on `main` on 9 October 2026. A list that writes its legal notice as th
 not parse — `Expected JsonPrimitive, but had JsonObject … at element: $.LoTELegalNotice` — and a list
 that does not parse gives the wallet **no trust anchor at all**.
 
+**The specification does not agree with itself here, and the library follows one half of it.** The
+JSON schema the library bundles (`1960201_json_schema.json`, the schema of the same specification)
+declares `LoTELegalNotice` as `{"type": "string"}`. So the library is consistent with the schema, and
+FNMT-RCM's lists with the clause; a list written to the schema and a list written to the prose are
+both defensible, and only a reader that accepts both reads both. That is what the patch does, and it
+is why this is not described as the lists' defect nor simply as the library's.
+
 **Why it surfaced now.** The reference lists and ours carry a `LoTEPolicy`, never a legal notice.
 FNMT-RCM's four test lists carry a multilingual `LoTELegalNotice`. So **F2 and F3 never loaded any of
 them**: every certificate FNMT-RCM's ecosystem presented was untrusted for want of a list, whatever
@@ -510,6 +517,17 @@ as published; the language tag is read past, and nothing in the wallet uses it. 
 library at its pinned commit into `./upstream-etsi`, applies the patch, builds the one module's jar,
 and points the wallet at it by a dependency substitution — under a group of our own
 (`eu.europa.ec.eudi.edtp`), from a repository of one module inside the wallet's tree.
+
+**The patch carries its tests** — the multilingual form, the plain form, a policy as before, and
+three malformed notices refused — and `build.sh` runs them before it builds the library: a build whose
+patched library fails them is not built.
+
+**Not done, on purpose: the pointer key.** The model reads `PointerToOtherLoTE`; the bundled schema,
+the reference lists and FNMT-RCM's all write `PointersToOtherLoTE`, so the model reads past it. Making
+it read the plural would not be a parsing fix but a change of behaviour: the library **follows**
+pointers (`LoadLoTEAndPointers`), so every list would start loading the lists it points to. In the
+lists seen, each points only to itself. Nothing is gained today, and what a wallet trusts would come
+to depend on a path nobody has exercised. Left as upstream has it, and noted in the draft issue.
 
 **Checked**, on 9 October, with the library's own test task: the reported exception reproduced on the
 unpatched source; with the patch both forms decode; and of five real lists — FNMT-RCM's four and the

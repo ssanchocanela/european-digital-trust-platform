@@ -641,8 +641,11 @@ if [ "$WANT_WD10" = "yes" ]; then
     die "failed to apply deviations/wd-10.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
   ETSI_JAR="$ETSI_DIR/119602-data-model/build/libs/etsi-119602-data-model-jvm-$WALLET_ETSI_LIB_VERSION.jar"
   rm -f "$ETSI_JAR"
-  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet :etsi-119602-data-model:jvmJar ) ||
-    die "the patched ETSI library did not build."
+  # The patch carries its own tests: both forms of the legal notice read, anything else refused. A
+  # build whose patched library fails them is not built.
+  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
+      :etsi-119602-data-model:jvmTest --tests '*EdtpLegalNoticeTest*' :etsi-119602-data-model:jvmJar ) ||
+    die "the patched ETSI library did not pass its tests or did not build."
   [ -f "$ETSI_JAR" ] || die "the patched ETSI library built no jar at $ETSI_JAR."
   jar tf "$ETSI_JAR" | grep -q 'EdtpLegalNoticeTextSerializer.class' ||
     die "the built ETSI library does not carry the WD-10 patch."

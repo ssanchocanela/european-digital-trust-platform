@@ -46,10 +46,23 @@ sequence of `LoTELegalNotice` elements which shall be multilingual character str
 
 The sibling `Policy.policy` is already a `MultiLanguageURI`.
 
+**What the bundled schema says**
+
+`119602-data-model/src/commonMain/resources/1960201_json_schema.json` declares it otherwise:
+
+```json
+"LoTELegalNotice": { "type": "string" }
+```
+
+So the model agrees with the schema and disagrees with clause 6.3.11, and lists of both kinds are in
+circulation: one written to the schema, one to the prose. This looks like an inconsistency in the
+specification itself, worth raising with ETSI as well.
+
 **Suggested change**
 
-Type `legalNotice` as the data model's own `MultilanguageString`. If lists written with a plain string
-exist and are to keep loading, a serializer accepting both forms would do it.
+Read both forms: a multilingual character string and a plain string. Whether the property then
+becomes a `MultilanguageString` (a plain string wrapped with a default language) or stays a `String`
+(the text of either) is the maintainers' call; either way a list of the other kind stops failing whole.
 
 **Reproduction**
 
@@ -64,7 +77,9 @@ Deviation **WD-10** of the test wallet (`tools/test-wallet/deviations.md`) rebui
 with a serializer that accepts both forms and keeps the property a `String`, so the library's other
 published modules are unaffected. It is a workaround for our own modified builds and for nothing else.
 
-A related observation, not part of the issue: the model's key for the pointers is
-`PointerToOtherLoTE`; the reference lists and FNMT-RCM's write `PointersToOtherLoTE`, which the model
-reads past. Clause 6.3 of the specification names the component `PointerToOtherLoTE`. Which spelling a
-list should use was not settled here.
+A related observation, for a second issue rather than this one: the model's key for the pointers is
+`PointerToOtherLoTE`, while the bundled schema, the reference lists and FNMT-RCM's all write
+`PointersToOtherLoTE`. The model therefore reads past every pointer, and `LoadLoTEAndPointers` never
+has one to follow. Clause 6.3 of the specification names the component in the singular. Aligning the
+key would switch pointer-following on for every consumer, which is a change of behaviour and not only
+of parsing; WD-10 does not make it.

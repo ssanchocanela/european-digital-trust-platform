@@ -1,5 +1,5 @@
 diff --git a/119602-data-model/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/ListAndSchemeInformation.kt b/119602-data-model/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/ListAndSchemeInformation.kt
-index 42a4a7c..40552ea 100644
+index 42a4a7c..3f6c959 100644
 --- a/119602-data-model/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/ListAndSchemeInformation.kt
 +++ b/119602-data-model/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/ListAndSchemeInformation.kt
 @@ -285,10 +285,55 @@ public sealed interface PolicyOrLegalNotice {
@@ -18,9 +18,9 @@ index 42a4a7c..40552ea 100644
 + * EDTP deviation WD-10. Not upstream.
 + *
 + * Reads a `LoTELegalNotice` written as a multilingual character string — `{"value": …, "lang": …}`,
-+ * which is what ETSI TS 119 602 V1.1.1 clause 6.3.11 requires — as well as the plain string this
-+ * model expects, and keeps the text. Without it a list carrying a multilingual legal notice does
-+ * not parse at all, so none of its trust anchors is loaded.
++ * which is how ETSI TS 119 602 V1.1.1 clause 6.3.11 describes it — as well as the plain string this
++ * model and the JSON schema bundled with it expect, and keeps the text. Without it a list carrying
++ * a multilingual legal notice does not parse at all, so none of its trust anchors is loaded.
 + *
 + * The property stays a `String`, so the class is unchanged for everything compiled against it.
 + */
@@ -59,3 +59,59 @@ index 42a4a7c..40552ea 100644
  public object PolicyOrLegalNoticeSerializer :
      JsonContentPolymorphicSerializer<PolicyOrLegalNotice>(PolicyOrLegalNotice::class) {
      override fun selectDeserializer(element: JsonElement): DeserializationStrategy<PolicyOrLegalNotice> =
+diff --git a/119602-data-model/src/commonTest/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/EdtpLegalNoticeTest.kt b/119602-data-model/src/commonTest/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/EdtpLegalNoticeTest.kt
+new file mode 100644
+index 0000000..8d5b0af
+--- /dev/null
++++ b/119602-data-model/src/commonTest/kotlin/eu/europa/ec/eudi/etsi119602/datamodel/EdtpLegalNoticeTest.kt
+@@ -0,0 +1,50 @@
++package eu.europa.ec.eudi.etsi119602.datamodel
++
++import kotlinx.serialization.builtins.ListSerializer
++import kotlinx.serialization.json.Json
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertFailsWith
++
++/**
++ * EDTP deviation WD-10. Not upstream.
++ *
++ * A `LoTELegalNotice` is read whether it is written as a multilingual character string, as
++ * ETSI TS 119 602 V1.1.1 clause 6.3.11 describes it, or as the plain string this model and the JSON
++ * schema bundled with it expect.
++ */
++class EdtpLegalNoticeTest {
++    private val json = Json { ignoreUnknownKeys = true }
++
++    private fun decode(text: String): List<PolicyOrLegalNotice> =
++        json.decodeFromString(ListSerializer(PolicyOrLegalNoticeSerializer), text)
++
++    @Test
++    fun aMultilingualLegalNoticeIsRead() {
++        val read = decode("""[{"LoTELegalNotice": {"value": "Synthetic LoTE for local testing only.", "lang": "en"}}]""")
++        assertEquals(
++            listOf<PolicyOrLegalNotice>(PolicyOrLegalNotice.LegalNotice("Synthetic LoTE for local testing only.")),
++            read,
++        )
++    }
++
++    @Test
++    fun aPlainLegalNoticeIsStillRead() {
++        val read = decode("""[{"LoTELegalNotice": "A notice"}]""")
++        assertEquals(listOf<PolicyOrLegalNotice>(PolicyOrLegalNotice.LegalNotice("A notice")), read)
++    }
++
++    @Test
++    fun aPolicyIsReadAsBefore() {
++        val read = decode("""[{"LoTEPolicy": {"lang": "en", "uriValue": "https://example.test/policy"}}]""")
++        assertEquals(1, read.size)
++        assertEquals(true, read.single() is PolicyOrLegalNotice.Policy)
++    }
++
++    @Test
++    fun aLegalNoticeThatIsNeitherIsRefused() {
++        assertFailsWith<Exception> { decode("""[{"LoTELegalNotice": {"lang": "en"}}]""") }
++        assertFailsWith<Exception> { decode("""[{"LoTELegalNotice": 7}]""") }
++        assertFailsWith<Exception> { decode("""[{"LoTELegalNotice": ["a"]}]""") }
++    }
++}

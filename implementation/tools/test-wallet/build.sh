@@ -40,6 +40,11 @@
 # `wd-7` keeps a release build's logs to warnings and errors: Wallet Core logs every HTTP body at
 # DEBUG through the app's logger, which upstream plants at DEBUG in every build type. Hardening.
 #
+# `wd-11` makes a Credential Issuer Metadata request that asks for signed metadata ask for nothing
+# else: the app's HTTP client appends `application/json` to every request, so a wallet that requires
+# signed metadata tells the issuer it takes either, and then refuses the unsigned answer. A defect
+# fix. Refused together with wd-2, under which the wallet asks for both on purpose.
+#
 # `wd-10` builds the ETSI TS 119 602 data-model library from its pinned source with one patch, so
 # that a trust list whose LoTELegalNotice is a multilingual character string is read instead of
 # refused whole. A defect fix in a dependency; the library is cloned into ./upstream-etsi.
@@ -131,6 +136,7 @@ WANT_WD6=no
 WANT_WD8=no
 WANT_WD9=no
 WANT_WD10=no
+WANT_WD11=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -191,6 +197,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-10.patch" ] || die "deviations/wd-10.patch is missing."
         WANT_WD10=yes
         ;;
+      wd-11)
+        [ -f "$HERE/deviations/wd-11.patch" ] || die "deviations/wd-11.patch is missing."
+        WANT_WD11=yes
+        ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
         # deviation while offering them, and one listing a guessed URL would offer nothing that works.
@@ -226,7 +236,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-10 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-11 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -325,9 +335,11 @@ rm -rf business-logic/src/"$EDTP_FLAVOR" core-logic/src/"$EDTP_FLAVOR" resources
 
 # Files the patches ADD are untracked once applied, so `git apply` would refuse on a second run
 # with "already exists in working directory". The list is derived from the patches rather than
-# hard-coded here, so adding a patch needs no change to this script.
+# hard-coded here, so adding a patch needs no change to this script. The deviations' patches are
+# read too: one of them adds files (wd-11), and one is for another tree altogether (wd-10), whose
+# paths do not exist here and are passed over.
 PATCH_ADDED_FILES="$(awk '/^--- \/dev\/null$/ { getline; if (sub(/^\+\+\+ b\//, "")) print }' \
-  "$HERE"/patches/*.patch)"
+  "$HERE"/patches/*.patch "$HERE"/deviations/*.patch)"
 if [ -n "$PATCH_ADDED_FILES" ]; then
   echo "$PATCH_ADDED_FILES" | while IFS= read -r added; do
     [ -n "$added" ] && rm -f "$added"
@@ -623,6 +635,21 @@ step "Stamping the build"
 # The identity overrides travel through version.properties, which the build already reads for the
 # version and the deviation list — so a build can be given a distinct applicationId without a new
 # flavour, new source sets or a patch edit per build.
+if [ "$WANT_WD11" = "yes" ]; then
+  step "Applying WD-11 (a request for signed issuer metadata asks for nothing else)"
+  # Only where the wallet requires signed metadata. Under WD-2 it prefers them and asks for both
+  # forms deliberately, so narrowing the request there would change what WD-2 means.
+  case ",$DEVIATIONS," in *",wd-2,"*)
+    die "wd-11 cannot be combined with wd-2: under wd-2 the wallet asks for signed and unsigned
+    metadata on purpose, and wd-11 would turn that into a request for signed metadata only." ;;
+  esac
+  git apply --whitespace=nowarn "$HERE/deviations/wd-11.patch" ||
+    die "failed to apply deviations/wd-11.patch against the pinned tag; it must be regenerated."
+  grep -q 'install(EdtpSignedMetadataAccept)' network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt ||
+    die "WD-11 did not take effect."
+  echo "    issuer metadata requests: 'Accept: application/jwt' alone when signed metadata is asked for."
+fi
+
 if [ "$WANT_WD10" = "yes" ]; then
   step "Applying WD-10 (ETSI TS 119 602 data model: a multilingual LoTELegalNotice is read)"
   # The wallet takes this library as a published jar, so it cannot be patched in the wallet's tree.

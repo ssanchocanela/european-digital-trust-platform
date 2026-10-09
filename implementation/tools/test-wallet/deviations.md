@@ -24,6 +24,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 | **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 | **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
+| **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
 
 ---
 
@@ -469,7 +470,7 @@ metadata:
 | | Seen | Needed |
 |---|---|---|
 | Signed metadata | Served as `application/jwt` when that alone is asked for; signature verifies, and its three-certificate chain reaches an anchor of the issuer's own WRPAC list | — |
-| Content negotiation | Asked for `application/jwt, application/json`, which is what the wallet sends, it answers the unsigned JSON | The JWT whenever the client accepts it |
+| Content negotiation | Asked for `application/jwt, application/json`, which is what the wallet sends, it answers the unsigned JSON | **Nothing — corrected on 9 October.** This row first asked the issuer to prefer the JWT. The issuer is within OpenID4VCI 1.0 here, and the ambiguous request is the wallet's: see WD-11 |
 | Registration certificate | No `issuer_info` in the signed payload | `issuer_info: [{format: "registration_cert", data: <jwt>}]` at its top level, from a provider on the WRPRC list, covering every attestation the issuer offers |
 
 **Not known until it is tried:** whether the registration certificate's content is what the wallet
@@ -556,6 +557,60 @@ the unsigned document to the wallet's request and publishes no `issuer_info`.
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
+### WD-11 — a request for signed metadata asks for nothing else
+
+**The defect, and whose it is.** A wallet that requires signed issuer metadata was telling the issuer
+it would take either form, and then refusing the unsigned one.
+
+- The issuance library does the right thing: under `RequireSigned` it asks for `application/jwt`
+  alone (`DefaultCredentialIssuerMetadataResolver.requestSigned`, `openid4vci-kt` 0.13.1, read from
+  the published jar); only under `PreferSigned` does it ask for both.
+- But the app hands Wallet Core its own HTTP client (`withKtorHttpClientFactory { httpClient }`,
+  `LogicCoreModule`), and that client installs Ktor's `ContentNegotiation` for JSON
+  (`NetworkModule.provideHttpClient`), which appends `application/json` to the `Accept` header of
+  every request. On the wire the metadata request reads `application/jwt, application/json`, with no
+  preference.
+- OpenID4VCI 1.0 section 12.2.2: the issuer "MUST support returning metadata in an unsigned form"
+  and "MAY support returning it in a signed form"; matching the `Accept` header is only
+  "RECOMMENDED". An issuer that answers JSON to that request is within the specification.
+
+Seen on 9 October with F4's diagnostic variant against FNMT-RCM's test issuer: the request carried
+both types, the answer was `application/json`, and the wallet showed "Issuance blocked" without
+consulting a single trust list. The same issuer answers the signed JWT when asked for it alone. An
+earlier note in this register (F3) put the change on the issuer; that was wrong, and the user said so.
+
+**The patch**, `deviations/wd-11.patch`, in `network-logic`: a client plugin, installed after
+`ContentNegotiation`, that on a request to `/.well-known/openid-credential-issuer` whose `Accept`
+includes `application/jwt` among others, sends `application/jwt` alone. No other request is touched,
+and a request that does not ask for signed metadata is left as it is. Four unit tests come with it and
+pass; the module compiles for the release variant.
+
+**Refused together with WD-2.** Under WD-2 the wallet prefers signed metadata and asks for both forms
+on purpose; narrowing that request would change what WD-2 means.
+
+**Not seen working on a device yet.** And it is a fix for our builds only: an unmodified Reference
+Wallet sends the same ambiguous request. Upstream draft, not filed:
+[`docs/upstream/wallet-app-signed-metadata-accept.md`](../../docs/upstream/wallet-app-signed-metadata-accept.md).
+
+### F5 — F4 with WD-11
+
+Prepared 9 October 2026 (`--prepare-only`, twice in a row, and the patched modules compile); **not
+built**. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11`**, the same identity, look and list
+addresses; its diagnostic variant is the same without WD-7, as `.fnmtdiag`.
+
+With it the wallet should, for the first time against FNMT-RCM's issuer, receive the signed metadata
+and go on to validate their chain against the WRPAC list WD-10 lets it read. What then remains for
+issuance with *Check Registration Certificates* **on** is the issuer's own registration certificate in
+`issuer_info`, which its signed metadata still does not carry.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11 \
       --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
       --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
       --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \

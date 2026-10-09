@@ -23,6 +23,7 @@ access-certificate*
 # signing keystore are likewise never committed: the APK is a modified reference build that
 # must not be distributed, and the keystore is a secret.
 tools/test-wallet/upstream/
+tools/test-wallet/upstream-etsi/
 tools/test-wallet/out/
 *.apk
 *.aab

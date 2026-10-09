@@ -23,6 +23,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-7** | A release build logs warnings and errors only: no HTTP bodies in logcat or in the log files | — | **Hardening** (no protocol behaviour changes) | **Prepared** (W8), 2 October 2026 |
 | **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 | **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
+| **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
 
 ---
 
@@ -480,6 +481,58 @@ which is stricter than the path check made here. No issuer has passed this gate 
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
+### WD-10 — a multilingual `LoTELegalNotice` is read
+
+**The defect.** ETSI TS 119 602 V1.1.1 clause 6.3.11 says the `PolicyOrLegalNotice` component holds
+either `LoTEPolicy` elements, which are multilingual pointers, or "a sequence of `LoTELegalNotice`
+elements which shall be multilingual character strings (see clause 6.1.4)" — a language tag and a
+text. The wallet's library, `eudi-lib-kmp-etsi-1196x2`, models the first that way and the second as a
+plain string (`PolicyOrLegalNotice.LegalNotice.legalNotice: String`), at the pinned `v0.4.0-alpha.1`
+and still on `main` on 9 October 2026. A list that writes its legal notice as the clause says does
+not parse — `Expected JsonPrimitive, but had JsonObject … at element: $.LoTELegalNotice` — and a list
+that does not parse gives the wallet **no trust anchor at all**.
+
+**Why it surfaced now.** The reference lists and ours carry a `LoTEPolicy`, never a legal notice.
+FNMT-RCM's four test lists carry a multilingual `LoTELegalNotice`. So **F2 and F3 never loaded any of
+them**: every certificate FNMT-RCM's ecosystem presented was untrusted for want of a list, whatever
+the lists contained.
+
+**The patch**, `deviations/wd-10.patch`, against the library, not the wallet: a serializer on that
+one property that accepts the multilingual form or a plain string and keeps the text. The property
+stays a `String`, so the class is unchanged for the library's other modules, which the wallet takes
+as published; the language tag is read past, and nothing in the wallet uses it. `build.sh` clones the
+library at its pinned commit into `./upstream-etsi`, applies the patch, builds the one module's jar,
+and points the wallet at it by a dependency substitution — under a group of our own
+(`eu.europa.ec.eudi.edtp`), from a repository of one module inside the wallet's tree.
+
+**Checked**, on 9 October, with the library's own test task: the reported exception reproduced on the
+unpatched source; with the patch both forms decode; and of five real lists — FNMT-RCM's four and the
+reference WRPAC list — the unpatched library reads one and the patched reads all five. The patched
+jar differs from the published one in the classes of that one source file and one added class. The
+wallet's code compiles against it and its runtime classpath resolves to it.
+
+**Not a fix for anyone else.** An unmodified Reference Wallet refuses FNMT-RCM's lists exactly as F2
+did. The fix that counts is upstream: drafted, not filed, at
+[`docs/upstream/etsi-lib-multilingual-legal-notice.md`](../../docs/upstream/etsi-lib-multilingual-legal-notice.md).
+
+### F4 — the FNMT-RCM build that can read FNMT-RCM's lists
+
+Prepared 9 October 2026 (`--prepare-only`); **not built**. F3 with WD-10:
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10`**, the same identity, look and list addresses. Its diagnostic
+variant, for our own phone only, is the same without WD-7, as `.fnmtdiag`.
+
+It is the first of these builds that can load FNMT-RCM's lists at all. What F3's entry says about the
+issuer still holds: without WD-2 the wallet takes signed metadata only, and FNMT-RCM's issuer answers
+the unsigned document to the wallet's request and publishes no `issuer_info`.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10 \
       --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
       --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
       --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \

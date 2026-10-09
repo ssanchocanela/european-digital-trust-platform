@@ -40,6 +40,10 @@
 # `wd-7` keeps a release build's logs to warnings and errors: Wallet Core logs every HTTP body at
 # DEBUG through the app's logger, which upstream plants at DEBUG in every build type. Hardening.
 #
+# `wd-10` builds the ETSI TS 119 602 data-model library from its pinned source with one patch, so
+# that a trust list whose LoTELegalNotice is a multilingual character string is read instead of
+# refused whole. A defect fix in a dependency; the library is cloned into ./upstream-etsi.
+#
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
 #   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
@@ -126,6 +130,7 @@ WANT_WD5=no
 WANT_WD6=no
 WANT_WD8=no
 WANT_WD9=no
+WANT_WD10=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -182,6 +187,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         esac
         WANT_WD9=yes
         ;;
+      wd-10)
+        [ -f "$HERE/deviations/wd-10.patch" ] || die "deviations/wd-10.patch is missing."
+        WANT_WD10=yes
+        ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
         # deviation while offering them, and one listing a guessed URL would offer nothing that works.
@@ -217,7 +226,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-9 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-10 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -614,6 +623,84 @@ step "Stamping the build"
 # The identity overrides travel through version.properties, which the build already reads for the
 # version and the deviation list — so a build can be given a distinct applicationId without a new
 # flavour, new source sets or a patch edit per build.
+if [ "$WANT_WD10" = "yes" ]; then
+  step "Applying WD-10 (ETSI TS 119 602 data model: a multilingual LoTELegalNotice is read)"
+  # The wallet takes this library as a published jar, so it cannot be patched in the wallet's tree.
+  # It is built here from its pinned source with one patch, and the wallet is pointed at that build
+  # by a dependency substitution — the one module, nothing else from this library.
+  ETSI_DIR="$HERE/upstream-etsi"
+  [ -d "$ETSI_DIR/.git" ] ||
+    git clone --quiet --depth 1 --branch "$WALLET_ETSI_LIB_TAG" "$WALLET_ETSI_LIB_URL" "$ETSI_DIR"
+  git -C "$ETSI_DIR" reset --quiet --hard
+  git -C "$ETSI_DIR" clean --quiet -fd
+  ETSI_ACTUAL="$(git -C "$ETSI_DIR" rev-parse HEAD)"
+  [ "$ETSI_ACTUAL" = "$WALLET_ETSI_LIB_COMMIT" ] ||
+    die "the ETSI library clone is at $ETSI_ACTUAL, expected $WALLET_ETSI_LIB_COMMIT.
+    Remove $ETSI_DIR and run again."
+  git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-10.patch" ||
+    die "failed to apply deviations/wd-10.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
+  ETSI_JAR="$ETSI_DIR/119602-data-model/build/libs/etsi-119602-data-model-jvm-$WALLET_ETSI_LIB_VERSION.jar"
+  rm -f "$ETSI_JAR"
+  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet :etsi-119602-data-model:jvmJar ) ||
+    die "the patched ETSI library did not build."
+  [ -f "$ETSI_JAR" ] || die "the patched ETSI library built no jar at $ETSI_JAR."
+  jar tf "$ETSI_JAR" | grep -q 'EdtpLegalNoticeTextSerializer.class' ||
+    die "the built ETSI library does not carry the WD-10 patch."
+
+  # A repository of one module, inside the wallet's tree, under a group of our own: the patched jar
+  # can never be taken for the published one, and nothing else can come from here.
+  WD10_ARTIFACT="etsi-119602-data-model-jvm-wd10"
+  WD10_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD10_ARTIFACT/$WALLET_ETSI_LIB_VERSION"
+  mkdir -p "$WD10_REPO"
+  cp "$ETSI_JAR" "$WD10_REPO/$WD10_ARTIFACT-$WALLET_ETSI_LIB_VERSION.jar"
+  # The dependencies are the published module's own, at $WALLET_ETSI_LIB_VERSION. A newer pin must
+  # re-read them from that version's pom.
+  cat > "$WD10_REPO/$WD10_ARTIFACT-$WALLET_ETSI_LIB_VERSION.pom" <<POM
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>eu.europa.ec.eudi.edtp</groupId>
+  <artifactId>$WD10_ARTIFACT</artifactId>
+  <version>$WALLET_ETSI_LIB_VERSION</version>
+  <dependencies>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-serialization-core-jvm</artifactId><version>1.9.0</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-serialization-json-jvm</artifactId><version>1.9.0</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-core-jvm</artifactId><version>1.10.2</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-datetime-jvm</artifactId><version>0.7.1</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlin</groupId><artifactId>kotlin-stdlib</artifactId><version>2.2.21</version><scope>compile</scope></dependency>
+  </dependencies>
+</project>
+POM
+  [ "$(grep -c '^        mavenLocal()$' settings.gradle.kts)" = "1" ] ||
+    die "settings.gradle.kts no longer has the one mavenLocal() line WD-10 anchors on."
+  awk '
+    /^        mavenLocal\(\)$/ {
+      print "        // EDTP WD-10: the one patched library module, built by build.sh."
+      print "        maven {"
+      print "            url = uri(\"edtp-maven\")"
+      print "            content { includeGroup(\"eu.europa.ec.eudi.edtp\") }"
+      print "        }"
+    }
+    { print }
+  ' settings.gradle.kts > settings.gradle.kts.new && mv settings.gradle.kts.new settings.gradle.kts
+  cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-10: every module resolves the ETSI TS 119 602 data model to the patched build of the same
+// version, whose only change is that it reads a multilingual LoTELegalNotice.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            val patched = module("eu.europa.ec.eudi.edtp:$WD10_ARTIFACT:$WALLET_ETSI_LIB_VERSION")
+            substitute(module("eu.europa.ec.eudi:etsi-119602-data-model")).using(patched)
+            substitute(module("eu.europa.ec.eudi:etsi-119602-data-model-jvm")).using(patched)
+        }
+    }
+}
+GRADLE
+  grep -q 'uri("edtp-maven")' settings.gradle.kts || die "the WD-10 repository did not take."
+  echo "    ETSI data model $WALLET_ETSI_LIB_VERSION rebuilt from $WALLET_ETSI_LIB_TAG with wd-10.patch, and substituted."
+fi
+
 if [ -n "$BRAND" ]; then
   step "Applying the '$BRAND' look (appearance only)"
   BRAND_DIR="$HERE/brands/$BRAND"

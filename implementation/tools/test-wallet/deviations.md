@@ -620,6 +620,21 @@ issuance with *Check Registration Certificates* **on** is the issuer's own regis
       --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
       --brand fnmt --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
 
+### F6 — F5 in FNMT-RCM's colour look
+
+Prepared 15 October 2026 (`--prepare-only`; the branded resources merge and the theme compiles);
+**not built**. F5's deviations, identity and list addresses, unchanged — only the look differs:
+`--brand fnmt-color`, from FNMT-RCM's colour logo and its blue (`#00539f`) instead of the
+black-and-white logo and the website's blue. At FNMT-RCM's request. It replaces F5 in place.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-9,wd-10,wd-11 \
+      --pid-lote    https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PIDProviders.jwt \
+      --wrpac-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPACProviders.jwt \
+      --wrprc-lote  https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/WRPRCProviders.jwt \
+      --pubeaa-lote https://cebsi-aks-dev.emeal.nttdata.com/trust-list/LOTE/json/PubEAAProviders.jwt \
+      --brand fnmt-color --app-id-suffix .fnmtdemo1 --app-name "FNMT-RCM Cartera demo"
+
 A build that leaves our hands goes with [`DELIVERY-NOTICE.md`](DELIVERY-NOTICE.md), filled in.
 The branded resources merge and the theme compiles; **no branded build has been built or delivered.**
 

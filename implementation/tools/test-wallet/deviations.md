@@ -622,8 +622,12 @@ issuance with *Check Registration Certificates* **on** is the issuer's own regis
 
 ### F6 — F5 in FNMT-RCM's colour look
 
-Prepared 15 October 2026 (`--prepare-only`; the branded resources merge and the theme compiles);
-**not built**. F5's deviations, identity and list addresses, unchanged — only the look differs:
+**Built by the operator on 15 October 2026**, APK SHA-256
+`abfde766656f06132db7d9bf6c89c81271d7485a8d4326f7f3670b17b1bc1965`. Checked in the package: the
+identity, our signature, the deviations, the four list addresses, upstream's two issuers, the WD-10
+serializer, and the colour look's launcher icons byte for byte (its four in-app PNGs are re-encoded
+by the release build, so they were not compared that way). **Not yet installed or delivered**; a
+delivery notice was filled in for it. F5's deviations, identity and list addresses, unchanged — only the look differs:
 `--brand fnmt-color`, from FNMT-RCM's colour logo and its blue (`#00539f`) instead of the
 black-and-white logo and the website's blue. At FNMT-RCM's request. It replaces F5 in place.
 

@@ -219,11 +219,17 @@ const SECTIONS: readonly {
   readonly title: string;
   readonly optional: boolean;
   readonly match: (p: string) => boolean;
+  /** Said at the top of the section, when the fields matter somewhere the form cannot see. */
+  readonly note?: string;
 }[] = [
   {
     title: "Domicilio y contacto",
     optional: true,
     match: (p) => p.startsWith("address.") || p === "email" || p === "phone_number",
+    // The Rulebook makes the address optional, and Banco Horizonte's onboarding asks for four of
+    // its parts. A PID without one of them is not offered to that bank: the wallet says only that
+    // it holds no such document. Found on 21 October 2026, the morning of a demonstration.
+    note: "Para presentar este PID en Banco Horizonte (demostración), rellene calle, código postal, localidad y país: el banco los pide todos y, si falta uno, la cartera no ofrecerá este PID.",
   },
   {
     title: "Datos del documento",
@@ -305,6 +311,7 @@ export const renderForm = (page: FormPage): string => {
     return `
       <details class="more"${open}>
         <summary>${escapeHtml(s.title)}${s.optional ? " (opcional)" : ""}</summary>
+        ${s.note ? `<p class="hint">${escapeHtml(s.note)}</p>` : ""}
         ${fields.map(row).join("")}
       </details>`;
   }).join("");

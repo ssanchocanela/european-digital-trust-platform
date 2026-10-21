@@ -172,3 +172,9 @@ exists so the modification can be stated precisely rather than glossed.
    and the wallet reports `Trust anchor for certification path not found`, which reads like a trust
    failure and is a blocked connection. Turn the VPN off, or use the phone's own mobile data. Found
    on 5 October 2026, after an hour.
+6. **For Banco Horizonte, check the PID carries the four parts of the address** — street, postal
+   code, locality and country — as well as nationalities and the personal administrative number.
+   The address is optional in the PID form, and the bank asks for all of it. A PID missing one part
+   is not offered to the bank: the wallet says only "The requested document is not available in
+   your EUDI Wallet", and the request expires unanswered. Issue a fresh PID with all of them. Found
+   on 21 October 2026, the morning of a demonstration.

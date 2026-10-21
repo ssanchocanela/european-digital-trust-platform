@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BRANDS,
   type Brand,
+  renderForm,
   renderIdentify,
   renderOpenWallet,
   renderRequest,
@@ -114,5 +115,29 @@ describe("the Large Family Title", () => {
     expect(html).not.toContain("Nacionalidad"); // presented, but not asked for here
     expect(html).toContain("<strong>General</strong>");
     expect(html).toContain("<strong>Titular</strong>");
+  });
+});
+
+describe("the typed PID form", () => {
+  const field = (path: string, mandatory = false) => ({
+    path,
+    display: [{ lang: "es", value: path }],
+    valueType: "string",
+    mandatory,
+  });
+
+  it("says, by the address, that Banco Horizonte needs all four parts of it", () => {
+    const html = renderForm({
+      brand: BRANDS["demo"] as Brand,
+      state: {},
+      credentialName: "PID (demo)",
+      fields: [
+        field("family_name", true),
+        field("address.street_address"),
+        field("address.country"),
+      ],
+    });
+    expect(html).toContain("Banco Horizonte");
+    expect(html).toMatch(/calle, código postal, localidad y país/);
   });
 });

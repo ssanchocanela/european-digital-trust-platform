@@ -56,6 +56,11 @@
 # (and so requires wd-10), points `eaaProviders["mdl"]` at the list and classifies the ISO mDL
 # docType under it. An extension, not a relaxation: an mDL issuer is trusted only if the list has it.
 #
+# `wd-13` validates a certificate chain only up to the first certificate, after the leaf, that is byte
+# for byte a trust anchor of the list: a list may anchor a CA that is not a root, and the JDK's PKIX
+# validator refuses a path that runs past its anchor. A defect fix in the same library build as
+# wd-10 (and so requires wd-10). Nothing above an anchor ever counted towards trust.
+#
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
 #   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
@@ -147,6 +152,7 @@ WANT_WD9=no
 WANT_WD10=no
 WANT_WD11=no
 WANT_WD12=no
+WANT_WD13=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -223,6 +229,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-12.patch" ] || die "deviations/wd-12.patch is missing."
         WANT_WD12=yes
         ;;
+      wd-13)
+        [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
+        WANT_WD13=yes
+        ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
         # deviation while offering them, and one listing a guessed URL would offer nothing that works.
@@ -258,7 +268,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-12 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-13 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -267,6 +277,8 @@ fi
 # wd-12's library change is built, published and substituted with wd-10's, from the same clone.
 [ "$WANT_WD12" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
   die "wd-12 requires wd-10: its library change is built on the same patched ETSI library build."
+[ "$WANT_WD13" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
+  die "wd-13 requires wd-10: its library change is built on the same patched ETSI library build."
 [ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
   die "--mdl-lote is given without wd-12, so the build would not read it."
 
@@ -752,13 +764,21 @@ if [ "$WANT_WD10" = "yes" ]; then
     die "failed to apply deviations/wd-10.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
   ETSI_JAR="$ETSI_DIR/119602-data-model/build/libs/etsi-119602-data-model-jvm-$WALLET_ETSI_LIB_VERSION.jar"
   ETSI_CONSULTATION_JAR="$ETSI_DIR/119602-consultation/build/libs/etsi-119602-consultation-jvm-$WALLET_ETSI_LIB_VERSION.jar"
-  rm -f "$ETSI_JAR" "$ETSI_CONSULTATION_JAR"
+  ETSI_CHAIN_JAR="$ETSI_DIR/consultation/build/libs/etsi-1196x2-consultation-jvm-$WALLET_ETSI_LIB_VERSION.jar"
+  rm -f "$ETSI_JAR" "$ETSI_CONSULTATION_JAR" "$ETSI_CHAIN_JAR"
   # WD-12 changes another module of the same library, so it is built here too, from the same clone.
   ETSI_TASKS=(:etsi-119602-data-model:jvmTest --tests '*EdtpLegalNoticeTest*' :etsi-119602-data-model:jvmJar)
   if [ "$WANT_WD12" = "yes" ]; then
     git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-12.patch" ||
       die "failed to apply deviations/wd-12.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
     ETSI_TASKS+=(:etsi-119602-consultation:jvmTest --tests '*EdtpWd12Test*' :etsi-119602-consultation:jvmJar)
+  fi
+  if [ "$WANT_WD13" = "yes" ]; then
+    git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-13.patch" ||
+      die "failed to apply deviations/wd-13.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
+    # Its own tests, and the validator's existing ones, which must still pass.
+    ETSI_TASKS+=(:etsi-1196x2-consultation:jvmTest --tests '*EdtpWd13Test*'
+      --tests '*ValidateCertificateChainUsingPKIXJvmTest*' :etsi-1196x2-consultation:jvmJar)
   fi
   # Each patch carries its own tests: for WD-10, both forms of the legal notice read and anything else
   # refused; for WD-12, the mDL list's two services mapped. A library that fails them is not used.
@@ -772,6 +792,11 @@ if [ "$WANT_WD10" = "yes" ]; then
     # The constant is inlined at compile time, but its holder class is generated only if WD-12 is there.
     javap -cp "$ETSI_CONSULTATION_JAR" -constants eu.europa.ec.eudi.etsi119602.consultation.EUSupportedListsKt |
       grep -q 'MDL_USE_CASE = "mdl"' || die "the built ETSI library does not carry the WD-12 patch."
+  fi
+  if [ "$WANT_WD13" = "yes" ]; then
+    [ -f "$ETSI_CHAIN_JAR" ] || die "the patched ETSI library built no jar at $ETSI_CHAIN_JAR."
+    javap -p -cp "$ETSI_CHAIN_JAR" 'eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm$Companion' |
+      grep -q 'upToTrustAnchor' || die "the built ETSI library does not carry the WD-13 patch."
   fi
 
   # A repository of one module, inside the wallet's tree, under a group of our own: the patched jar
@@ -868,6 +893,47 @@ allprojects {
 }
 GRADLE
     echo "    ETSI consultation $WALLET_ETSI_LIB_VERSION rebuilt with wd-12.patch, and substituted."
+  fi
+
+  if [ "$WANT_WD13" = "yes" ]; then
+    # The chain-validation module, the same way again.
+    WD13_ARTIFACT="etsi-1196x2-consultation-jvm-wd13"
+    WD13_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD13_ARTIFACT/$WALLET_ETSI_LIB_VERSION"
+    mkdir -p "$WD13_REPO"
+    cp "$ETSI_CHAIN_JAR" "$WD13_REPO/$WD13_ARTIFACT-$WALLET_ETSI_LIB_VERSION.jar"
+    # The published module's own dependencies, at $WALLET_ETSI_LIB_VERSION.
+    cat > "$WD13_REPO/$WD13_ARTIFACT-$WALLET_ETSI_LIB_VERSION.pom" <<POM
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>eu.europa.ec.eudi.edtp</groupId>
+  <artifactId>$WD13_ARTIFACT</artifactId>
+  <version>$WALLET_ETSI_LIB_VERSION</version>
+  <dependencies>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-core-jvm</artifactId><version>1.10.2</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlin</groupId><artifactId>kotlin-stdlib</artifactId><version>2.2.21</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.83</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId><version>2.0.17</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>atomicfu-jvm</artifactId><version>0.28.0</version><scope>runtime</scope></dependency>
+  </dependencies>
+</project>
+POM
+    cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-13: every module resolves the ETSI chain-validation module to the patched build of the same
+// version, whose only change is that a chain is validated up to the first certificate that is a trust
+// anchor of the list.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            val patched = module("eu.europa.ec.eudi.edtp:$WD13_ARTIFACT:$WALLET_ETSI_LIB_VERSION")
+            substitute(module("eu.europa.ec.eudi:etsi-1196x2-consultation")).using(patched)
+            substitute(module("eu.europa.ec.eudi:etsi-1196x2-consultation-jvm")).using(patched)
+        }
+    }
+}
+GRADLE
+    echo "    ETSI chain validation $WALLET_ETSI_LIB_VERSION rebuilt with wd-13.patch, and substituted."
   fi
 fi
 

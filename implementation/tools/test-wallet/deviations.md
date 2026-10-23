@@ -26,6 +26,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
 | **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
 | **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Built** (F7), 23 October 2026 |
+| **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Prepared** (F8), 23 October 2026 |
 
 ---
 
@@ -706,6 +707,62 @@ ignores anyway (`pubEaaProviders = null`): a public-body EAA's issuer is not tru
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-13 — a chain is validated up to the list's anchor, not past it
+
+**The defect, seen with F7 on 23 October 2026.** Scanning FNMT-RCM's credential offer, the wallet
+refused the issuer as untrusted, though FNMT-RCM's access-certificate provider is on the Commission's
+WRPAC list. The issuer's signed metadata carries a three-certificate `x5c`: the signer ("Emisor FNMT
+Test"), the CA that issued it ("FNMT Test WRPAC Certificate Provider") and that CA's issuer ("…
+Intermediate CA"). The Commission's list anchors the **middle** one, not FNMT-RCM's root. PKIX takes
+the anchor as an input, not as part of the path (RFC 5280 §6.1), and the JDK's validator refuses a
+path that runs past it: `Path does not chain with any of the trust anchors`. FNMT-RCM's own lists
+anchored the root, which is why F5 and F6 did not meet it. Reproduced with the library, the real
+chain and the Commission's list: the chain as sent, or cut to two, is refused; the signer alone is
+trusted, at that anchor.
+
+**Why the fix does not relax trust.** An ETSI TS 119 602 list states which certificate is the trust
+anchor, and it need not be a root. Nothing above an anchor ever counted towards trust. So the path is
+cut just below the first certificate, after the leaf, that is **byte for byte** a certificate of the
+list's anchors; the leaf up to it is validated exactly as before — signatures, validity, extensions.
+A name or key-identifier match does not cut anything, and a chain with no such certificate is
+validated unchanged. It is what other stacks do when a non-root anchor is allowed (OpenSSL's
+`X509_V_FLAG_PARTIAL_CHAIN`, path building in browsers).
+
+**The patch**, `deviations/wd-13.patch`, against the library's chain-validation module
+(`consultation`, artifact `etsi-1196x2-consultation`): `ValidateCertificateChainUsingPKIXJvm` cuts the
+chain before building the `CertPath`. It is the validator Wallet Core uses for every list-backed
+context — issuer metadata, PIDs, mDLs, verifiers' access certificates. Built and substituted like WD-10
+and WD-12, from the same clone, so **wd-13 requires wd-10**.
+
+**Its tests**, run by `build.sh` before the jar is used, with the JDK's default provider as the wallet
+uses: a chain running above an anchored CA is trusted at that CA; one ending at it is trusted; an
+anchor with the **same name and another key** cuts nothing and the chain is refused; a leaf the anchor
+did not issue is refused; a chain with no anchored certificate behaves as before. The validator's seven
+existing tests pass as well. With the patch, the real three-certificate chain is trusted against the
+Commission's list.
+
+**Not a fix for anyone else.** An unmodified Reference Wallet still refuses FNMT-RCM's chain. For a
+wallet without this patch, the issuer must send `x5c` without the anchor and anything above it — for
+these lists, the signer alone; but with FNMT-RCM's own lists, whose anchor is the root, the signer
+alone would not be enough. An issuer cannot know which certificate each wallet's list anchors, which is
+why the fix belongs in the validator, and worth proposing upstream. **Open question:** whether HAIP or
+OpenID4VCI forbid including the trust anchor in `x5c`; the clause has not been verified here.
+
+### F8 — F7 with WD-13
+
+**Prepared on 23 October 2026, not built.** F7 with WD-13, nothing else changed: the same identity
+(`.fnmtce`, "FNMT-RCM Cartera demo CE"), key, look and Commission lists, so it **updates F7 in place**
+and keeps its documents. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13`**.
+`core-logic` compiles, and the app's runtime classpath resolves all three library modules to ours.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

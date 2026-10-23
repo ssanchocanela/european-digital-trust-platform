@@ -25,7 +25,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 | **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
 | **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
-| **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Prepared** (F7), 23 October 2026 |
+| **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Built** (F7), 23 October 2026 |
 
 ---
 
@@ -675,7 +675,13 @@ resolves both library modules to ours.
 
 ### F7 — the FNMT-RCM build reading the Commission's development lists
 
-**Prepared on 23 October 2026, not built.** At FNMT-RCM's request, now that the Commission publishes
+**Built by the operator on 23 October 2026**, APK SHA-256
+`5289d918a44d84e7683f2a8f911d00dff4fc093ec6baebe382a9c5a9197ab695`. Checked in the package: the
+identity (`eu.europa.ec.euidi.fnmtce`, "FNMT-RCM Cartera demo CE"), our signature (`OU=TEST ONLY`),
+the deviations, the four Commission list addresses and none of FNMT-RCM's, the WD-12 mDL
+classification, the WD-10 serializer, and the colour look's launcher files byte for byte (15 of 15);
+the build's dependency repository held both patched library modules. **Not yet installed or
+delivered**; a delivery notice was filled in for it. At FNMT-RCM's request, now that the Commission publishes
 development lists that include FNMT-RCM's test providers. It installs **alongside** F6, not over it:
 `applicationId` suffix `.fnmtce`, name "FNMT-RCM Cartera demo CE". The colour look of F6. Deviations
 **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12`** — F6's, without WD-9, with WD-12.

@@ -26,7 +26,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
 | **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
 | **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Built** (F7), 23 October 2026 |
-| **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Prepared** (F8), 23 October 2026 |
+| **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Built** (F8), 23 October 2026 |
 
 ---
 
@@ -756,7 +756,12 @@ OpenID4VCI forbid including the trust anchor in `x5c`; the clause has not been v
 
 ### F8 — F7 with WD-13
 
-**Prepared on 23 October 2026, not built.** F7 with WD-13, nothing else changed: the same identity
+**Built by the operator on 23 October 2026**, APK SHA-256
+`144302592e42fd57e040a3063d12cfd37212f99167c68eec1fb0d3bf9c61a934`. Checked in the package: the
+identity, our signature, the deviations, the four Commission list addresses and none of FNMT-RCM's,
+the WD-12 classification, the WD-10 serializer and the launcher files (15 of 15); the build's
+dependency repository held all three patched library modules. **Not yet installed or delivered**; a
+delivery notice was filled in for it. F7 with WD-13, nothing else changed: the same identity
 (`.fnmtce`, "FNMT-RCM Cartera demo CE"), key, look and Commission lists, so it **updates F7 in place**
 and keeps its documents. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13`**.
 `core-logic` compiles, and the app's runtime classpath resolves all three library modules to ours.

@@ -25,6 +25,7 @@
 #   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
 #   --wrprc-lote <url>      required by wd-8. Where it fetches registration-certificate provider anchors.
 #   --pubeaa-lote <url>     required by wd-9. Where it fetches public-body EAA provider anchors.
+#   --mdl-lote <url>        required by wd-12. Where it fetches mDL Provider anchors.
 #   --issuer <url>[,<url>…]  required by wd-5, up to four. The ONLY issuers "Add document > From
 #                           list" offers, in list order: one or two reuse upstream's two slots; a
 #                           third and a fourth are copies of the second slot's settings, each
@@ -48,6 +49,12 @@
 # `wd-10` builds the ETSI TS 119 602 data-model library from its pinned source with one patch, so
 # that a trust list whose LoTELegalNotice is a multilingual character string is read instead of
 # refused whole. A defect fix in a dependency; the library is cloned into ./upstream-etsi.
+#
+# `wd-12` lets the wallet trust an mDL issuer from an mDL Providers list. Wallet Core resolves each
+# list through the ETSI library's EU baseline, which has no mDL entry, so an mDL could not be issued
+# under the build's ENFORCE issuer policy. wd-12 adds that entry to the same library build as wd-10
+# (and so requires wd-10), points `eaaProviders["mdl"]` at the list and classifies the ISO mDL
+# docType under it. An extension, not a relaxation: an mDL issuer is trusted only if the list has it.
 #
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
@@ -89,6 +96,7 @@ WRPAC_LOTE=""
 PID_LOTE=""
 WRPRC_LOTE=""
 PUBEAA_LOTE=""
+MDL_LOTE=""
 ISSUER_URL=""
 PID_LABEL=""
 APP_ID_SUFFIX=""
@@ -104,6 +112,7 @@ while [ $# -gt 0 ]; do
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
     --wrprc-lote) WRPRC_LOTE="${2:-}"; shift 2 ;;
     --pubeaa-lote) PUBEAA_LOTE="${2:-}"; shift 2 ;;
+    --mdl-lote) MDL_LOTE="${2:-}"; shift 2 ;;
     --issuer) ISSUER_URL="${2:-}"; shift 2 ;;
     --brand) BRAND="${2:-}"; shift 2 ;;
     --pid-label) PID_LABEL="${2:-}"; shift 2 ;;
@@ -137,6 +146,7 @@ WANT_WD8=no
 WANT_WD9=no
 WANT_WD10=no
 WANT_WD11=no
+WANT_WD12=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -201,6 +211,18 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-11.patch" ] || die "deviations/wd-11.patch is missing."
         WANT_WD11=yes
         ;;
+      wd-12)
+        # Refused without the URL, for the same reason as wd-3.
+        [ -n "$MDL_LOTE" ] ||
+          die "--deviations wd-12 requires --mdl-lote <url>: the mDL Providers list this build is to
+    consult. See deviations.md."
+        case "$MDL_LOTE" in
+          https://*) ;;
+          *) die "--mdl-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        esac
+        [ -f "$HERE/deviations/wd-12.patch" ] || die "deviations/wd-12.patch is missing."
+        WANT_WD12=yes
+        ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
         # deviation while offering them, and one listing a guessed URL would offer nothing that works.
@@ -236,12 +258,17 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-11 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-12 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
   IFS="$OLD_IFS"
 fi
+# wd-12's library change is built, published and substituted with wd-10's, from the same clone.
+[ "$WANT_WD12" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
+  die "wd-12 requires wd-10: its library change is built on the same patched ETSI library build."
+[ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
+  die "--mdl-lote is given without wd-12, so the build would not read it."
 
 if [ "$WANT_WD2" = "yes" ]; then
   cat >&2 <<'WARN'
@@ -469,6 +496,45 @@ if [ "$WANT_WD9" = "yes" ]; then
   step "Applying WD-9 (pubEaaProviders -> another list)"
   replace_lote WD-9 pubEaaProviders PubEAAProviders "$PUBEAA_LOTE"
 fi
+if [ "$WANT_WD12" = "yes" ]; then
+  step "Applying WD-12 (eaaProviders[\"mdl\"] -> an mDL Providers list)"
+  # Two insertions in the wallet's configuration, each anchored on a line that must be there once:
+  # the list location after the pubEaaProviders line (upstream's or WD-9's), and the classification
+  # of the ISO mDL docType under the same use case inside AttestationClassifications(.
+  WD12_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  [ "$(grep -cE '^ *pubEaaProviders = Uri\(' "$WD12_FILE")" = "1" ] ||
+    die "the pubEaaProviders line is not in $WD12_FILE exactly once; WD-12 must be regenerated."
+  [ "$(grep -cE '^ *AttestationClassifications\($' "$WD12_FILE")" = "1" ] ||
+    die "AttestationClassifications( is not in $WD12_FILE exactly once; WD-12 must be regenerated."
+  awk -v url="$MDL_LOTE" '
+    /^ *pubEaaProviders = Uri\(/ {
+      print
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print pad "// EDTP deviation WD-12. The mDL Providers list, under the use case \"mdl\" that the"
+      print pad "// patched ETSI library maps to its issuance and revocation services. The URL is"
+      print pad "// substituted by build.sh. This build is a MODIFIED wallet."
+      print pad "eaaProviders = mapOf(\"mdl\" to Uri(\"" url "\")),"
+      next
+    }
+    /^ *AttestationClassifications\($/ {
+      print
+      match($0, /^ */); pad = substr($0, 1, RLENGTH) "    "
+      print pad "// EDTP deviation WD-12: an ISO mDL is classified under the \"mdl\" list."
+      print pad "eaAs = mapOf("
+      print pad "    \"mdl\" to AttestationIdentifierPredicate.any("
+      print pad "        identifiers = setOf(AttestationIdentifier.MDoc(docType = \"org.iso.18013.5.1.mDL\")),"
+      print pad "    ),"
+      print pad "),"
+      next
+    }
+    { print }
+  ' "$WD12_FILE" > "$WD12_FILE.new" && mv "$WD12_FILE.new" "$WD12_FILE"
+  grep -qF "eaaProviders = mapOf(\"mdl\" to Uri(\"$MDL_LOTE\"))," "$WD12_FILE" ||
+    die "substituting the WD-12 list URL did not take effect."
+  grep -qF 'AttestationIdentifier.MDoc(docType = "org.iso.18013.5.1.mDL")' "$WD12_FILE" ||
+    die "the WD-12 classification did not take effect."
+  echo "    eaaProviders[\"mdl\"] -> $MDL_LOTE"
+fi
 
 if [ "$WANT_WD5" = "yes" ]; then
   step "Applying WD-5 (the wallet's issuer list -> our issuers only)"
@@ -685,15 +751,28 @@ if [ "$WANT_WD10" = "yes" ]; then
   git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-10.patch" ||
     die "failed to apply deviations/wd-10.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
   ETSI_JAR="$ETSI_DIR/119602-data-model/build/libs/etsi-119602-data-model-jvm-$WALLET_ETSI_LIB_VERSION.jar"
-  rm -f "$ETSI_JAR"
-  # The patch carries its own tests: both forms of the legal notice read, anything else refused. A
-  # build whose patched library fails them is not built.
-  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
-      :etsi-119602-data-model:jvmTest --tests '*EdtpLegalNoticeTest*' :etsi-119602-data-model:jvmJar ) ||
+  ETSI_CONSULTATION_JAR="$ETSI_DIR/119602-consultation/build/libs/etsi-119602-consultation-jvm-$WALLET_ETSI_LIB_VERSION.jar"
+  rm -f "$ETSI_JAR" "$ETSI_CONSULTATION_JAR"
+  # WD-12 changes another module of the same library, so it is built here too, from the same clone.
+  ETSI_TASKS=(:etsi-119602-data-model:jvmTest --tests '*EdtpLegalNoticeTest*' :etsi-119602-data-model:jvmJar)
+  if [ "$WANT_WD12" = "yes" ]; then
+    git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-12.patch" ||
+      die "failed to apply deviations/wd-12.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
+    ETSI_TASKS+=(:etsi-119602-consultation:jvmTest --tests '*EdtpWd12Test*' :etsi-119602-consultation:jvmJar)
+  fi
+  # Each patch carries its own tests: for WD-10, both forms of the legal notice read and anything else
+  # refused; for WD-12, the mDL list's two services mapped. A library that fails them is not used.
+  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet "${ETSI_TASKS[@]}" ) ||
     die "the patched ETSI library did not pass its tests or did not build."
   [ -f "$ETSI_JAR" ] || die "the patched ETSI library built no jar at $ETSI_JAR."
   jar tf "$ETSI_JAR" | grep -q 'EdtpLegalNoticeTextSerializer.class' ||
     die "the built ETSI library does not carry the WD-10 patch."
+  if [ "$WANT_WD12" = "yes" ]; then
+    [ -f "$ETSI_CONSULTATION_JAR" ] || die "the patched ETSI library built no jar at $ETSI_CONSULTATION_JAR."
+    # The constant is inlined at compile time, but its holder class is generated only if WD-12 is there.
+    javap -cp "$ETSI_CONSULTATION_JAR" -constants eu.europa.ec.eudi.etsi119602.consultation.EUSupportedListsKt |
+      grep -q 'MDL_USE_CASE = "mdl"' || die "the built ETSI library does not carry the WD-12 patch."
+  fi
 
   # A repository of one module, inside the wallet's tree, under a group of our own: the patched jar
   # can never be taken for the published one, and nothing else can come from here.
@@ -747,6 +826,49 @@ allprojects {
 GRADLE
   grep -q 'uri("edtp-maven")' settings.gradle.kts || die "the WD-10 repository did not take."
   echo "    ETSI data model $WALLET_ETSI_LIB_VERSION rebuilt from $WALLET_ETSI_LIB_TAG with wd-10.patch, and substituted."
+
+  if [ "$WANT_WD12" = "yes" ]; then
+    # The consultation module, the same way: one more module in the same repository of our own. Its
+    # dependency on the data model is substituted by the WD-10 rule above like any other.
+    WD12_ARTIFACT="etsi-119602-consultation-jvm-wd12"
+    WD12_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD12_ARTIFACT/$WALLET_ETSI_LIB_VERSION"
+    mkdir -p "$WD12_REPO"
+    cp "$ETSI_CONSULTATION_JAR" "$WD12_REPO/$WD12_ARTIFACT-$WALLET_ETSI_LIB_VERSION.jar"
+    # The published module's own dependencies, at $WALLET_ETSI_LIB_VERSION.
+    cat > "$WD12_REPO/$WD12_ARTIFACT-$WALLET_ETSI_LIB_VERSION.pom" <<POM
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>eu.europa.ec.eudi.edtp</groupId>
+  <artifactId>$WD12_ARTIFACT</artifactId>
+  <version>$WALLET_ETSI_LIB_VERSION</version>
+  <dependencies>
+    <dependency><groupId>eu.europa.ec.eudi</groupId><artifactId>etsi-119602-data-model-jvm</artifactId><version>$WALLET_ETSI_LIB_VERSION</version><scope>compile</scope></dependency>
+    <dependency><groupId>eu.europa.ec.eudi</groupId><artifactId>etsi-1196x2-consultation-jvm</artifactId><version>$WALLET_ETSI_LIB_VERSION</version><scope>compile</scope></dependency>
+    <dependency><groupId>io.ktor</groupId><artifactId>ktor-client-core-jvm</artifactId><version>3.3.3</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlin</groupId><artifactId>kotlin-stdlib</artifactId><version>2.2.21</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.83</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>atomicfu-jvm</artifactId><version>0.28.0</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-io-core-jvm</artifactId><version>0.8.2</version><scope>runtime</scope></dependency>
+  </dependencies>
+</project>
+POM
+    cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-12: every module resolves the ETSI TS 119 602 consultation module to the patched build of
+// the same version, whose only change is that its EU baseline carries the mDL Providers list.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            val patched = module("eu.europa.ec.eudi.edtp:$WD12_ARTIFACT:$WALLET_ETSI_LIB_VERSION")
+            substitute(module("eu.europa.ec.eudi:etsi-119602-consultation")).using(patched)
+            substitute(module("eu.europa.ec.eudi:etsi-119602-consultation-jvm")).using(patched)
+        }
+    }
+}
+GRADLE
+    echo "    ETSI consultation $WALLET_ETSI_LIB_VERSION rebuilt with wd-12.patch, and substituted."
+  fi
 fi
 
 if [ -n "$BRAND" ]; then
@@ -791,6 +913,7 @@ EDTP_WRPAC_LOTE=$WRPAC_LOTE
 EDTP_PID_LOTE=$PID_LOTE
 EDTP_WRPRC_LOTE=$WRPRC_LOTE
 EDTP_PUBEAA_LOTE=$PUBEAA_LOTE
+EDTP_MDL_LOTE=$MDL_LOTE
 EDTP_ISSUER_URL=$ISSUER_URL
 EDTP_PID_LABEL=$PID_LABEL
 EDTP_BRAND=$BRAND

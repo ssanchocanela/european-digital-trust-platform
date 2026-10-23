@@ -25,6 +25,8 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
 | **WD-10** | The ETSI TS 119 602 data-model library reads a `LoTELegalNotice` written as a multilingual character string | — | **Defect fix in a dependency**: the library is rebuilt from its pinned source with one patch | **Prepared** (F4), 9 October 2026 |
 | **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
+| **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Built** (F7), 23 October 2026 |
+| **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Built** (F8), 23 October 2026 |
 
 ---
 
@@ -641,6 +643,137 @@ black-and-white logo and the website's blue. At FNMT-RCM's request. It replaces 
 
 A build that leaves our hands goes with [`DELIVERY-NOTICE.md`](DELIVERY-NOTICE.md), filled in.
 The branded resources merge and the theme compiles; **no branded build has been built or delivered.**
+
+### WD-12 — an mDL issuer is trusted from an mDL Providers list
+
+**What is missing upstream.** Wallet Core 0.30.2 trusts an attestation's issuer only through a list
+its classification points to, under an `ENFORCE` default. The pinned build classifies the PID and
+nothing else, so an **mDL** has no list, no context and no trust: issuing one throws, whatever lists
+exist. The library has the pieces — an `EUMDLProvidersList` profile and a `UseCase.MDL` declared in
+`EUSupportedLists.kt` — but its EU baseline (`SupportedLists.eu()`) does not use them, and Wallet Core
+builds its trust from that baseline and nothing else (`EtsiTrustProvider`, `svcTypePerCtx =
+SupportedLists.eu()`). A list location the baseline has no entry for is dropped when the two are
+combined. So pointing `eaaProviders["mdl"]` at a list from the wallet alone does nothing.
+
+**The change, in two halves.**
+
+- `deviations/wd-12.patch`, against the ETSI library's `119602-consultation` module: the baseline gains
+  `eaaProviders["mdl"]`, mapping `VerificationContext.EAA("mdl")` to the list's issuance service type
+  and `EAAStatus("mdl")` to its revocation one — the profile the library already declares, unused. A
+  test checks both mappings, and `build.sh` runs it before using the jar. The module is built from the
+  same clone as WD-10 and substituted the same way, which is why **wd-12 requires wd-10**.
+- In the wallet's configuration: `eaaProviders = mapOf("mdl" to Uri(<--mdl-lote>))`, and the ISO mDL
+  docType `org.iso.18013.5.1.mDL` classified under `"mdl"`.
+
+It **adds** trust where the build had none; it relaxes nothing. An mDL issuer is trusted only if the
+list has it, and the issuer's signed metadata is still checked against the WRPAC list.
+
+**Checked**, on 23 October 2026. The library test passes. Read through the patched library as the
+wallet reads them (profiles relaxed, as the wallet's configuration does), the Commission's four
+development lists give: mDL 16 issuance and 14 revocation anchors, PID 36 and 31, WRPAC 32,
+WRPRC 32 and 24. `core-logic` compiles against the patched jar, and the app's runtime classpath
+resolves both library modules to ours.
+
+### F7 — the FNMT-RCM build reading the Commission's development lists
+
+**Built by the operator on 23 October 2026**, APK SHA-256
+`5289d918a44d84e7683f2a8f911d00dff4fc093ec6baebe382a9c5a9197ab695`. Checked in the package: the
+identity (`eu.europa.ec.euidi.fnmtce`, "FNMT-RCM Cartera demo CE"), our signature (`OU=TEST ONLY`),
+the deviations, the four Commission list addresses and none of FNMT-RCM's, the WD-12 mDL
+classification, the WD-10 serializer, and the colour look's launcher files byte for byte (15 of 15);
+the build's dependency repository held both patched library modules. **Not yet installed or
+delivered**; a delivery notice was filled in for it. At FNMT-RCM's request, now that the Commission publishes
+development lists that include FNMT-RCM's test providers. It installs **alongside** F6, not over it:
+`applicationId` suffix `.fnmtce`, name "FNMT-RCM Cartera demo CE". The colour look of F6. Deviations
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12`** — F6's, without WD-9, with WD-12.
+
+| List | Address | FNMT-RCM entries seen on 23 October |
+|---|---|---|
+| PID Providers (WD-4) | `https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json` | Emisor PID FNMT Test; FNMT Test PID Issuer; Emisor PID AEAD TEST |
+| WRPAC Providers (WD-3) | `…/wrpac-providers.json` | AC FNMT EUDIWRP TEST; FNMT Test WRPAC Certificate Provider |
+| WRPRC Providers (WD-8) | `…/wrprc-providers.json` | AC FNMT EUDIWRPRC PROVIDER SW TEST; FNMT Test WRPRC Certificate Provider |
+| mDL Providers (WD-12) | `…/mdl-providers.json` | FNMT-RCM TEST |
+
+These are **development** lists of the Commission, not the notified lists the pinned build reads, and
+they carry many other providers besides FNMT-RCM's. Each is a JWS signed with RS512 by "CommisSign - 2",
+with its certificate in `x5c`, which is what the wallet's verifier needs. **WD-10 is not needed to
+read them** (three carry a `LoTEPolicy`, the WRPRC list a plain-string legal notice); it is in the
+build because WD-12 is built with it. The WD-3 and WD-4 comments compiled into the source still
+describe a list we publish; for this build the address is the Commission's, as the stamp records.
+
+**Not set: public-body EAA providers.** Not asked for, and the address the Commission gives answered
+`403` on 23 October. Without WD-9 the build keeps upstream's address, which the library's baseline
+ignores anyway (`pubEaaProviders = null`): a public-body EAA's issuer is not trusted by this build.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-13 — a chain is validated up to the list's anchor, not past it
+
+**The defect, seen with F7 on 23 October 2026.** Scanning FNMT-RCM's credential offer, the wallet
+refused the issuer as untrusted, though FNMT-RCM's access-certificate provider is on the Commission's
+WRPAC list. The issuer's signed metadata carries a three-certificate `x5c`: the signer ("Emisor FNMT
+Test"), the CA that issued it ("FNMT Test WRPAC Certificate Provider") and that CA's issuer ("…
+Intermediate CA"). The Commission's list anchors the **middle** one, not FNMT-RCM's root. PKIX takes
+the anchor as an input, not as part of the path (RFC 5280 §6.1), and the JDK's validator refuses a
+path that runs past it: `Path does not chain with any of the trust anchors`. FNMT-RCM's own lists
+anchored the root, which is why F5 and F6 did not meet it. Reproduced with the library, the real
+chain and the Commission's list: the chain as sent, or cut to two, is refused; the signer alone is
+trusted, at that anchor.
+
+**Why the fix does not relax trust.** An ETSI TS 119 602 list states which certificate is the trust
+anchor, and it need not be a root. Nothing above an anchor ever counted towards trust. So the path is
+cut just below the first certificate, after the leaf, that is **byte for byte** a certificate of the
+list's anchors; the leaf up to it is validated exactly as before — signatures, validity, extensions.
+A name or key-identifier match does not cut anything, and a chain with no such certificate is
+validated unchanged. It is what other stacks do when a non-root anchor is allowed (OpenSSL's
+`X509_V_FLAG_PARTIAL_CHAIN`, path building in browsers).
+
+**The patch**, `deviations/wd-13.patch`, against the library's chain-validation module
+(`consultation`, artifact `etsi-1196x2-consultation`): `ValidateCertificateChainUsingPKIXJvm` cuts the
+chain before building the `CertPath`. It is the validator Wallet Core uses for every list-backed
+context — issuer metadata, PIDs, mDLs, verifiers' access certificates. Built and substituted like WD-10
+and WD-12, from the same clone, so **wd-13 requires wd-10**.
+
+**Its tests**, run by `build.sh` before the jar is used, with the JDK's default provider as the wallet
+uses: a chain running above an anchored CA is trusted at that CA; one ending at it is trusted; an
+anchor with the **same name and another key** cuts nothing and the chain is refused; a leaf the anchor
+did not issue is refused; a chain with no anchored certificate behaves as before. The validator's seven
+existing tests pass as well. With the patch, the real three-certificate chain is trusted against the
+Commission's list.
+
+**Not a fix for anyone else.** An unmodified Reference Wallet still refuses FNMT-RCM's chain. For a
+wallet without this patch, the issuer must send `x5c` without the anchor and anything above it — for
+these lists, the signer alone; but with FNMT-RCM's own lists, whose anchor is the root, the signer
+alone would not be enough. An issuer cannot know which certificate each wallet's list anchors, which is
+why the fix belongs in the validator, and worth proposing upstream. **Open question:** whether HAIP or
+OpenID4VCI forbid including the trust anchor in `x5c`; the clause has not been verified here.
+
+### F8 — F7 with WD-13
+
+**Built by the operator on 23 October 2026**, APK SHA-256
+`144302592e42fd57e040a3063d12cfd37212f99167c68eec1fb0d3bf9c61a934`. Checked in the package: the
+identity, our signature, the deviations, the four Commission list addresses and none of FNMT-RCM's,
+the WD-12 classification, the WD-10 serializer and the launcher files (15 of 15); the build's
+dependency repository held all three patched library modules. **Not yet installed or delivered**; a
+delivery notice was filled in for it. **Run by the operator on 23 October 2026: it worked** — F8 trusted FNMT-RCM's issuer when scanning the
+offer that F7 had refused. F7 with WD-13, nothing else changed: the same identity
+(`.fnmtce`, "FNMT-RCM Cartera demo CE"), key, look and Commission lists, so it **updates F7 in place**
+and keeps its documents. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13`**.
+`core-logic` compiles, and the app's runtime classpath resolves all three library modules to ours.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
 
 ---
 

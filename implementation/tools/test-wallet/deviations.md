@@ -761,7 +761,8 @@ OpenID4VCI forbid including the trust anchor in `x5c`; the clause has not been v
 identity, our signature, the deviations, the four Commission list addresses and none of FNMT-RCM's,
 the WD-12 classification, the WD-10 serializer and the launcher files (15 of 15); the build's
 dependency repository held all three patched library modules. **Not yet installed or delivered**; a
-delivery notice was filled in for it. F7 with WD-13, nothing else changed: the same identity
+delivery notice was filled in for it. **Run by the operator on 23 October 2026: it worked** — F8 trusted FNMT-RCM's issuer when scanning the
+offer that F7 had refused. F7 with WD-13, nothing else changed: the same identity
 (`.fnmtce`, "FNMT-RCM Cartera demo CE"), key, look and Commission lists, so it **updates F7 in place**
 and keeps its documents. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13`**.
 `core-logic` compiles, and the app's runtime classpath resolves all three library modules to ours.

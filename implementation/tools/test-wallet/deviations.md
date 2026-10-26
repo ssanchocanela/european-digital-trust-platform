@@ -790,16 +790,22 @@ order:
 
 | Check | Result |
 |---|---|
-| Signer chain against the WRPRC list | **Fails** (`UNTRUSTED_PROVIDER`). The Commission's list anchors the signer itself, not the CA that issued it; the library's WRPRC profile expects a CA, and PKIX builds no path whose leaf is the anchor. Reproduced with the library, the certificate and the list. WD-13 does not apply: it cuts above the leaf. |
+| Decoding the payload | **Fails first** (`MALFORMED`). `srv_description` is a list of lists of `{lang, value}`; Wallet Core's model takes a flat list of `{lang, value}` and refuses the whole certificate: `Expected start of the object '{', but had '[' instead at path: $.srv_description[0]`. Reproduced with the same model and the certificate. This is decoded before the signer chain is checked, and is not logged, which is why the diagnostic variant's log shows no trust evaluation for it. Which form the specification requires was not verified here. |
+| Signer chain against the WRPRC list | **Would fail** (`UNTRUSTED_PROVIDER`). The Commission's list anchors the signer itself, not the CA that issued it; the library's WRPRC profile expects a CA, and PKIX builds no path whose leaf is the anchor. Reproduced with the library, the certificate and the list. WD-13 does not apply: it cuts above the leaf. |
 | Bound to the access certificate | Passes: `sub` `NTRES-FNMTRCMTEST001` is the metadata signer's `organizationIdentifier` |
 | Expiry | Passes (October 2027) |
 | Status | **Would fail** (`REVOCATION_STATUS_UNKNOWN`): its status list, `https://wrprc-provider.example.es/status/1`, answered `410` |
 | Entitlements | Pass: `PID_Provider`, and `PUB_EAA_Provider` for the mDL and the powers of representation |
 | Scope | Passes: every offered configuration is in `provides_attestations` |
 
-What would make it pass, with no change to the wallet: the WRPRC list carrying the CA that issues the
+What would make it pass, with no change to the wallet: `srv_description` as a flat list of `{lang, value}`; the WRPRC list carrying the CA that issues the
 signer (or the certificate signed under a CA the list carries), and a reachable status list for it,
 signed under the WRPRC revocation service.
+
+**Run with the diagnostic variant on 26 October 2026**: the same block. Its log shows the issuer's signed
+metadata trusted (the three-certificate chain, through WD-13) and then **no** evaluation of the
+registration certificate's signer chain — consistent with the decoding failure above, which returns
+before it and logs nothing.
 
 **The diagnostic variant**, to see the reason on the phone: F8 without WD-7 and with `--diagnostics`, as
 `.fnmtcediag`, "FNMT CE diag". **For our own phone only, never delivered:** without WD-7 a release

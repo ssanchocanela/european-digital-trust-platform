@@ -31,6 +31,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-15** | A leaf that is byte for byte a trust anchor of the list is trusted directly, within its validity period | (a) and (b) | **Defect fix in a dependency**: the ETSI chain validator, on top of WD-13 | **Prepared** (F10), 26 October 2026 |
 | **WD-16** | A registration certificate's status list may be a CWT: fetched when the JWT cannot be had, and verified the same way | — | **Defect fix**: Wallet Core rebuilt with one more patch | **Prepared** (F11), 26 October 2026 |
 | **WD-17** | A CWT status list sent base64url-encoded as text is decoded before it is read | — | **Security relaxation** (of a transport rule; the token is still verified in full) | **Prepared** (F12), 26 October 2026 |
+| **WD-18** | The EUDI Wallet Launchpad 2026 Testing Playbook's URL schemes are accepted: `eu-eaap://` (presentation) and `eu-eaa-offer://` (credential offer) | — | Configuration (which schemes the app and Wallet Core accept) | **Prepared** (F13), 26 October 2026 |
 
 ---
 
@@ -1015,6 +1016,45 @@ the registration certificate's status was obtained as the specification requires
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-18 — the Launchpad's URL schemes
+
+**Why.** On 26 October 2026 F10's diagnostic variant scanned the presentation QR of the Spanish
+Secretaría de Estado de Administraciones Públicas test IdP (`se-idp-cd.redsara.es`). It reads
+`eu-eaap://?client_id=x509_hash:…&request_uri=https://se-idp-cd.redsara.es/inbox/inbox/request.jwt?state=…&request_uri_method=post`
+— an ordinary OpenID4VP request under a scheme the wallet does not know. The upstream app accepts
+`openid4vp`, `eudi-openid4vp`, `mdoc-openid4vp` and `haip-vp` for a presentation and
+`openid-credential-offer` and `haip-vci` for an offer; scanned from *Add document*, the code was taken for
+a credential offer and failed (`OneOfCredentialOfferOrCredentialOfferUri`). The EUDI Wallet Launchpad 2026
+Testing Playbook (version 3, 21 October 2026) uses `eu-eaap://` for every OID4VP redirect-based remote
+presentation test case and `eu-eaa-offer://` for every issuer-initiated issuance test case. The playbook is
+a test plan, not a specification; the schemes are configuration, not conformance.
+
+**The change.** `deviations/wd-18.patch`: two intent filters in `assembly-logic`'s manifest (no host, so
+`eu-eaap://?…` matches), and the two schemes added to the app's routing (`DeepLinkType.OPENID4VP` and
+`CREDENTIAL_OFFER`). `build.sh` also adds `eu-eaap` to Wallet Core's list of OpenID4VP schemes in the
+generated configuration, because Wallet Core refuses a request whose scheme is not in it
+(`OpenId4VpManager`, `require(config.schemes.contains(…))`). The credential offer needs no such entry: the
+OpenID4VCI library reads the offer's parameters whatever the scheme. The in-app scanner routes by where it
+is opened, not by scheme: a presentation must still be scanned from the presentation entry, not *Add
+document*; a link opened from a browser is routed by scheme.
+
+**Checked:** `core-logic` and `ui-logic` compile, and the merged release manifest carries both filters.
+
+### F13 — F12 with WD-18, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F12 with WD-18: `.fnmtce`. Deviations
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18`**. Its diagnostic
+variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as `.fnmtcediag`; it
+was prepared.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

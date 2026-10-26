@@ -76,6 +76,10 @@
 # response typed application/statuslist+cwt whose whole body is base64url text of a COSE_Sign1; the
 # token is then verified as a binary one is. On top of wd-16, so it requires wd-16.
 #
+# `wd-18` accepts the two URL schemes of the EUDI Wallet Launchpad 2026 Testing Playbook: `eu-eaap://`
+# for an OpenID4VP request and `eu-eaa-offer://` for a credential offer — in the app's deep-link
+# filters and routing, and `eu-eaap` in Wallet Core's list of OpenID4VP schemes, which it checks.
+#
 # `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
 # `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
 # arrays) as well as the flat one it read before; a certificate written to the specification was
@@ -178,6 +182,7 @@ WANT_WD14=no
 WANT_WD15=no
 WANT_WD16=no
 WANT_WD17=no
+WANT_WD18=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -258,6 +263,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
         WANT_WD13=yes
         ;;
+      wd-18)
+        [ -f "$HERE/deviations/wd-18.patch" ] || die "deviations/wd-18.patch is missing."
+        WANT_WD18=yes
+        ;;
       wd-17)
         [ -f "$HERE/deviations/wd-17.patch" ] || die "deviations/wd-17.patch is missing."
         WANT_WD17=yes
@@ -309,7 +318,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-17 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-18 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -748,6 +757,29 @@ if [ "$WANT_WD6" = "yes" ]; then
   [ "$(grep -cF 'CredentialResponseEncryptionPolicy.SUPPORTED' "$WD6_FILE")" = "$WD6_SLOTS" ] ||
     die "WD-6 did not reach every issuer slot."
   echo "    credential response encryption: SUPPORTED on $WD6_SLOTS issuer slot(s). Unencrypted responses ACCEPTED."
+fi
+
+if [ "$WANT_WD18" = "yes" ]; then
+  step "Applying WD-18 (the Launchpad schemes: eu-eaap:// and eu-eaa-offer://)"
+  # The app's deep-link filters and routing, by patch; Wallet Core's own list of OpenID4VP schemes, which
+  # it checks a request against, by inserting into the generated configuration after the HAIP scheme.
+  git apply --whitespace=nowarn "$HERE/deviations/wd-18.patch" ||
+    die "failed to apply deviations/wd-18.patch against the pinned tag; it must be regenerated."
+  WD18_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  [ "$(grep -cE '^ *BuildConfig\.HAIP_OPENID4VP_SCHEME$' "$WD18_FILE")" = "1" ] ||
+    die "the HAIP scheme line is not in $WD18_FILE exactly once; WD-18 must be regenerated."
+  awk '
+    /^ *BuildConfig\.HAIP_OPENID4VP_SCHEME$/ {
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print $0 ","
+      print pad "// EDTP deviation WD-18: the EUDI Wallet Launchpad 2026 Testing Playbook scheme."
+      print pad "\"eu-eaap\""
+      next
+    }
+    { print }
+  ' "$WD18_FILE" > "$WD18_FILE.new" && mv "$WD18_FILE.new" "$WD18_FILE"
+  grep -q '"eu-eaap"' "$WD18_FILE" || die "WD-18 did not take effect in $WD18_FILE."
+  echo "    eu-eaap:// -> presentation, eu-eaa-offer:// -> credential offer."
 fi
 
 if [ "$WANT_WD7" = "yes" ]; then

@@ -854,8 +854,9 @@ status list, which answers `410`. Both are FNMT-RCM's to change; see F8 above.
 blocked, now one check further. The log shows the issuer's signed metadata trusted, the registration
 certificate read (WD-14), and then the predicted second failure: `signer chain is not trusted:
 leaf=CN=FNMT Test WRPRC Certificate Provider, …` — `UNTRUSTED_PROVIDER`, because the Commission's WRPRC
-list anchors that signer rather than its CA. That, and the status list after it, are FNMT-RCM's to
-change.
+list anchors that signer rather than its CA. **That anchor is allowed by ETSI TS 119 602 Annex G**; the
+wallet's reading is the narrower one (`docs/interop-findings.md` C16). Listing the issuing CA works with
+both, and the status list after it is FNMT-RCM's to fix.
 
 **Prepared on 26 October 2026, not built.** F8 with WD-14, nothing else changed: `.fnmtce`, "FNMT-RCM
 Cartera demo CE", updating F8 in place. Deviations

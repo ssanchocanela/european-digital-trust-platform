@@ -27,6 +27,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-11** | A Credential Issuer Metadata request that asks for signed metadata asks for nothing else | (a), ARF §6.6.2.2 | **Defect fix** in the app's HTTP client | **Prepared** (F5), 9 October 2026 |
 | **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Built** (F7), 23 October 2026 |
 | **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Built** (F8), 23 October 2026 |
+| **WD-14** | A registration certificate's `srv_description` is read as ETSI TS 119 475 V1.2.1 defines it (an array of arrays), as well as flat | — | **Defect fix in a dependency**: Wallet Core rebuilt from its pinned source with one patch | **Prepared** (F9), 26 October 2026 |
 
 ---
 
@@ -818,6 +819,51 @@ build logs HTTP bodies, credentials included. Prepared on 26 October 2026.
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
       --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
       --brand fnmt-color --app-id-suffix .fnmtcediag --app-name "FNMT CE diag"
+
+### WD-14 — `srv_description` is read as ETSI TS 119 475 defines it
+
+**The defect** (`docs/interop-findings.md` C14). ETSI TS 119 475 V1.2.1 Annex B.2.1 (normative)
+defines `srvDescription` as `[1..*]` "Array of MultiLangString objects" — "Array of arrays with
+localized descriptions of the services provided by the WRP" — and Annex C's example has that shape.
+Wallet Core 0.30.2's `RegistrationCertificateDto` reads a flat array of `{lang, value}`, so a
+registration certificate written to the specification fails to decode, is `MALFORMED`, and the app
+blocks issuance with *Check Registration Certificates* on. FNMT-RCM's certificate follows the
+specification; this was F8's block.
+
+**The patch**, `deviations/wd-14.patch`, against Wallet Core at its pinned tag (`v0.30.2`, commit
+`6533dd10…`): a serializer on that one property that reads both shapes and keeps every text in order,
+flattened — which is all `RegistrationCertificate.serviceDescription` holds. Anything else is refused
+as before. The same model serves a verifier's registration certificate, so it applies to presentation
+too. `build.sh` clones Wallet Core into `./upstream-walletcore`, applies the patch, runs its tests and
+the library's 38 registration-certificate tests, builds the release AAR, and substitutes it with the
+published release's own POM, renamed. It is published through WD-10's repository, so **wd-14 requires
+wd-10**.
+
+**Its tests:** the specification's array of arrays is read, texts and languages in order; the flat
+array is still read; an absent `srv_description` is still empty; five other shapes are refused.
+**Checked** on 26 October 2026: all pass, and FNMT-RCM's real registration certificate, which the
+unpatched library refused, is parsed and its signature verified.
+
+**What this does not fix.** With the certificate read, the wallet goes on to its signer chain, which
+the Commission's WRPRC list does not anchor (the list carries the signer, not its CA), and then to its
+status list, which answers `410`. Both are FNMT-RCM's to change; see F8 above.
+
+### F9 — F8 with WD-14, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F8 with WD-14, nothing else changed: `.fnmtce`, "FNMT-RCM
+Cartera demo CE", updating F8 in place. Deviations
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14`**. Its diagnostic variant, for our own phone
+only and never delivered, is the same without WD-7 and with `--diagnostics`, as `.fnmtcediag`, "FNMT
+CE diag". The diagnostic variant was prepared: `core-logic` compiles, and the app's runtime classpath
+resolves Wallet Core and the three library modules to ours.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
 
 ---
 

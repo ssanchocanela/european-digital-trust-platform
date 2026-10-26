@@ -61,6 +61,12 @@
 # validator refuses a path that runs past its anchor. A defect fix in the same library build as
 # wd-10 (and so requires wd-10). Nothing above an anchor ever counted towards trust.
 #
+# `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
+# `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
+# arrays) as well as the flat one it read before; a certificate written to the specification was
+# refused as malformed. A defect fix in a dependency; cloned into ./upstream-walletcore, and published
+# through wd-10's repository (so it requires wd-10).
+#
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
 #   --app-id-suffix <.sfx>  overrides the applicationId suffix, so a build can install ALONGSIDE
@@ -153,6 +159,7 @@ WANT_WD10=no
 WANT_WD11=no
 WANT_WD12=no
 WANT_WD13=no
+WANT_WD14=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -233,6 +240,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
         WANT_WD13=yes
         ;;
+      wd-14)
+        [ -f "$HERE/deviations/wd-14.patch" ] || die "deviations/wd-14.patch is missing."
+        WANT_WD14=yes
+        ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
         # deviation while offering them, and one listing a guessed URL would offer nothing that works.
@@ -268,7 +279,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-13 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-14 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -279,6 +290,8 @@ fi
   die "wd-12 requires wd-10: its library change is built on the same patched ETSI library build."
 [ "$WANT_WD13" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
   die "wd-13 requires wd-10: its library change is built on the same patched ETSI library build."
+[ "$WANT_WD14" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
+  die "wd-14 requires wd-10: the rebuilt Wallet Core is published through wd-10's repository."
 [ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
   die "--mdl-lote is given without wd-12, so the build would not read it."
 
@@ -934,6 +947,62 @@ allprojects {
 }
 GRADLE
     echo "    ETSI chain validation $WALLET_ETSI_LIB_VERSION rebuilt with wd-13.patch, and substituted."
+  fi
+
+  if [ "$WANT_WD14" = "yes" ]; then
+    step "Applying WD-14 (Wallet Core: srv_description read as ETSI TS 119 475 defines it)"
+    CORE_DIR="$HERE/upstream-walletcore"
+    [ -d "$CORE_DIR/.git" ] ||
+      git clone --quiet --depth 1 --branch "$WALLET_CORE_TAG" "$WALLET_CORE_URL" "$CORE_DIR"
+    git -C "$CORE_DIR" reset --quiet --hard
+    git -C "$CORE_DIR" clean --quiet -fd
+    CORE_ACTUAL="$(git -C "$CORE_DIR" rev-parse HEAD)"
+    [ "$CORE_ACTUAL" = "$WALLET_CORE_COMMIT" ] ||
+      die "the Wallet Core clone is at $CORE_ACTUAL, expected $WALLET_CORE_COMMIT. Remove $CORE_DIR and run again."
+    git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-14.patch" ||
+      die "failed to apply deviations/wd-14.patch against $WALLET_CORE_TAG; it must be regenerated."
+    echo "sdk.dir=$SDK" > "$CORE_DIR/local.properties"
+    CORE_AAR="$CORE_DIR/wallet-core/build/outputs/aar/wallet-core-release.aar"
+    rm -f "$CORE_AAR"
+    # Its own tests and the library's other registration-certificate tests, which must still pass.
+    ( cd "$CORE_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
+        :wallet-core:testDebugUnitTest --tests '*EdtpWd14Test*' --tests '*RegistrationCertificate*' \
+        --tests '*IssuerRegistration*' --tests '*WrpRegistration*' :wallet-core:assembleRelease ) ||
+      die "the patched Wallet Core did not pass its tests or did not build."
+    [ -f "$CORE_AAR" ] || die "the patched Wallet Core built no AAR at $CORE_AAR."
+    unzip -p "$CORE_AAR" classes.jar > "$CORE_DIR/classes.jar" 2>/dev/null ||
+      python3 -c 'import sys,zipfile; open(sys.argv[2],"wb").write(zipfile.ZipFile(sys.argv[1]).read("classes.jar"))' \
+        "$CORE_AAR" "$CORE_DIR/classes.jar"
+    javap -cp "$CORE_DIR/classes.jar" eu.europa.ec.eudi.wallet.registration.EdtpServiceDescriptionSerializer >/dev/null 2>&1 ||
+      die "the built Wallet Core does not carry the WD-14 patch."
+
+    WD14_ARTIFACT="eudi-lib-android-wallet-core-wd14"
+    WD14_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD14_ARTIFACT/$WALLET_CORE_VERSION"
+    mkdir -p "$WD14_REPO"
+    cp "$CORE_AAR" "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.aar"
+    # The published release's own POM, renamed: its dependencies are the library's own. Without its
+    # pointer to Gradle module metadata, which we do not publish.
+    curl -fsSL "https://repo1.maven.org/maven2/eu/europa/ec/eudi/eudi-lib-android-wallet-core/$WALLET_CORE_VERSION/eudi-lib-android-wallet-core-$WALLET_CORE_VERSION.pom" |
+      sed -e '/published-with-gradle-metadata/d' \
+          -e '0,/<groupId>eu.europa.ec.eudi<\/groupId>/s//<groupId>eu.europa.ec.eudi.edtp<\/groupId>/' \
+          -e "0,/<artifactId>eudi-lib-android-wallet-core<\\/artifactId>/s//<artifactId>$WD14_ARTIFACT<\\/artifactId>/" \
+      > "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.pom"
+    grep -q "<artifactId>$WD14_ARTIFACT</artifactId>" "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.pom" ||
+      die "the WD-14 POM was not written."
+    cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-14: every module resolves Wallet Core to the patched build of the same version, whose only
+// change is that a registration certificate's srv_description is read as ETSI TS 119 475 defines it.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            substitute(module("eu.europa.ec.eudi:eudi-lib-android-wallet-core"))
+                .using(module("eu.europa.ec.eudi.edtp:$WD14_ARTIFACT:$WALLET_CORE_VERSION"))
+        }
+    }
+}
+GRADLE
+    echo "    Wallet Core $WALLET_CORE_VERSION rebuilt from $WALLET_CORE_TAG with wd-14.patch, and substituted."
   fi
 fi
 

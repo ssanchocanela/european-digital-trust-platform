@@ -32,6 +32,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-16** | A registration certificate's status list may be a CWT: fetched when the JWT cannot be had, and verified the same way | — | **Defect fix**: Wallet Core rebuilt with one more patch | **Prepared** (F11), 26 October 2026 |
 | **WD-17** | A CWT status list sent base64url-encoded as text is decoded before it is read | — | **Security relaxation** (of a transport rule; the token is still verified in full) | **Prepared** (F12), 26 October 2026 |
 | **WD-18** | The EUDI Wallet Launchpad 2026 Testing Playbook's URL schemes are accepted: `eu-eaap://` (presentation) and `eu-eaa-offer://` (credential offer) | — | Configuration (which schemes the app and Wallet Core accept) | **Prepared** (F13), 26 October 2026 |
+| **WD-19** | A request for an OpenID4VP Request Object carries `Accept: application/oauth-authz-req+jwt` alone | — | **Defect fix** in the app's HTTP client (as WD-11) | **Prepared** (F14), 26 October 2026 |
 
 ---
 
@@ -1048,13 +1049,51 @@ document*; a link opened from a browser is routed by scheme.
 
 ### F13 — F12 with WD-18, and its diagnostic variant
 
-**Prepared on 26 October 2026, not built.** F12 with WD-18: `.fnmtce`. Deviations
+**Prepared on 26 October 2026.** F12 with WD-18: `.fnmtce`. **Its diagnostic variant was built and run the same day** (APK SHA-256 `4835b51a3cf171a27c4e1c48ff0e08cbe87688d7b1782c3185e3ddb714570d50`): the `eu-eaap://` QR reached the presentation flow, and the Verifier refused the Request Object request for its `Accept` header — see WD-19. Deviations
 **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18`**. Its diagnostic
 variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as `.fnmtcediag`; it
 was prepared.
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-19 — a Request Object is asked for as OpenID4VP sets it
+
+**Found with F13 on 26 October 2026.** With WD-18 the Secretaría de Estado's `eu-eaap://` QR, scanned
+from the presentation entry, reached the presentation flow; the wallet then POSTed to the `request_uri`
+(`request_uri_method=post`) and the Verifier answered `400 {"error":"invalid_request","error_description":"Invalid
+Accept header. Expected: application/oauth-authz-req+jwt"}`. The wallet had sent
+`Accept: application/oauth-authz-req+jwt; application/jwt; application/json`.
+
+**Whose defect.** The wallet's. OpenID4VP 1.0 §5.10 (Request URI Method post): the request "MUST use the
+HTTP POST method with the https scheme, and the content type application/x-www-form-urlencoded and the
+Accept header set to application/oauth-authz-req+jwt". The header sent is not that value: two further
+types are added — one by the app's `ContentNegotiation`, as WD-11 found for issuer metadata — and they
+are joined with `;`, which makes them parameters of the first type rather than alternatives.
+
+**The patch**, `deviations/wd-19.patch`: a client plugin, like WD-11's, installed by the same anchor in
+`NetworkModule.kt`: a request whose `Accept` asks for `application/oauth-authz-req+jwt` among other types
+leaves asking for that type alone. Anything else is left as it is.
+
+**Its tests**, run by `build.sh`: the type alone results from the separate values, from the
+`;`-joined form seen on the wire, and from a list with `*/*`; a request that already asks for it alone,
+and any other request, are left alone. **Checked:** they pass, WD-11's still pass, and `core-logic`
+and `network-logic` compile. **Not yet run against the Verifier.**
+
+### F14 — F13 with WD-19, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F13 with WD-19: `.fnmtce`. Deviations
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18,wd-19`**. Its diagnostic
+variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as `.fnmtcediag`; it
+was prepared.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18,wd-19 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

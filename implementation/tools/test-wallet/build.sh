@@ -80,6 +80,10 @@
 # for an OpenID4VP request and `eu-eaa-offer://` for a credential offer — in the app's deep-link
 # filters and routing, and `eu-eaap` in Wallet Core's list of OpenID4VP schemes, which it checks.
 #
+# `wd-19` makes a request for an OpenID4VP Request Object carry `Accept: application/oauth-authz-req+jwt`
+# alone, as OpenID4VP 1.0 §5.10 sets it for request_uri_method=post: the app's HTTP client appended
+# other types, and a Verifier that checks the header refused the request. A defect fix, like wd-11.
+#
 # `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
 # `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
 # arrays) as well as the flat one it read before; a certificate written to the specification was
@@ -183,6 +187,7 @@ WANT_WD15=no
 WANT_WD16=no
 WANT_WD17=no
 WANT_WD18=no
+WANT_WD19=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -263,6 +268,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
         WANT_WD13=yes
         ;;
+      wd-19)
+        [ -f "$HERE/deviations/wd-19.patch" ] || die "deviations/wd-19.patch is missing."
+        WANT_WD19=yes
+        ;;
       wd-18)
         [ -f "$HERE/deviations/wd-18.patch" ] || die "deviations/wd-18.patch is missing."
         WANT_WD18=yes
@@ -318,7 +327,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-18 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-19 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -835,6 +844,31 @@ if [ "$WANT_WD11" = "yes" ]; then
   [ "$(grep -c 'install(EdtpSignedMetadataAccept)' "$WD11_FILE")" = "1" ] ||
     die "WD-11 did not take effect."
   echo "    issuer metadata requests: 'Accept: application/jwt' alone when signed metadata is asked for."
+fi
+
+if [ "$WANT_WD19" = "yes" ]; then
+  step "Applying WD-19 (a request for an OpenID4VP Request Object asks for that type alone)"
+  # The plugin and its test come from the patch; installing it is one line in NetworkModule.kt, placed
+  # by the same anchor as WD-11's and for the same reason.
+  git apply --whitespace=nowarn "$HERE/deviations/wd-19.patch" ||
+    die "failed to apply deviations/wd-19.patch against the pinned tag; it must be regenerated."
+  WD19_FILE="network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt"
+  [ "$(grep -c '^                contentType = ContentType.Application.Json$' "$WD19_FILE")" = "1" ] ||
+    die "NetworkModule.kt no longer has the ContentNegotiation block WD-19 anchors on."
+  awk '
+    /^                contentType = ContentType.Application.Json$/ { armed = 1 }
+    { print }
+    armed && /^        }$/ {
+      armed = 0
+      print ""
+      print "        // EDTP WD-19: a request for an OpenID4VP Request Object asks for that type alone"
+      print "        // (OpenID4VP 1.0 section 5.10). Installed after ContentNegotiation, which adds JSON."
+      print "        install(EdtpRequestObjectAccept)"
+    }
+  ' "$WD19_FILE" > "$WD19_FILE.new" && mv "$WD19_FILE.new" "$WD19_FILE"
+  [ "$(grep -c 'install(EdtpRequestObjectAccept)' "$WD19_FILE")" = "1" ] ||
+    die "WD-19 did not take effect."
+  echo "    Request Object requests: 'Accept: application/oauth-authz-req+jwt' alone."
 fi
 
 if [ "$WANT_WD10" = "yes" ]; then

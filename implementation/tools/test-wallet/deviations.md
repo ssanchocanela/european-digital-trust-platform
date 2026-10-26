@@ -913,7 +913,7 @@ order the wallet checks:
 | Decoding | **Fails** (`MALFORMED`): `credentials[0].claim[0].path` is a string (`"place_of_birth"`); the wallet reads OpenID4VP's array. TS 119 475 is inconsistent here (`docs/interop-findings.md` D9) |
 | Signer chain | Signed directly by "AC FNMT EUDIWRPRC PROVIDER SW TEST", a CA (`CA:TRUE`) that the Commission's WRPRC list carries: trusted with WD-15, refused by an unmodified wallet |
 | Bound to the access certificate | **Would fail** (`NOT_BOUND_TO_REQUESTER`): `sub` is `VATES-Q2826004J`; the metadata signer's `organizationIdentifier` is `NTRES-FNMTRCMTEST001`. TS 119 475 makes the WRP identifier the link between the two certificates |
-| Status | Not reachable from our network on 26 October (timeout); not known whether it answers from the phone |
+| Status | **Would fail** (`REVOCATION_STATUS_UNKNOWN`). It answers, slowly: `200` after about 30 s, but only as a CWT (`application/statuslist+cwt`); asked for `application/statuslist+jwt` it answers `400` (`Method 'SD-JWT Token Status List' not supported`). Wallet Core fetches a registration certificate's status list as a JWT only (`GetStatusListToken.usingJwt`) |
 | Scope | **Would block** (`ATTESTATION_OVER_PROVIDED`): the attestations are under `provided_attestations`; the specification's and the wallet's name is `provides_attestations`, so the wallet sees none |
 
 **Prepared on 26 October 2026, not built.** F9 with WD-15, nothing else changed: `.fnmtce`, updating

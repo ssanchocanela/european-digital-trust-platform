@@ -790,7 +790,7 @@ order:
 
 | Check | Result |
 |---|---|
-| Decoding the payload | **Fails first** (`MALFORMED`). `srv_description` is a list of lists of `{lang, value}`; Wallet Core's model takes a flat list of `{lang, value}` and refuses the whole certificate: `Expected start of the object '{', but had '[' instead at path: $.srv_description[0]`. Reproduced with the same model and the certificate. This is decoded before the signer chain is checked, and is not logged, which is why the diagnostic variant's log shows no trust evaluation for it. Which form the specification requires was not verified here. |
+| Decoding the payload | **Fails first** (`MALFORMED`). `srv_description` is a list of lists of `{lang, value}`; Wallet Core's model takes a flat list of `{lang, value}` and refuses the whole certificate: `Expected start of the object '{', but had '[' instead at path: $.srv_description[0]`. Reproduced with the same model and the certificate. This is decoded before the signer chain is checked, and is not logged, which is why the diagnostic variant's log shows no trust evaluation for it. **FNMT-RCM's form is the specification's**: ETSI TS 119 475 V1.2.1 Annex B.2.1 defines `srvDescription` as an array of arrays of `MultiLangString`. The defect is Wallet Core's (`docs/interop-findings.md` C14). |
 | Signer chain against the WRPRC list | **Would fail** (`UNTRUSTED_PROVIDER`). The Commission's list anchors the signer itself, not the CA that issued it; the library's WRPRC profile expects a CA, and PKIX builds no path whose leaf is the anchor. Reproduced with the library, the certificate and the list. WD-13 does not apply: it cuts above the leaf. |
 | Bound to the access certificate | Passes: `sub` `NTRES-FNMTRCMTEST001` is the metadata signer's `organizationIdentifier` |
 | Expiry | Passes (October 2027) |
@@ -798,7 +798,7 @@ order:
 | Entitlements | Pass: `PID_Provider`, and `PUB_EAA_Provider` for the mDL and the powers of representation |
 | Scope | Passes: every offered configuration is in `provides_attestations` |
 
-What would make it pass, with no change to the wallet: `srv_description` as a flat list of `{lang, value}`; the WRPRC list carrying the CA that issues the
+What would make it pass: for `srv_description`, a wallet fix (C14) — or, as a stopgap that departs from the specification, a flat list; the WRPRC list carrying the CA that issues the
 signer (or the certificate signed under a CA the list carries), and a reachable status list for it,
 signed under the WRPRC revocation service.
 

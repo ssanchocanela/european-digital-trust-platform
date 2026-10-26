@@ -61,6 +61,11 @@
 # validator refuses a path that runs past its anchor. A defect fix in the same library build as
 # wd-10 (and so requires wd-10). Nothing above an anchor ever counted towards trust.
 #
+# `wd-15` trusts a leaf directly when it is byte for byte a trust anchor of the list and within its
+# validity period: ETSI TS 119 602 lets a list carry the signing certificate itself (a registration
+# certificate's signer, Annex G), and PKIX builds no path whose leaf is the anchor. On top of wd-13, in
+# the same module, so it requires wd-13.
+#
 # `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
 # `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
 # arrays) as well as the flat one it read before; a certificate written to the specification was
@@ -160,6 +165,7 @@ WANT_WD11=no
 WANT_WD12=no
 WANT_WD13=no
 WANT_WD14=no
+WANT_WD15=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -240,6 +246,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
         WANT_WD13=yes
         ;;
+      wd-15)
+        [ -f "$HERE/deviations/wd-15.patch" ] || die "deviations/wd-15.patch is missing."
+        WANT_WD15=yes
+        ;;
       wd-14)
         [ -f "$HERE/deviations/wd-14.patch" ] || die "deviations/wd-14.patch is missing."
         WANT_WD14=yes
@@ -279,7 +289,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-14 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-15 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -290,6 +300,8 @@ fi
   die "wd-12 requires wd-10: its library change is built on the same patched ETSI library build."
 [ "$WANT_WD13" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
   die "wd-13 requires wd-10: its library change is built on the same patched ETSI library build."
+[ "$WANT_WD15" = "no" ] || [ "$WANT_WD13" = "yes" ] ||
+  die "wd-15 requires wd-13: its patch is written on top of wd-13's, in the same validator."
 [ "$WANT_WD14" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
   die "wd-14 requires wd-10: the rebuilt Wallet Core is published through wd-10's repository."
 [ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
@@ -791,7 +803,13 @@ if [ "$WANT_WD10" = "yes" ]; then
       die "failed to apply deviations/wd-13.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
     # Its own tests, and the validator's existing ones, which must still pass.
     ETSI_TASKS+=(:etsi-1196x2-consultation:jvmTest --tests '*EdtpWd13Test*'
-      --tests '*ValidateCertificateChainUsingPKIXJvmTest*' :etsi-1196x2-consultation:jvmJar)
+      --tests '*ValidateCertificateChainUsingPKIXJvmTest*')
+    if [ "$WANT_WD15" = "yes" ]; then
+      git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-15.patch" ||
+        die "failed to apply deviations/wd-15.patch on top of wd-13; it must be regenerated."
+      ETSI_TASKS+=(--tests '*EdtpWd15Test*')
+    fi
+    ETSI_TASKS+=(:etsi-1196x2-consultation:jvmJar)
   fi
   # Each patch carries its own tests: for WD-10, both forms of the legal notice read and anything else
   # refused; for WD-12, the mDL list's two services mapped. A library that fails them is not used.
@@ -810,6 +828,10 @@ if [ "$WANT_WD10" = "yes" ]; then
     [ -f "$ETSI_CHAIN_JAR" ] || die "the patched ETSI library built no jar at $ETSI_CHAIN_JAR."
     javap -p -cp "$ETSI_CHAIN_JAR" 'eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm$Companion' |
       grep -q 'upToTrustAnchor' || die "the built ETSI library does not carry the WD-13 patch."
+    if [ "$WANT_WD15" = "yes" ]; then
+      javap -p -cp "$ETSI_CHAIN_JAR" 'eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm$Companion' |
+        grep -q 'directTrustAnchor' || die "the built ETSI library does not carry the WD-15 patch."
+    fi
   fi
 
   # A repository of one module, inside the wallet's tree, under a group of our own: the patched jar
@@ -946,7 +968,8 @@ allprojects {
     }
 }
 GRADLE
-    echo "    ETSI chain validation $WALLET_ETSI_LIB_VERSION rebuilt with wd-13.patch, and substituted."
+    WD13_PATCHES="wd-13.patch"; [ "$WANT_WD15" = "yes" ] && WD13_PATCHES="wd-13.patch and wd-15.patch"
+    echo "    ETSI chain validation $WALLET_ETSI_LIB_VERSION rebuilt with $WD13_PATCHES, and substituted."
   fi
 
   if [ "$WANT_WD14" = "yes" ]; then

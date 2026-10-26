@@ -28,6 +28,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-12** | An mDL issuer is trusted from an mDL Providers list (`eaaProviders["mdl"]`, and the ETSI library's EU baseline given the list's profile) | (b), for an mDL | **Extension**: configuration of a mechanism the library has but the wallet does not use | **Built** (F7), 23 October 2026 |
 | **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Built** (F8), 23 October 2026 |
 | **WD-14** | A registration certificate's `srv_description` is read as ETSI TS 119 475 V1.2.1 defines it (an array of arrays), as well as flat | — | **Defect fix in a dependency**: Wallet Core rebuilt from its pinned source with one patch | **Prepared** (F9), 26 October 2026 |
+| **WD-15** | A leaf that is byte for byte a trust anchor of the list is trusted directly, within its validity period | (a) and (b) | **Defect fix in a dependency**: the ETSI chain validator, on top of WD-13 | **Prepared** (F10), 26 October 2026 |
 
 ---
 
@@ -867,6 +868,46 @@ resolves Wallet Core and the three library modules to ours.
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-15 — a signer that is itself the list's anchor is trusted directly
+
+**The defect** (`docs/interop-findings.md` C16). ETSI TS 119 602 V1.1.1 Annex G, Table G.2: the WRPRC
+providers list's service digital identity is "one or more X.509 certificates that can be used to verify
+the signature or seal created by the provider … on the registration certificate". A registration
+certificate is a JWT signed with the signer's key, so the signing certificate itself fits, and nothing
+requires a CA; the PID list (Annex D) has the same wording. The Commission's development WRPRC list
+carries FNMT-RCM's signer, an end-entity certificate. PKIX takes the anchor as an input and builds no
+path whose leaf is the anchor, so that signer could never be trusted. This was F9's block.
+
+**The patch**, `deviations/wd-15.patch`, written on top of WD-13 in the same validator (so **wd-15
+requires wd-13**): when the leaf is **byte for byte** one of the trust anchors' certificates, it is
+trusted directly at that anchor, provided it is within its validity period now; whatever follows it in
+the chain is not used. A name or key match is not enough, and a chain whose leaf is not an anchor is
+validated as before. It applies to every list-backed context, as WD-13 does.
+
+**Its tests**, run by `build.sh` with WD-13's and the validator's own: a leaf that is the anchor is
+trusted at it, alone or followed by its CA; a leaf with the anchor's name and another key is refused; an
+expired leaf that is the anchor is refused (`CertificateExpiredException`); a chain whose leaf is not an
+anchor behaves as before. **Checked** on 26 October 2026: all pass, and FNMT-RCM's real registration
+certificate chain, refused before, is trusted against the Commission's WRPRC list.
+
+**What remains after it:** the registration certificate's status list, `https://wrprc-provider.example.es/status/1`,
+answering `410` — `REVOCATION_STATUS_UNKNOWN`. That is FNMT-RCM's to fix.
+
+### F10 — F9 with WD-15, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F9 with WD-15, nothing else changed: `.fnmtce`, updating
+F9 in place. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15`**. Its
+diagnostic variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as
+`.fnmtcediag`; it was prepared, and `core-logic` compiles.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

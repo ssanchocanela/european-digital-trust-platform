@@ -33,6 +33,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-17** | A CWT status list sent base64url-encoded as text is decoded before it is read | — | **Security relaxation** (of a transport rule; the token is still verified in full) | **Prepared** (F12), 26 October 2026 |
 | **WD-18** | The EUDI Wallet Launchpad 2026 Testing Playbook's URL schemes are accepted: `eu-eaap://` (presentation) and `eu-eaa-offer://` (credential offer) | — | Configuration (which schemes the app and Wallet Core accept) | **Prepared** (F13), 26 October 2026 |
 | **WD-19** | A request for an OpenID4VP Request Object carries `Accept: application/oauth-authz-req+jwt` alone | — | **Defect fix** in the app's HTTP client (as WD-11) | **Prepared** (F14), 26 October 2026 |
+| **WD-20** | The PID (mdoc and SD-JWT) is reused across presentations (`RotatingBatch`, one credential) instead of used once (`OnceOnly`, ten) | — | **Privacy relaxation** (presentations become linkable) | **Prepared** (F15), 26 October 2026 |
 
 ---
 
@@ -1083,7 +1084,7 @@ leaves asking for that type alone. Anything else is left as it is.
 **Its tests**, run by `build.sh`: the type alone results from the separate values, from the
 `;`-joined form seen on the wire, and from a list with `*/*`; a request that already asks for it alone,
 and any other request, are left alone. **Checked:** they pass, WD-11's still pass, and `core-logic`
-and `network-logic` compile. **Not yet run against the Verifier.**
+and `network-logic` compile. **Run on 26 October 2026 with F14's diagnostic variant** (APK SHA-256 `f500e4e10dc17dfb01b41118aa498ec484a4854701a5ebf10821d55468d6ab71`): the operator presented the PID to the Secretaría de Estado's test IdP by its `eu-eaap://` QR, and **it worked**. The wallet's own log of that presentation had already rotated out of the phone's buffer when it was read, so this rests on what the operator saw; the next run should keep the log.
 
 ### F14 — F13 with WD-19, and its diagnostic variant
 
@@ -1094,6 +1095,37 @@ was prepared.
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18,wd-19 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-20 — the PID is reused, not used once
+
+**A privacy relaxation, at the operator's request on 26 October 2026.** Upstream gives the PID (mdoc and
+SD-JWT) `CredentialPolicy.OnceOnly(numberOfCredentials = 10, reissueTriggerUnused = 2)`: a batch, each
+credential deleted after one presentation, and a new batch asked for when two are left. That is what keeps
+presentations unlinkable — each Relying Party sees a different signature and different unique values
+(ARF's batch issuance and one-time use). With an issuer that issues one credential at a time, the PID is
+gone after its first presentation. WD-20 gives the PID upstream's policy for every other document,
+`RotatingBatch(numberOfCredentials = 1, reissueTriggerLifetimeLeft = 24.hours)`: one credential, kept and
+reused. **Every presentation of it is then linkable to every other**; for demonstrations with synthetic
+data only. `build.sh` prints a warning when it is built.
+
+**The change**, by `build.sh` on the generated configuration, anchored on the two exact PID entries, and
+refused if they are not there as expected. **A PID already in the wallet keeps the policy it was issued
+under**: issue it again after installing.
+
+### F15 — F14 with WD-20, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F14 with WD-20: `.fnmtce`. Deviations
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18,wd-19,wd-20`**. Its
+diagnostic variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as
+`.fnmtcediag`; it was prepared and `core-logic` compiles.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18,wd-19,wd-20 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

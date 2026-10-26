@@ -84,6 +84,11 @@
 # alone, as OpenID4VP 1.0 §5.10 sets it for request_uri_method=post: the app's HTTP client appended
 # other types, and a Verifier that checks the header refused the request. A defect fix, like wd-11.
 #
+# `wd-20` is a PRIVACY RELAXATION: the PID (mdoc and SD-JWT) is kept and reused across presentations
+# (RotatingBatch, one credential) instead of being used once and discarded (OnceOnly, a batch of ten).
+# Reusing one credential makes presentations linkable to each other by the signature and other unique
+# values in it. For demonstrations with an issuer that issues one credential at a time.
+#
 # `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
 # `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
 # arrays) as well as the flat one it read before; a certificate written to the specification was
@@ -188,6 +193,7 @@ WANT_WD16=no
 WANT_WD17=no
 WANT_WD18=no
 WANT_WD19=no
+WANT_WD20=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -268,6 +274,9 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
         WANT_WD13=yes
         ;;
+      wd-20)
+        WANT_WD20=yes
+        ;;
       wd-19)
         [ -f "$HERE/deviations/wd-19.patch" ] || die "deviations/wd-19.patch is missing."
         WANT_WD19=yes
@@ -327,7 +336,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-19 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-20 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -348,6 +357,16 @@ fi
   die "wd-14 requires wd-10: the rebuilt Wallet Core is published through wd-10's repository."
 [ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
   die "--mdl-lote is given without wd-12, so the build would not read it."
+
+if [ "$WANT_WD20" = "yes" ]; then
+  cat >&2 <<'WARN'
+
+  WD-20 is a PRIVACY RELAXATION. The PID is reused across presentations instead of being used once:
+  every Relying Party it is shown to sees the same signature and unique values, so presentations can be
+  linked to each other. For demonstrations only, with synthetic data.
+
+WARN
+fi
 
 if [ "$WANT_WD17" = "yes" ]; then
   cat >&2 <<'WARN'
@@ -844,6 +863,30 @@ if [ "$WANT_WD11" = "yes" ]; then
   [ "$(grep -c 'install(EdtpSignedMetadataAccept)' "$WD11_FILE")" = "1" ] ||
     die "WD-11 did not take effect."
   echo "    issuer metadata requests: 'Accept: application/jwt' alone when signed metadata is asked for."
+fi
+
+if [ "$WANT_WD20" = "yes" ]; then
+  step "Applying WD-20 (the PID is reused, not used once — a privacy relaxation)"
+  # The two PID entries of documentSpecificPolicies, each OnceOnly(numberOfCredentials = 10,
+  # reissueTriggerUnused = 2), become RotatingBatch(numberOfCredentials = 1, reissueTriggerLifetimeLeft =
+  # 24.hours) — the policy upstream gives every other document. Anchored on the exact lines.
+  WD20_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  [ "$(grep -cE '^ *DocumentIdentifier\.(MdocPid|SdJwtPid) to CredentialPolicy\.OnceOnly\($' "$WD20_FILE")" = "2" ] ||
+    die "the two PID OnceOnly policies are not in $WD20_FILE as expected; WD-20 must be regenerated."
+  awk '
+    /^ *DocumentIdentifier\.(MdocPid|SdJwtPid) to CredentialPolicy\.OnceOnly\($/ {
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print pad "// EDTP deviation WD-20 (a privacy relaxation): the PID is reused, not used once."
+      sub(/CredentialPolicy\.OnceOnly\(/, "CredentialPolicy.RotatingBatch("); print; armed = 2; next
+    }
+    armed && /^ *numberOfCredentials = 10,$/ { sub(/10,/, "1,"); print; next }
+    armed && /^ *reissueTriggerUnused = 2$/ { sub(/reissueTriggerUnused = 2/, "reissueTriggerLifetimeLeft = 24.hours"); print; armed--; next }
+    { print }
+  ' "$WD20_FILE" > "$WD20_FILE.new" && mv "$WD20_FILE.new" "$WD20_FILE"
+  [ "$(grep -cE 'DocumentIdentifier\.(MdocPid|SdJwtPid) to CredentialPolicy\.RotatingBatch\(' "$WD20_FILE")" = "2" ] &&
+    ! grep -q 'reissueTriggerUnused = 2' "$WD20_FILE" ||
+    die "WD-20 did not take effect in $WD20_FILE."
+  echo "    PID (mdoc and SD-JWT): RotatingBatch, one credential, reused."
 fi
 
 if [ "$WANT_WD19" = "yes" ]; then

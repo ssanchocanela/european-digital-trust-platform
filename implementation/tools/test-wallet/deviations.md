@@ -30,6 +30,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-14** | A registration certificate's `srv_description` is read as ETSI TS 119 475 V1.2.1 defines it (an array of arrays), as well as flat | — | **Defect fix in a dependency**: Wallet Core rebuilt from its pinned source with one patch | **Prepared** (F9), 26 October 2026 |
 | **WD-15** | A leaf that is byte for byte a trust anchor of the list is trusted directly, within its validity period | (a) and (b) | **Defect fix in a dependency**: the ETSI chain validator, on top of WD-13 | **Prepared** (F10), 26 October 2026 |
 | **WD-16** | A registration certificate's status list may be a CWT: fetched when the JWT cannot be had, and verified the same way | — | **Defect fix**: Wallet Core rebuilt with one more patch | **Prepared** (F11), 26 October 2026 |
+| **WD-17** | A CWT status list sent base64url-encoded as text is decoded before it is read | — | **Security relaxation** (of a transport rule; the token is still verified in full) | **Prepared** (F12), 26 October 2026 |
 
 ---
 
@@ -974,6 +975,46 @@ was prepared, and `core-logic` compiles.
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-17 — a CWT status list sent as base64url text is decoded
+
+**A relaxation, not a fix.** draft-ietf-oauth-status-list-13 §8.2 requires a Status List Token in CWT
+format to be sent as "the binary encoding as defined in section 9.2.1 of [RFC8392]". FNMT-RCM's WRPRC
+provider sends it base64url-encoded as text, so even with WD-16 the status library's decode fails and the
+registration certificate is unverified. WD-17 accepts that one departure, for as long as it lasts.
+
+**The patch**, `deviations/wd-17.patch`, on top of WD-16 (so **wd-17 requires wd-16**): on the CWT
+fallback's HTTP client only, a response typed `application/statuslist+cwt` whose **whole** body is
+base64url text **of a COSE_Sign1** (it decodes to a first byte 0xd2 or 0x84) is replaced by the decoded
+bytes, with its `Content-Length` corrected. A binary body — the specification's — begins with a non-ASCII
+byte and passes untouched; base64url text of anything else passes untouched too. The token is then
+verified exactly as a binary one: signature, chain, claims. Only the transport encoding is tolerated.
+`build.sh` prints a warning whenever it is built.
+
+**Its tests**, run by `build.sh`: FNMT-RCM's text decodes to its binary; a binary token is passed through
+untouched; base64url text of something else and non-base64 text are left alone; and the status check
+itself, against a local server sending FNMT-RCM's text, decodes it and goes on to verify and read the
+token (refusing it only for its `sub`, which names FNMT-RCM's address). **Checked end to end** on 26
+October 2026 against FNMT-RCM's own server: JWT refused (`400`), CWT fetched, decoded by WD-17, verified
+and read — **`VALID`**.
+
+**Drop it** once FNMT-RCM sends the binary the draft requires.
+
+### F12 — F11 with WD-17, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F11 with WD-17: `.fnmtce`. Deviations
+**`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17`**. Its diagnostic variant,
+for our own phone only, is the same without WD-7 and with `--diagnostics`, as `.fnmtcediag`; it was
+prepared, and `core-logic` compiles. A build with WD-17 carries a relaxation: no result from it may say
+the registration certificate's status was obtained as the specification requires.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

@@ -775,6 +775,44 @@ and keeps its documents. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-1
       --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
       --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
 
+### F8 with *Check Registration Certificates* on — blocked, and its diagnostic variant
+
+**Run by the operator on 26 October 2026.** With the wallet's *Check Registration Certificates*
+preference on, scanning FNMT-RCM's offer ends in "Issuance blocked — the provider could not be verified
+by your Wallet". The app blocks issuance on every registration outcome but *Verified*
+(`isBlockedForIssuance`), and that screen does not say which check failed; a release build with WD-7
+does not log it either.
+
+**What was established without the phone.** The registration certificate in the issuer's signed
+`issuer_info` is a `rc-wrp+jwt` whose `x5c` is the signer "FNMT Test WRPRC Certificate Provider" — an
+end-entity certificate (`CA:FALSE`, non-repudiation) — and the CA that issued it. Wallet Core checks, in
+order:
+
+| Check | Result |
+|---|---|
+| Signer chain against the WRPRC list | **Fails** (`UNTRUSTED_PROVIDER`). The Commission's list anchors the signer itself, not the CA that issued it; the library's WRPRC profile expects a CA, and PKIX builds no path whose leaf is the anchor. Reproduced with the library, the certificate and the list. WD-13 does not apply: it cuts above the leaf. |
+| Bound to the access certificate | Passes: `sub` `NTRES-FNMTRCMTEST001` is the metadata signer's `organizationIdentifier` |
+| Expiry | Passes (October 2027) |
+| Status | **Would fail** (`REVOCATION_STATUS_UNKNOWN`): its status list, `https://wrprc-provider.example.es/status/1`, answered `410` |
+| Entitlements | Pass: `PID_Provider`, and `PUB_EAA_Provider` for the mDL and the powers of representation |
+| Scope | Passes: every offered configuration is in `provides_attestations` |
+
+What would make it pass, with no change to the wallet: the WRPRC list carrying the CA that issues the
+signer (or the certificate signed under a CA the list carries), and a reachable status list for it,
+signed under the WRPRC revocation service.
+
+**The diagnostic variant**, to see the reason on the phone: F8 without WD-7 and with `--diagnostics`, as
+`.fnmtcediag`, "FNMT CE diag". **For our own phone only, never delivered:** without WD-7 a release
+build logs HTTP bodies, credentials included. Prepared on 26 October 2026.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --diagnostics --deviations wd-3,wd-4,wd-6,wd-8,wd-10,wd-11,wd-12,wd-13 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtcediag --app-name "FNMT CE diag"
+
 ---
 
 ## What a test run must record

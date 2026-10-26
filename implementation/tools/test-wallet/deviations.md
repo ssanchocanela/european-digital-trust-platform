@@ -901,6 +901,21 @@ answering `410` — `REVOCATION_STATUS_UNKNOWN`. That is FNMT-RCM's to fix.
 
 ### F10 — F9 with WD-15, and its diagnostic variant
 
+**Run with the diagnostic variant on 26 October 2026**, *Check Registration Certificates* on: blocked,
+`issuerRegistration=Failed(reason=MALFORMED)` on the offer. Not a regression: **FNMT-RCM had reissued
+its registration certificate that morning** (rebuilt from the signed metadata the wallet logged). The new
+one fixes two things — `srv_description` is a flat list, and the status list is FNMT-RCM's own
+(`https://wrprc.dev.credenciales.fnmt.es/token-status-list/…`, index 15026) — and brings others. In the
+order the wallet checks:
+
+| Check | New certificate |
+|---|---|
+| Decoding | **Fails** (`MALFORMED`): `credentials[0].claim[0].path` is a string (`"place_of_birth"`); the wallet reads OpenID4VP's array. TS 119 475 is inconsistent here (`docs/interop-findings.md` D9) |
+| Signer chain | Signed directly by "AC FNMT EUDIWRPRC PROVIDER SW TEST", a CA (`CA:TRUE`) that the Commission's WRPRC list carries: trusted with WD-15, refused by an unmodified wallet |
+| Bound to the access certificate | **Would fail** (`NOT_BOUND_TO_REQUESTER`): `sub` is `VATES-Q2826004J`; the metadata signer's `organizationIdentifier` is `NTRES-FNMTRCMTEST001`. TS 119 475 makes the WRP identifier the link between the two certificates |
+| Status | Not reachable from our network on 26 October (timeout); not known whether it answers from the phone |
+| Scope | **Would block** (`ATTESTATION_OVER_PROVIDED`): the attestations are under `provided_attestations`; the specification's and the wallet's name is `provides_attestations`, so the wallet sees none |
+
 **Prepared on 26 October 2026, not built.** F9 with WD-15, nothing else changed: `.fnmtce`, updating
 F9 in place. Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15`**. Its
 diagnostic variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as

@@ -66,6 +66,11 @@
 # certificate's signer, Annex G), and PKIX builds no path whose leaf is the anchor. On top of wd-13, in
 # the same module, so it requires wd-13.
 #
+# `wd-16` lets a registration certificate's status list be a CWT: if the JWT cannot be had, the CWT is
+# fetched and verified the same way (signature over the protected header as received, x5chain in
+# either header, tagged or untagged COSE_Sign1, chain against the status trust). In the same Wallet Core
+# build as wd-14, so it requires wd-14.
+#
 # `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
 # `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
 # arrays) as well as the flat one it read before; a certificate written to the specification was
@@ -166,6 +171,7 @@ WANT_WD12=no
 WANT_WD13=no
 WANT_WD14=no
 WANT_WD15=no
+WANT_WD16=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -246,6 +252,10 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
         WANT_WD13=yes
         ;;
+      wd-16)
+        [ -f "$HERE/deviations/wd-16.patch" ] || die "deviations/wd-16.patch is missing."
+        WANT_WD16=yes
+        ;;
       wd-15)
         [ -f "$HERE/deviations/wd-15.patch" ] || die "deviations/wd-15.patch is missing."
         WANT_WD15=yes
@@ -289,7 +299,7 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-15 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-16 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
@@ -302,6 +312,8 @@ fi
   die "wd-13 requires wd-10: its library change is built on the same patched ETSI library build."
 [ "$WANT_WD15" = "no" ] || [ "$WANT_WD13" = "yes" ] ||
   die "wd-15 requires wd-13: its patch is written on top of wd-13's, in the same validator."
+[ "$WANT_WD16" = "no" ] || [ "$WANT_WD14" = "yes" ] ||
+  die "wd-16 requires wd-14: it is built into the same rebuilt Wallet Core."
 [ "$WANT_WD14" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
   die "wd-14 requires wd-10: the rebuilt Wallet Core is published through wd-10's repository."
 [ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
@@ -984,12 +996,18 @@ GRADLE
       die "the Wallet Core clone is at $CORE_ACTUAL, expected $WALLET_CORE_COMMIT. Remove $CORE_DIR and run again."
     git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-14.patch" ||
       die "failed to apply deviations/wd-14.patch against $WALLET_CORE_TAG; it must be regenerated."
+    CORE_TESTS=(--tests '*EdtpWd14Test*')
+    if [ "$WANT_WD16" = "yes" ]; then
+      git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-16.patch" ||
+        die "failed to apply deviations/wd-16.patch against $WALLET_CORE_TAG; it must be regenerated."
+      CORE_TESTS+=(--tests '*EdtpWd16Test*')
+    fi
     echo "sdk.dir=$SDK" > "$CORE_DIR/local.properties"
     CORE_AAR="$CORE_DIR/wallet-core/build/outputs/aar/wallet-core-release.aar"
     rm -f "$CORE_AAR"
     # Its own tests and the library's other registration-certificate tests, which must still pass.
     ( cd "$CORE_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
-        :wallet-core:testDebugUnitTest --tests '*EdtpWd14Test*' --tests '*RegistrationCertificate*' \
+        :wallet-core:testDebugUnitTest "${CORE_TESTS[@]}" --tests '*RegistrationCertificate*' \
         --tests '*IssuerRegistration*' --tests '*WrpRegistration*' :wallet-core:assembleRelease ) ||
       die "the patched Wallet Core did not pass its tests or did not build."
     [ -f "$CORE_AAR" ] || die "the patched Wallet Core built no AAR at $CORE_AAR."
@@ -998,6 +1016,10 @@ GRADLE
         "$CORE_AAR" "$CORE_DIR/classes.jar"
     javap -cp "$CORE_DIR/classes.jar" eu.europa.ec.eudi.wallet.registration.EdtpServiceDescriptionSerializer >/dev/null 2>&1 ||
       die "the built Wallet Core does not carry the WD-14 patch."
+    if [ "$WANT_WD16" = "yes" ]; then
+      javap -cp "$CORE_DIR/classes.jar" eu.europa.ec.eudi.wallet.registration.EdtpRegistrationStatusTokenCwtVerifier >/dev/null 2>&1 ||
+        die "the built Wallet Core does not carry the WD-16 patch."
+    fi
 
     WD14_ARTIFACT="eudi-lib-android-wallet-core-wd14"
     WD14_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD14_ARTIFACT/$WALLET_CORE_VERSION"
@@ -1025,7 +1047,8 @@ allprojects {
     }
 }
 GRADLE
-    echo "    Wallet Core $WALLET_CORE_VERSION rebuilt from $WALLET_CORE_TAG with wd-14.patch, and substituted."
+    CORE_PATCHES="wd-14.patch"; [ "$WANT_WD16" = "yes" ] && CORE_PATCHES="wd-14.patch and wd-16.patch"
+    echo "    Wallet Core $WALLET_CORE_VERSION rebuilt from $WALLET_CORE_TAG with $CORE_PATCHES, and substituted."
   fi
 fi
 

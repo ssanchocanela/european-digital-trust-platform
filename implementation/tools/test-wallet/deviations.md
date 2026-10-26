@@ -29,6 +29,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-13** | A certificate chain is validated up to the first certificate that is exactly a trust anchor of the list, not past it | (a) and (b) | **Defect fix in a dependency**: the ETSI library's chain validator, rebuilt with one patch | **Built** (F8), 23 October 2026 |
 | **WD-14** | A registration certificate's `srv_description` is read as ETSI TS 119 475 V1.2.1 defines it (an array of arrays), as well as flat | — | **Defect fix in a dependency**: Wallet Core rebuilt from its pinned source with one patch | **Prepared** (F9), 26 October 2026 |
 | **WD-15** | A leaf that is byte for byte a trust anchor of the list is trusted directly, within its validity period | (a) and (b) | **Defect fix in a dependency**: the ETSI chain validator, on top of WD-13 | **Prepared** (F10), 26 October 2026 |
+| **WD-16** | A registration certificate's status list may be a CWT: fetched when the JWT cannot be had, and verified the same way | — | **Defect fix**: Wallet Core rebuilt with one more patch | **Prepared** (F11), 26 October 2026 |
 
 ---
 
@@ -923,6 +924,56 @@ diagnostic variant, for our own phone only, is the same without WD-7 and with `-
 
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15 \
+      --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
+      --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
+      --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \
+      --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
+      --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
+
+### WD-16 — a registration certificate's status list may be a CWT
+
+**The defect** (`docs/interop-findings.md` C17). Wallet Core 0.30.2 fetches a registration
+certificate's Status List Token as a JWT only. The Token Status List draft defines both formats, does
+not require a Status Provider to serve both, and does not tie the Status List Token's format to the
+referenced token's (draft-ietf-oauth-status-list-13 §8.1–8.2). FNMT-RCM's WRPRC provider serves CWT only.
+
+**The patch**, `deviations/wd-16.patch`, in the same Wallet Core build as WD-14 (so **wd-16 requires
+wd-14**): the JWT is asked for first, as upstream does; if that fails, the CWT, through the status
+library's own CWT path, with a verifier of our own. Writing that verifier found three narrower points in
+the libraries, each handled:
+
+- **x5chain in the protected header.** The wallet's existing CWT verifier reads only the unprotected
+  one; RFC 9360 lets it sit in either. Both are read, protected first.
+- **A tagged COSE_Sign1** (tag 18). The CBOR library reads only the untagged structure; RFC 9052 allows
+  both. The tag is removed first.
+- **The signature over the protected header as received.** The library's check re-encodes the protected
+  header before verifying, which breaks a valid signature whenever the signer encoded it otherwise —
+  FNMT-RCM's is an indefinite-length map. RFC 9052 signs the bytes as they are; the patch verifies over
+  them. FNMT-RCM's signature was checked independently and is valid.
+
+The chain is then checked against the registration-certificate status trust, as for a JWT.
+
+**Its tests**, run by `build.sh` with WD-14's and the library's registration tests: FNMT-RCM's real
+Status List Token verifies; its chain goes to the trust, and a refusing trust fails it; a tampered token
+and bytes that are not a COSE_Sign1 are refused.
+
+**Checked end to end** on 26 October 2026 with the status check itself. Served as binary from a local
+server, FNMT-RCM's token is fetched, verified and parsed by the status library, which then refuses it only
+because its `sub` names FNMT-RCM's address rather than the local one — as it should. **Against FNMT-RCM's
+own server it still fails**, for a reason that is FNMT-RCM's: the body is the token **base64url-encoded
+as text**, while the draft requires the raw binary encoding for a CWT (§8.2: "the binary encoding as
+defined in section 9.2.1 of [RFC8392] for a Status List Token in CWT format"). The status library reads
+the bytes as they come, and the decode fails.
+
+### F11 — F10 with WD-16, and its diagnostic variant
+
+**Prepared on 26 October 2026, not built.** F10 with WD-16, nothing else changed: `.fnmtce`.
+Deviations **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16`**. Its diagnostic
+variant, for our own phone only, is the same without WD-7 and with `--diagnostics`, as `.fnmtcediag`; it
+was prepared, and `core-logic` compiles.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16 \
       --pid-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json \
       --wrpac-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json \
       --wrprc-lote https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json \

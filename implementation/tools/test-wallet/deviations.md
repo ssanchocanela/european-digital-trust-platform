@@ -850,6 +850,13 @@ status list, which answers `410`. Both are FNMT-RCM's to change; see F8 above.
 
 ### F9 — F8 with WD-14, and its diagnostic variant
 
+**Run with the diagnostic variant on 26 October 2026**, *Check Registration Certificates* on: still
+blocked, now one check further. The log shows the issuer's signed metadata trusted, the registration
+certificate read (WD-14), and then the predicted second failure: `signer chain is not trusted:
+leaf=CN=FNMT Test WRPRC Certificate Provider, …` — `UNTRUSTED_PROVIDER`, because the Commission's WRPRC
+list anchors that signer rather than its CA. That, and the status list after it, are FNMT-RCM's to
+change.
+
 **Prepared on 26 October 2026, not built.** F8 with WD-14, nothing else changed: `.fnmtce`, "FNMT-RCM
 Cartera demo CE", updating F8 in place. Deviations
 **`wd-3,wd-4,wd-6,wd-7,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14`**. Its diagnostic variant, for our own phone

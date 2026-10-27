@@ -25,6 +25,7 @@
 #   --pid-lote <url>        required by wd-4. Where the wallet fetches PID Provider trust anchors.
 #   --wrprc-lote <url>      required by wd-8. Where it fetches registration-certificate provider anchors.
 #   --pubeaa-lote <url>     required by wd-9. Where it fetches public-body EAA provider anchors.
+#   --mdl-lote <url>        required by wd-12. Where it fetches mDL Provider anchors.
 #   --issuer <url>[,<url>…]  required by wd-5, up to four. The ONLY issuers "Add document > From
 #                           list" offers, in list order: one or two reuse upstream's two slots; a
 #                           third and a fourth are copies of the second slot's settings, each
@@ -48,6 +49,51 @@
 # `wd-10` builds the ETSI TS 119 602 data-model library from its pinned source with one patch, so
 # that a trust list whose LoTELegalNotice is a multilingual character string is read instead of
 # refused whole. A defect fix in a dependency; the library is cloned into ./upstream-etsi.
+#
+# `wd-12` lets the wallet trust an mDL issuer from an mDL Providers list. Wallet Core resolves each
+# list through the ETSI library's EU baseline, which has no mDL entry, so an mDL could not be issued
+# under the build's ENFORCE issuer policy. wd-12 adds that entry to the same library build as wd-10
+# (and so requires wd-10), points `eaaProviders["mdl"]` at the list and classifies the ISO mDL
+# docType under it. An extension, not a relaxation: an mDL issuer is trusted only if the list has it.
+#
+# `wd-13` validates a certificate chain only up to the first certificate, after the leaf, that is byte
+# for byte a trust anchor of the list: a list may anchor a CA that is not a root, and the JDK's PKIX
+# validator refuses a path that runs past its anchor. A defect fix in the same library build as
+# wd-10 (and so requires wd-10). Nothing above an anchor ever counted towards trust.
+#
+# `wd-15` trusts a leaf directly when it is byte for byte a trust anchor of the list and within its
+# validity period: ETSI TS 119 602 lets a list carry the signing certificate itself (a registration
+# certificate's signer, Annex G), and PKIX builds no path whose leaf is the anchor. On top of wd-13, in
+# the same module, so it requires wd-13.
+#
+# `wd-16` lets a registration certificate's status list be a CWT: if the JWT cannot be had, the CWT is
+# fetched and verified the same way (signature over the protected header as received, x5chain in
+# either header, tagged or untagged COSE_Sign1, chain against the status trust). In the same Wallet Core
+# build as wd-14, so it requires wd-14.
+#
+# `wd-17` is a RELAXATION: a CWT status list sent base64url-encoded as text, which draft-ietf-oauth-
+# status-list §8.2 does not allow (it requires the raw binary), is decoded before it is read. Only a
+# response typed application/statuslist+cwt whose whole body is base64url text of a COSE_Sign1; the
+# token is then verified as a binary one is. On top of wd-16, so it requires wd-16.
+#
+# `wd-18` accepts the two URL schemes of the EUDI Wallet Launchpad 2026 Testing Playbook: `eu-eaap://`
+# for an OpenID4VP request and `eu-eaa-offer://` for a credential offer — in the app's deep-link
+# filters and routing, and `eu-eaap` in Wallet Core's list of OpenID4VP schemes, which it checks.
+#
+# `wd-19` makes a request for an OpenID4VP Request Object carry `Accept: application/oauth-authz-req+jwt`
+# alone, as OpenID4VP 1.0 §5.10 sets it for request_uri_method=post: the app's HTTP client appended
+# other types, and a Verifier that checks the header refused the request. A defect fix, like wd-11.
+#
+# `wd-20` is a PRIVACY RELAXATION: the PID (mdoc and SD-JWT) is kept and reused across presentations
+# (RotatingBatch, one credential) instead of being used once and discarded (OnceOnly, a batch of ten).
+# Reusing one credential makes presentations linkable to each other by the signature and other unique
+# values in it. For demonstrations with an issuer that issues one credential at a time.
+#
+# `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
+# `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
+# arrays) as well as the flat one it read before; a certificate written to the specification was
+# refused as malformed. A defect fix in a dependency; cloned into ./upstream-walletcore, and published
+# through wd-10's repository (so it requires wd-10).
 #
 # `wd-2,wd-3,wd-4` is the build for the test PID issuer: wd-4 so a PID signed under our development
 # PID Provider CA is trusted, the other two for the reasons above.
@@ -89,6 +135,7 @@ WRPAC_LOTE=""
 PID_LOTE=""
 WRPRC_LOTE=""
 PUBEAA_LOTE=""
+MDL_LOTE=""
 ISSUER_URL=""
 PID_LABEL=""
 APP_ID_SUFFIX=""
@@ -104,6 +151,7 @@ while [ $# -gt 0 ]; do
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
     --wrprc-lote) WRPRC_LOTE="${2:-}"; shift 2 ;;
     --pubeaa-lote) PUBEAA_LOTE="${2:-}"; shift 2 ;;
+    --mdl-lote) MDL_LOTE="${2:-}"; shift 2 ;;
     --issuer) ISSUER_URL="${2:-}"; shift 2 ;;
     --brand) BRAND="${2:-}"; shift 2 ;;
     --pid-label) PID_LABEL="${2:-}"; shift 2 ;;
@@ -137,6 +185,15 @@ WANT_WD8=no
 WANT_WD9=no
 WANT_WD10=no
 WANT_WD11=no
+WANT_WD12=no
+WANT_WD13=no
+WANT_WD14=no
+WANT_WD15=no
+WANT_WD16=no
+WANT_WD17=no
+WANT_WD18=no
+WANT_WD19=no
+WANT_WD20=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -201,6 +258,49 @@ if [ "$DEVIATIONS" != "none" ]; then
         [ -f "$HERE/deviations/wd-11.patch" ] || die "deviations/wd-11.patch is missing."
         WANT_WD11=yes
         ;;
+      wd-12)
+        # Refused without the URL, for the same reason as wd-3.
+        [ -n "$MDL_LOTE" ] ||
+          die "--deviations wd-12 requires --mdl-lote <url>: the mDL Providers list this build is to
+    consult. See deviations.md."
+        case "$MDL_LOTE" in
+          https://*) ;;
+          *) die "--mdl-lote must be https. A wallet will not fetch a trust list over cleartext." ;;
+        esac
+        [ -f "$HERE/deviations/wd-12.patch" ] || die "deviations/wd-12.patch is missing."
+        WANT_WD12=yes
+        ;;
+      wd-13)
+        [ -f "$HERE/deviations/wd-13.patch" ] || die "deviations/wd-13.patch is missing."
+        WANT_WD13=yes
+        ;;
+      wd-20)
+        WANT_WD20=yes
+        ;;
+      wd-19)
+        [ -f "$HERE/deviations/wd-19.patch" ] || die "deviations/wd-19.patch is missing."
+        WANT_WD19=yes
+        ;;
+      wd-18)
+        [ -f "$HERE/deviations/wd-18.patch" ] || die "deviations/wd-18.patch is missing."
+        WANT_WD18=yes
+        ;;
+      wd-17)
+        [ -f "$HERE/deviations/wd-17.patch" ] || die "deviations/wd-17.patch is missing."
+        WANT_WD17=yes
+        ;;
+      wd-16)
+        [ -f "$HERE/deviations/wd-16.patch" ] || die "deviations/wd-16.patch is missing."
+        WANT_WD16=yes
+        ;;
+      wd-15)
+        [ -f "$HERE/deviations/wd-15.patch" ] || die "deviations/wd-15.patch is missing."
+        WANT_WD15=yes
+        ;;
+      wd-14)
+        [ -f "$HERE/deviations/wd-14.patch" ] || die "deviations/wd-14.patch is missing."
+        WANT_WD14=yes
+        ;;
       wd-5)
         # Refused without the URL: a wd-5 build that still listed the EUDI issuers would report the
         # deviation while offering them, and one listing a guessed URL would offer nothing that works.
@@ -236,11 +336,46 @@ if [ "$DEVIATIONS" != "none" ]; then
     in a test record."
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-11 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-20 (not wd-1), or a comma-separated set of them."
         ;;
     esac
   done
   IFS="$OLD_IFS"
+fi
+# wd-12's library change is built, published and substituted with wd-10's, from the same clone.
+[ "$WANT_WD12" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
+  die "wd-12 requires wd-10: its library change is built on the same patched ETSI library build."
+[ "$WANT_WD13" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
+  die "wd-13 requires wd-10: its library change is built on the same patched ETSI library build."
+[ "$WANT_WD15" = "no" ] || [ "$WANT_WD13" = "yes" ] ||
+  die "wd-15 requires wd-13: its patch is written on top of wd-13's, in the same validator."
+[ "$WANT_WD17" = "no" ] || [ "$WANT_WD16" = "yes" ] ||
+  die "wd-17 requires wd-16: its patch is written on top of wd-16's."
+[ "$WANT_WD16" = "no" ] || [ "$WANT_WD14" = "yes" ] ||
+  die "wd-16 requires wd-14: it is built into the same rebuilt Wallet Core."
+[ "$WANT_WD14" = "no" ] || [ "$WANT_WD10" = "yes" ] ||
+  die "wd-14 requires wd-10: the rebuilt Wallet Core is published through wd-10's repository."
+[ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
+  die "--mdl-lote is given without wd-12, so the build would not read it."
+
+if [ "$WANT_WD20" = "yes" ]; then
+  cat >&2 <<'WARN'
+
+  WD-20 is a PRIVACY RELAXATION. The PID is reused across presentations instead of being used once:
+  every Relying Party it is shown to sees the same signature and unique values, so presentations can be
+  linked to each other. For demonstrations only, with synthetic data.
+
+WARN
+fi
+
+if [ "$WANT_WD17" = "yes" ]; then
+  cat >&2 <<'WARN'
+
+  WD-17 is a RELAXATION. It accepts a registration certificate's status list sent base64url-encoded as
+  text, which draft-ietf-oauth-status-list §8.2 does not allow. The token is still verified in full; only
+  its transport encoding is tolerated. Drop it once the provider sends the binary the draft requires.
+
+WARN
 fi
 
 if [ "$WANT_WD2" = "yes" ]; then
@@ -469,6 +604,45 @@ if [ "$WANT_WD9" = "yes" ]; then
   step "Applying WD-9 (pubEaaProviders -> another list)"
   replace_lote WD-9 pubEaaProviders PubEAAProviders "$PUBEAA_LOTE"
 fi
+if [ "$WANT_WD12" = "yes" ]; then
+  step "Applying WD-12 (eaaProviders[\"mdl\"] -> an mDL Providers list)"
+  # Two insertions in the wallet's configuration, each anchored on a line that must be there once:
+  # the list location after the pubEaaProviders line (upstream's or WD-9's), and the classification
+  # of the ISO mDL docType under the same use case inside AttestationClassifications(.
+  WD12_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  [ "$(grep -cE '^ *pubEaaProviders = Uri\(' "$WD12_FILE")" = "1" ] ||
+    die "the pubEaaProviders line is not in $WD12_FILE exactly once; WD-12 must be regenerated."
+  [ "$(grep -cE '^ *AttestationClassifications\($' "$WD12_FILE")" = "1" ] ||
+    die "AttestationClassifications( is not in $WD12_FILE exactly once; WD-12 must be regenerated."
+  awk -v url="$MDL_LOTE" '
+    /^ *pubEaaProviders = Uri\(/ {
+      print
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print pad "// EDTP deviation WD-12. The mDL Providers list, under the use case \"mdl\" that the"
+      print pad "// patched ETSI library maps to its issuance and revocation services. The URL is"
+      print pad "// substituted by build.sh. This build is a MODIFIED wallet."
+      print pad "eaaProviders = mapOf(\"mdl\" to Uri(\"" url "\")),"
+      next
+    }
+    /^ *AttestationClassifications\($/ {
+      print
+      match($0, /^ */); pad = substr($0, 1, RLENGTH) "    "
+      print pad "// EDTP deviation WD-12: an ISO mDL is classified under the \"mdl\" list."
+      print pad "eaAs = mapOf("
+      print pad "    \"mdl\" to AttestationIdentifierPredicate.any("
+      print pad "        identifiers = setOf(AttestationIdentifier.MDoc(docType = \"org.iso.18013.5.1.mDL\")),"
+      print pad "    ),"
+      print pad "),"
+      next
+    }
+    { print }
+  ' "$WD12_FILE" > "$WD12_FILE.new" && mv "$WD12_FILE.new" "$WD12_FILE"
+  grep -qF "eaaProviders = mapOf(\"mdl\" to Uri(\"$MDL_LOTE\"))," "$WD12_FILE" ||
+    die "substituting the WD-12 list URL did not take effect."
+  grep -qF 'AttestationIdentifier.MDoc(docType = "org.iso.18013.5.1.mDL")' "$WD12_FILE" ||
+    die "the WD-12 classification did not take effect."
+  echo "    eaaProviders[\"mdl\"] -> $MDL_LOTE"
+fi
 
 if [ "$WANT_WD5" = "yes" ]; then
   step "Applying WD-5 (the wallet's issuer list -> our issuers only)"
@@ -613,6 +787,29 @@ if [ "$WANT_WD6" = "yes" ]; then
   echo "    credential response encryption: SUPPORTED on $WD6_SLOTS issuer slot(s). Unencrypted responses ACCEPTED."
 fi
 
+if [ "$WANT_WD18" = "yes" ]; then
+  step "Applying WD-18 (the Launchpad schemes: eu-eaap:// and eu-eaa-offer://)"
+  # The app's deep-link filters and routing, by patch; Wallet Core's own list of OpenID4VP schemes, which
+  # it checks a request against, by inserting into the generated configuration after the HAIP scheme.
+  git apply --whitespace=nowarn "$HERE/deviations/wd-18.patch" ||
+    die "failed to apply deviations/wd-18.patch against the pinned tag; it must be regenerated."
+  WD18_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  [ "$(grep -cE '^ *BuildConfig\.HAIP_OPENID4VP_SCHEME$' "$WD18_FILE")" = "1" ] ||
+    die "the HAIP scheme line is not in $WD18_FILE exactly once; WD-18 must be regenerated."
+  awk '
+    /^ *BuildConfig\.HAIP_OPENID4VP_SCHEME$/ {
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print $0 ","
+      print pad "// EDTP deviation WD-18: the EUDI Wallet Launchpad 2026 Testing Playbook scheme."
+      print pad "\"eu-eaap\""
+      next
+    }
+    { print }
+  ' "$WD18_FILE" > "$WD18_FILE.new" && mv "$WD18_FILE.new" "$WD18_FILE"
+  grep -q '"eu-eaap"' "$WD18_FILE" || die "WD-18 did not take effect in $WD18_FILE."
+  echo "    eu-eaap:// -> presentation, eu-eaa-offer:// -> credential offer."
+fi
+
 if [ "$WANT_WD7" = "yes" ]; then
   step "Applying WD-7 (release logging -> warnings and errors only)"
   # Upstream's LogControllerImpl plants Timber.DebugTree and a FileLoggerTree at Log.DEBUG in every
@@ -668,6 +865,55 @@ if [ "$WANT_WD11" = "yes" ]; then
   echo "    issuer metadata requests: 'Accept: application/jwt' alone when signed metadata is asked for."
 fi
 
+if [ "$WANT_WD20" = "yes" ]; then
+  step "Applying WD-20 (the PID is reused, not used once — a privacy relaxation)"
+  # The two PID entries of documentSpecificPolicies, each OnceOnly(numberOfCredentials = 10,
+  # reissueTriggerUnused = 2), become RotatingBatch(numberOfCredentials = 1, reissueTriggerLifetimeLeft =
+  # 24.hours) — the policy upstream gives every other document. Anchored on the exact lines.
+  WD20_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  [ "$(grep -cE '^ *DocumentIdentifier\.(MdocPid|SdJwtPid) to CredentialPolicy\.OnceOnly\($' "$WD20_FILE")" = "2" ] ||
+    die "the two PID OnceOnly policies are not in $WD20_FILE as expected; WD-20 must be regenerated."
+  awk '
+    /^ *DocumentIdentifier\.(MdocPid|SdJwtPid) to CredentialPolicy\.OnceOnly\($/ {
+      match($0, /^ */); pad = substr($0, 1, RLENGTH)
+      print pad "// EDTP deviation WD-20 (a privacy relaxation): the PID is reused, not used once."
+      sub(/CredentialPolicy\.OnceOnly\(/, "CredentialPolicy.RotatingBatch("); print; armed = 2; next
+    }
+    armed && /^ *numberOfCredentials = 10,$/ { sub(/10,/, "1,"); print; next }
+    armed && /^ *reissueTriggerUnused = 2$/ { sub(/reissueTriggerUnused = 2/, "reissueTriggerLifetimeLeft = 24.hours"); print; armed--; next }
+    { print }
+  ' "$WD20_FILE" > "$WD20_FILE.new" && mv "$WD20_FILE.new" "$WD20_FILE"
+  [ "$(grep -cE 'DocumentIdentifier\.(MdocPid|SdJwtPid) to CredentialPolicy\.RotatingBatch\(' "$WD20_FILE")" = "2" ] &&
+    ! grep -q 'reissueTriggerUnused = 2' "$WD20_FILE" ||
+    die "WD-20 did not take effect in $WD20_FILE."
+  echo "    PID (mdoc and SD-JWT): RotatingBatch, one credential, reused."
+fi
+
+if [ "$WANT_WD19" = "yes" ]; then
+  step "Applying WD-19 (a request for an OpenID4VP Request Object asks for that type alone)"
+  # The plugin and its test come from the patch; installing it is one line in NetworkModule.kt, placed
+  # by the same anchor as WD-11's and for the same reason.
+  git apply --whitespace=nowarn "$HERE/deviations/wd-19.patch" ||
+    die "failed to apply deviations/wd-19.patch against the pinned tag; it must be regenerated."
+  WD19_FILE="network-logic/src/main/java/eu/europa/ec/networklogic/di/NetworkModule.kt"
+  [ "$(grep -c '^                contentType = ContentType.Application.Json$' "$WD19_FILE")" = "1" ] ||
+    die "NetworkModule.kt no longer has the ContentNegotiation block WD-19 anchors on."
+  awk '
+    /^                contentType = ContentType.Application.Json$/ { armed = 1 }
+    { print }
+    armed && /^        }$/ {
+      armed = 0
+      print ""
+      print "        // EDTP WD-19: a request for an OpenID4VP Request Object asks for that type alone"
+      print "        // (OpenID4VP 1.0 section 5.10). Installed after ContentNegotiation, which adds JSON."
+      print "        install(EdtpRequestObjectAccept)"
+    }
+  ' "$WD19_FILE" > "$WD19_FILE.new" && mv "$WD19_FILE.new" "$WD19_FILE"
+  [ "$(grep -c 'install(EdtpRequestObjectAccept)' "$WD19_FILE")" = "1" ] ||
+    die "WD-19 did not take effect."
+  echo "    Request Object requests: 'Accept: application/oauth-authz-req+jwt' alone."
+fi
+
 if [ "$WANT_WD10" = "yes" ]; then
   step "Applying WD-10 (ETSI TS 119 602 data model: a multilingual LoTELegalNotice is read)"
   # The wallet takes this library as a published jar, so it cannot be patched in the wallet's tree.
@@ -685,15 +931,51 @@ if [ "$WANT_WD10" = "yes" ]; then
   git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-10.patch" ||
     die "failed to apply deviations/wd-10.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
   ETSI_JAR="$ETSI_DIR/119602-data-model/build/libs/etsi-119602-data-model-jvm-$WALLET_ETSI_LIB_VERSION.jar"
-  rm -f "$ETSI_JAR"
-  # The patch carries its own tests: both forms of the legal notice read, anything else refused. A
-  # build whose patched library fails them is not built.
-  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
-      :etsi-119602-data-model:jvmTest --tests '*EdtpLegalNoticeTest*' :etsi-119602-data-model:jvmJar ) ||
+  ETSI_CONSULTATION_JAR="$ETSI_DIR/119602-consultation/build/libs/etsi-119602-consultation-jvm-$WALLET_ETSI_LIB_VERSION.jar"
+  ETSI_CHAIN_JAR="$ETSI_DIR/consultation/build/libs/etsi-1196x2-consultation-jvm-$WALLET_ETSI_LIB_VERSION.jar"
+  rm -f "$ETSI_JAR" "$ETSI_CONSULTATION_JAR" "$ETSI_CHAIN_JAR"
+  # WD-12 changes another module of the same library, so it is built here too, from the same clone.
+  ETSI_TASKS=(:etsi-119602-data-model:jvmTest --tests '*EdtpLegalNoticeTest*' :etsi-119602-data-model:jvmJar)
+  if [ "$WANT_WD12" = "yes" ]; then
+    git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-12.patch" ||
+      die "failed to apply deviations/wd-12.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
+    ETSI_TASKS+=(:etsi-119602-consultation:jvmTest --tests '*EdtpWd12Test*' :etsi-119602-consultation:jvmJar)
+  fi
+  if [ "$WANT_WD13" = "yes" ]; then
+    git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-13.patch" ||
+      die "failed to apply deviations/wd-13.patch against $WALLET_ETSI_LIB_TAG; it must be regenerated."
+    # Its own tests, and the validator's existing ones, which must still pass.
+    ETSI_TASKS+=(:etsi-1196x2-consultation:jvmTest --tests '*EdtpWd13Test*'
+      --tests '*ValidateCertificateChainUsingPKIXJvmTest*')
+    if [ "$WANT_WD15" = "yes" ]; then
+      git -C "$ETSI_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-15.patch" ||
+        die "failed to apply deviations/wd-15.patch on top of wd-13; it must be regenerated."
+      ETSI_TASKS+=(--tests '*EdtpWd15Test*')
+    fi
+    ETSI_TASKS+=(:etsi-1196x2-consultation:jvmJar)
+  fi
+  # Each patch carries its own tests: for WD-10, both forms of the legal notice read and anything else
+  # refused; for WD-12, the mDL list's two services mapped. A library that fails them is not used.
+  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet "${ETSI_TASKS[@]}" ) ||
     die "the patched ETSI library did not pass its tests or did not build."
   [ -f "$ETSI_JAR" ] || die "the patched ETSI library built no jar at $ETSI_JAR."
   jar tf "$ETSI_JAR" | grep -q 'EdtpLegalNoticeTextSerializer.class' ||
     die "the built ETSI library does not carry the WD-10 patch."
+  if [ "$WANT_WD12" = "yes" ]; then
+    [ -f "$ETSI_CONSULTATION_JAR" ] || die "the patched ETSI library built no jar at $ETSI_CONSULTATION_JAR."
+    # The constant is inlined at compile time, but its holder class is generated only if WD-12 is there.
+    javap -cp "$ETSI_CONSULTATION_JAR" -constants eu.europa.ec.eudi.etsi119602.consultation.EUSupportedListsKt |
+      grep -q 'MDL_USE_CASE = "mdl"' || die "the built ETSI library does not carry the WD-12 patch."
+  fi
+  if [ "$WANT_WD13" = "yes" ]; then
+    [ -f "$ETSI_CHAIN_JAR" ] || die "the patched ETSI library built no jar at $ETSI_CHAIN_JAR."
+    javap -p -cp "$ETSI_CHAIN_JAR" 'eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm$Companion' |
+      grep -q 'upToTrustAnchor' || die "the built ETSI library does not carry the WD-13 patch."
+    if [ "$WANT_WD15" = "yes" ]; then
+      javap -p -cp "$ETSI_CHAIN_JAR" 'eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm$Companion' |
+        grep -q 'directTrustAnchor' || die "the built ETSI library does not carry the WD-15 patch."
+    fi
+  fi
 
   # A repository of one module, inside the wallet's tree, under a group of our own: the patched jar
   # can never be taken for the published one, and nothing else can come from here.
@@ -747,6 +1029,171 @@ allprojects {
 GRADLE
   grep -q 'uri("edtp-maven")' settings.gradle.kts || die "the WD-10 repository did not take."
   echo "    ETSI data model $WALLET_ETSI_LIB_VERSION rebuilt from $WALLET_ETSI_LIB_TAG with wd-10.patch, and substituted."
+
+  if [ "$WANT_WD12" = "yes" ]; then
+    # The consultation module, the same way: one more module in the same repository of our own. Its
+    # dependency on the data model is substituted by the WD-10 rule above like any other.
+    WD12_ARTIFACT="etsi-119602-consultation-jvm-wd12"
+    WD12_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD12_ARTIFACT/$WALLET_ETSI_LIB_VERSION"
+    mkdir -p "$WD12_REPO"
+    cp "$ETSI_CONSULTATION_JAR" "$WD12_REPO/$WD12_ARTIFACT-$WALLET_ETSI_LIB_VERSION.jar"
+    # The published module's own dependencies, at $WALLET_ETSI_LIB_VERSION.
+    cat > "$WD12_REPO/$WD12_ARTIFACT-$WALLET_ETSI_LIB_VERSION.pom" <<POM
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>eu.europa.ec.eudi.edtp</groupId>
+  <artifactId>$WD12_ARTIFACT</artifactId>
+  <version>$WALLET_ETSI_LIB_VERSION</version>
+  <dependencies>
+    <dependency><groupId>eu.europa.ec.eudi</groupId><artifactId>etsi-119602-data-model-jvm</artifactId><version>$WALLET_ETSI_LIB_VERSION</version><scope>compile</scope></dependency>
+    <dependency><groupId>eu.europa.ec.eudi</groupId><artifactId>etsi-1196x2-consultation-jvm</artifactId><version>$WALLET_ETSI_LIB_VERSION</version><scope>compile</scope></dependency>
+    <dependency><groupId>io.ktor</groupId><artifactId>ktor-client-core-jvm</artifactId><version>3.3.3</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlin</groupId><artifactId>kotlin-stdlib</artifactId><version>2.2.21</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.83</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>atomicfu-jvm</artifactId><version>0.28.0</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-io-core-jvm</artifactId><version>0.8.2</version><scope>runtime</scope></dependency>
+  </dependencies>
+</project>
+POM
+    cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-12: every module resolves the ETSI TS 119 602 consultation module to the patched build of
+// the same version, whose only change is that its EU baseline carries the mDL Providers list.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            val patched = module("eu.europa.ec.eudi.edtp:$WD12_ARTIFACT:$WALLET_ETSI_LIB_VERSION")
+            substitute(module("eu.europa.ec.eudi:etsi-119602-consultation")).using(patched)
+            substitute(module("eu.europa.ec.eudi:etsi-119602-consultation-jvm")).using(patched)
+        }
+    }
+}
+GRADLE
+    echo "    ETSI consultation $WALLET_ETSI_LIB_VERSION rebuilt with wd-12.patch, and substituted."
+  fi
+
+  if [ "$WANT_WD13" = "yes" ]; then
+    # The chain-validation module, the same way again.
+    WD13_ARTIFACT="etsi-1196x2-consultation-jvm-wd13"
+    WD13_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD13_ARTIFACT/$WALLET_ETSI_LIB_VERSION"
+    mkdir -p "$WD13_REPO"
+    cp "$ETSI_CHAIN_JAR" "$WD13_REPO/$WD13_ARTIFACT-$WALLET_ETSI_LIB_VERSION.jar"
+    # The published module's own dependencies, at $WALLET_ETSI_LIB_VERSION.
+    cat > "$WD13_REPO/$WD13_ARTIFACT-$WALLET_ETSI_LIB_VERSION.pom" <<POM
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>eu.europa.ec.eudi.edtp</groupId>
+  <artifactId>$WD13_ARTIFACT</artifactId>
+  <version>$WALLET_ETSI_LIB_VERSION</version>
+  <dependencies>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>kotlinx-coroutines-core-jvm</artifactId><version>1.10.2</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlin</groupId><artifactId>kotlin-stdlib</artifactId><version>2.2.21</version><scope>compile</scope></dependency>
+    <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.83</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId><version>2.0.17</version><scope>runtime</scope></dependency>
+    <dependency><groupId>org.jetbrains.kotlinx</groupId><artifactId>atomicfu-jvm</artifactId><version>0.28.0</version><scope>runtime</scope></dependency>
+  </dependencies>
+</project>
+POM
+    cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-13: every module resolves the ETSI chain-validation module to the patched build of the same
+// version, whose only change is that a chain is validated up to the first certificate that is a trust
+// anchor of the list.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            val patched = module("eu.europa.ec.eudi.edtp:$WD13_ARTIFACT:$WALLET_ETSI_LIB_VERSION")
+            substitute(module("eu.europa.ec.eudi:etsi-1196x2-consultation")).using(patched)
+            substitute(module("eu.europa.ec.eudi:etsi-1196x2-consultation-jvm")).using(patched)
+        }
+    }
+}
+GRADLE
+    WD13_PATCHES="wd-13.patch"; [ "$WANT_WD15" = "yes" ] && WD13_PATCHES="wd-13.patch and wd-15.patch"
+    echo "    ETSI chain validation $WALLET_ETSI_LIB_VERSION rebuilt with $WD13_PATCHES, and substituted."
+  fi
+
+  if [ "$WANT_WD14" = "yes" ]; then
+    step "Applying WD-14 (Wallet Core: srv_description read as ETSI TS 119 475 defines it)"
+    CORE_DIR="$HERE/upstream-walletcore"
+    [ -d "$CORE_DIR/.git" ] ||
+      git clone --quiet --depth 1 --branch "$WALLET_CORE_TAG" "$WALLET_CORE_URL" "$CORE_DIR"
+    git -C "$CORE_DIR" reset --quiet --hard
+    git -C "$CORE_DIR" clean --quiet -fd
+    CORE_ACTUAL="$(git -C "$CORE_DIR" rev-parse HEAD)"
+    [ "$CORE_ACTUAL" = "$WALLET_CORE_COMMIT" ] ||
+      die "the Wallet Core clone is at $CORE_ACTUAL, expected $WALLET_CORE_COMMIT. Remove $CORE_DIR and run again."
+    git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-14.patch" ||
+      die "failed to apply deviations/wd-14.patch against $WALLET_CORE_TAG; it must be regenerated."
+    CORE_TESTS=(--tests '*EdtpWd14Test*')
+    if [ "$WANT_WD16" = "yes" ]; then
+      git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-16.patch" ||
+        die "failed to apply deviations/wd-16.patch against $WALLET_CORE_TAG; it must be regenerated."
+      CORE_TESTS+=(--tests '*EdtpWd16Test*')
+      if [ "$WANT_WD17" = "yes" ]; then
+        git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-17.patch" ||
+          die "failed to apply deviations/wd-17.patch on top of wd-16; it must be regenerated."
+        CORE_TESTS+=(--tests '*EdtpWd17Test*')
+      fi
+    fi
+    echo "sdk.dir=$SDK" > "$CORE_DIR/local.properties"
+    CORE_AAR="$CORE_DIR/wallet-core/build/outputs/aar/wallet-core-release.aar"
+    rm -f "$CORE_AAR"
+    # Its own tests and the library's other registration-certificate tests, which must still pass.
+    ( cd "$CORE_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
+        :wallet-core:testDebugUnitTest "${CORE_TESTS[@]}" --tests '*RegistrationCertificate*' \
+        --tests '*IssuerRegistration*' --tests '*WrpRegistration*' :wallet-core:assembleRelease ) ||
+      die "the patched Wallet Core did not pass its tests or did not build."
+    [ -f "$CORE_AAR" ] || die "the patched Wallet Core built no AAR at $CORE_AAR."
+    unzip -p "$CORE_AAR" classes.jar > "$CORE_DIR/classes.jar" 2>/dev/null ||
+      python3 -c 'import sys,zipfile; open(sys.argv[2],"wb").write(zipfile.ZipFile(sys.argv[1]).read("classes.jar"))' \
+        "$CORE_AAR" "$CORE_DIR/classes.jar"
+    javap -cp "$CORE_DIR/classes.jar" eu.europa.ec.eudi.wallet.registration.EdtpServiceDescriptionSerializer >/dev/null 2>&1 ||
+      die "the built Wallet Core does not carry the WD-14 patch."
+    if [ "$WANT_WD16" = "yes" ]; then
+      javap -cp "$CORE_DIR/classes.jar" eu.europa.ec.eudi.wallet.registration.EdtpRegistrationStatusTokenCwtVerifier >/dev/null 2>&1 ||
+        die "the built Wallet Core does not carry the WD-16 patch."
+    fi
+    if [ "$WANT_WD17" = "yes" ]; then
+      javap -cp "$CORE_DIR/classes.jar" eu.europa.ec.eudi.wallet.registration.EdtpStatusListBase64ToleranceKt >/dev/null 2>&1 ||
+        die "the built Wallet Core does not carry the WD-17 patch."
+    fi
+
+    WD14_ARTIFACT="eudi-lib-android-wallet-core-wd14"
+    WD14_REPO="edtp-maven/eu/europa/ec/eudi/edtp/$WD14_ARTIFACT/$WALLET_CORE_VERSION"
+    mkdir -p "$WD14_REPO"
+    cp "$CORE_AAR" "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.aar"
+    # The published release's own POM, renamed: its dependencies are the library's own. Without its
+    # pointer to Gradle module metadata, which we do not publish.
+    curl -fsSL "https://repo1.maven.org/maven2/eu/europa/ec/eudi/eudi-lib-android-wallet-core/$WALLET_CORE_VERSION/eudi-lib-android-wallet-core-$WALLET_CORE_VERSION.pom" |
+      awk -v art="$WD14_ARTIFACT" '
+        /published-with-gradle-metadata/ { next }
+        !g && sub(/<groupId>eu\.europa\.ec\.eudi<\/groupId>/, "<groupId>eu.europa.ec.eudi.edtp</groupId>") { g=1 }
+        !a && sub(/<artifactId>eudi-lib-android-wallet-core<\/artifactId>/, "<artifactId>" art "</artifactId>") { a=1 }
+        { print }
+      ' \
+      > "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.pom"
+    grep -q "<artifactId>$WD14_ARTIFACT</artifactId>" "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.pom" ||
+      die "the WD-14 POM was not written."
+    cat >> build.gradle.kts <<GRADLE
+
+// EDTP WD-14: every module resolves Wallet Core to the patched build of the same version, whose only
+// change is that a registration certificate's srv_description is read as ETSI TS 119 475 defines it.
+allprojects {
+    configurations.configureEach {
+        resolutionStrategy.dependencySubstitution {
+            substitute(module("eu.europa.ec.eudi:eudi-lib-android-wallet-core"))
+                .using(module("eu.europa.ec.eudi.edtp:$WD14_ARTIFACT:$WALLET_CORE_VERSION"))
+        }
+    }
+}
+GRADLE
+    CORE_PATCHES="wd-14.patch"; [ "$WANT_WD16" = "yes" ] && CORE_PATCHES="wd-14.patch and wd-16.patch"
+    [ "$WANT_WD17" = "yes" ] && CORE_PATCHES="wd-14.patch, wd-16.patch and wd-17.patch"
+    echo "    Wallet Core $WALLET_CORE_VERSION rebuilt from $WALLET_CORE_TAG with $CORE_PATCHES, and substituted."
+  fi
 fi
 
 if [ -n "$BRAND" ]; then
@@ -791,6 +1238,7 @@ EDTP_WRPAC_LOTE=$WRPAC_LOTE
 EDTP_PID_LOTE=$PID_LOTE
 EDTP_WRPRC_LOTE=$WRPRC_LOTE
 EDTP_PUBEAA_LOTE=$PUBEAA_LOTE
+EDTP_MDL_LOTE=$MDL_LOTE
 EDTP_ISSUER_URL=$ISSUER_URL
 EDTP_PID_LABEL=$PID_LABEL
 EDTP_BRAND=$BRAND

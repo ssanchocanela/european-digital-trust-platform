@@ -1,0 +1,161 @@
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/EdtpRegistrationStatusCwt.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/EdtpRegistrationStatusCwt.kt
+new file mode 100644
+index 0000000..1a26e42
+--- /dev/null
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/EdtpRegistrationStatusCwt.kt
+@@ -0,0 +1,76 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package eu.europa.ec.eudi.wallet.registration
++
++import eu.europa.ec.eudi.statium.VerifyStatusListTokenCwtSignature
++import org.multipaz.cbor.Bstr
++import org.multipaz.cbor.Cbor
++import org.multipaz.cbor.CborArray
++import org.multipaz.cbor.Tagged
++import org.multipaz.cbor.Tstr
++import org.multipaz.cose.Cose
++import org.multipaz.cose.toCoseLabel
++import org.multipaz.crypto.Algorithm
++import org.multipaz.crypto.Crypto
++import org.multipaz.crypto.EcSignature
++import org.multipaz.crypto.javaX509Certificates
++import kotlin.time.Instant
++
++/**
++ * EDTP WD-16. Verifies a registration certificate's Status List Token served as a CWT: the COSE_Sign1
++ * signature with the leaf of its x5chain, then that chain against the registration-certificate status
++ * trust, as [RegistrationStatusTokenVerifier] does for a JWT. The Token Status List draft defines both
++ * formats and does not tie the Status List Token's format to the referenced token's; RFC 9360 lets
++ * x5chain sit in the protected or the unprotected header, so both are read, protected first; and RFC
++ * 9052 allows the COSE_Sign1 to be tagged or untagged, so both are read.
++ */
++internal class EdtpRegistrationStatusTokenCwtVerifier(
++    private val statusTrust: CertificateTrust? = null,
++) : VerifyStatusListTokenCwtSignature {
++
++    override suspend fun invoke(statusListToken: ByteArray, at: Instant): Result<Unit> = runCatching {
++        // A COSE_Sign1 may come tagged (COSE_Sign1_Tagged, tag 18, RFC 9052); the CBOR library reads
++        // only the untagged structure, so the tag is removed first.
++        val decoded = Cbor.decode(statusListToken)
++        val structure = if (decoded is Tagged && decoded.tagNumber == COSE_SIGN1_TAG) decoded.taggedItem else decoded
++        val coseSign1 = structure.asCoseSign1
++        val label = Cose.COSE_LABEL_X5CHAIN.toCoseLabel
++        val x5chain = (coseSign1.protectedHeaders[label] ?: coseSign1.unprotectedHeaders[label])
++            ?.asX509CertChain
++            ?: error("status list token has no x5chain")
++        val leaf = x5chain.certificates.firstOrNull() ?: error("status list token x5chain is empty")
++        val algorithm = coseSign1.protectedHeaders[Cose.COSE_LABEL_ALG.toCoseLabel]
++            ?.asNumber?.toInt()
++            ?.let { Algorithm.fromCoseAlgorithmIdentifier(it) }
++            ?: error("status list token has no alg in its protected header")
++        // The signature is checked over the protected header exactly as received (RFC 9052 §4.4). The
++        // library's own check re-encodes it, which breaks a valid signature whenever the signer encoded
++        // it differently — an indefinite-length map, for one.
++        val protectedBytes = ((structure as CborArray).items[0] as Bstr).value
++        val payload = coseSign1.payload ?: error("status list token has a detached payload")
++        val toBeSigned = Cbor.encode(
++            CborArray(mutableListOf(Tstr("Signature1"), Bstr(protectedBytes), Bstr(ByteArray(0)), Bstr(payload))),
++        )
++        Crypto.checkSignature(leaf.ecPublicKey, toBeSigned, algorithm, EcSignature.fromCoseEncoded(coseSign1.signature))
++        if (statusTrust != null) {
++            check(statusTrust.isTrusted(x5chain.javaX509Certificates)) {
++                "status list token certificate chain is not trusted"
++            }
++        }
++    }
++}
++
++private const val COSE_SIGN1_TAG = 18L
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificateChecks.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificateChecks.kt
+index d59f4e9..822d505 100644
+--- a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificateChecks.kt
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificateChecks.kt
+@@ -82,7 +82,21 @@ internal suspend fun checkStatusListRevocation(
+             verifyStatusListTokenSignature = RegistrationStatusTokenVerifier(statusTrust),
+             allowedClockSkew = Duration.ZERO,
+         )
+-        val status = with(GetStatus(getStatusListToken)) { statusReference.currentStatus() }.getOrThrow()
++        // EDTP WD-16: a Status List Token may be served as a CWT only. The JWT is asked for first, as
++        // upstream does; if that fails, the CWT, verified the same way.
++        val status = with(GetStatus(getStatusListToken)) { statusReference.currentStatus() }
++            .recoverCatching { jwtError ->
++                if (jwtError is CancellationException) throw jwtError
++                logger?.d(TAG, "registration certificate status list as JWT failed (${jwtError.message}); trying CWT")
++                val getStatusListTokenCwt = GetStatusListToken.usingCwt(
++                    clock = Clock.System,
++                    httpClient = httpClient,
++                    verifyStatusListTokenSignature = EdtpRegistrationStatusTokenCwtVerifier(statusTrust),
++                    allowedClockSkew = Duration.ZERO,
++                )
++                with(GetStatus(getStatusListTokenCwt)) { statusReference.currentStatus() }.getOrThrow()
++            }
++            .getOrThrow()
+         if (status is Status.Valid) {
+             logger?.d(TAG, "registration certificate status is valid")
+             RevocationOutcome.VALID
+diff --git a/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd16Test.kt b/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd16Test.kt
+new file mode 100644
+index 0000000..b1f50a1
+--- /dev/null
++++ b/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd16Test.kt
+@@ -0,0 +1,46 @@
++package eu.europa.ec.eudi.wallet.registration.edtp
++
++import eu.europa.ec.eudi.wallet.registration.CertificateTrust
++import eu.europa.ec.eudi.wallet.registration.EdtpRegistrationStatusTokenCwtVerifier
++import kotlinx.coroutines.test.runTest
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import java.util.Base64
++import kotlin.time.Clock
++
++// EDTP WD-16: a registration certificate's Status List Token served as a CWT is verified — signature
++// with the leaf of its x5chain (here in the protected header), then that chain against the trust.
++class EdtpWd16Test {
++    // A real Status List Token, as FNMT-RCM's development WRPRC provider served it on 26 October 2026.
++    private val cwt: ByteArray = Base64.getUrlDecoder().decode(FNMT_STATUS_LIST_CWT)
++
++    @Test
++    fun `a CWT with x5chain in the protected header verifies`() = runTest {
++        assertTrue(EdtpRegistrationStatusTokenCwtVerifier(null)(cwt, Clock.System.now()).isSuccess)
++    }
++
++    @Test
++    fun `its chain is checked against the trust`() = runTest {
++        var seen = 0
++        val trusting = CertificateTrust { chain -> seen = chain.size; true }
++        assertTrue(EdtpRegistrationStatusTokenCwtVerifier(trusting)(cwt, Clock.System.now()).isSuccess)
++        assertTrue(seen > 0)
++        val refusing = CertificateTrust { false }
++        assertTrue(EdtpRegistrationStatusTokenCwtVerifier(refusing)(cwt, Clock.System.now()).isFailure)
++    }
++
++    @Test
++    fun `a tampered CWT is refused`() = runTest {
++        val tampered = cwt.copyOf().also { it[it.size - 10] = (it[it.size - 10].toInt() xor 0x01).toByte() }
++        assertTrue(EdtpRegistrationStatusTokenCwtVerifier(null)(tampered, Clock.System.now()).isFailure)
++    }
++
++    @Test
++    fun `bytes that are not a COSE_Sign1 are refused`() = runTest {
++        assertTrue(EdtpRegistrationStatusTokenCwtVerifier(null)("not a cwt".toByteArray(), Clock.System.now()).isFailure)
++    }
++
++    private companion object {
++        const val FNMT_STATUS_LIST_CWT = "0oRZA6O_ATgiEHgaYXBwbGljYXRpb24vc3RhdHVzbGlzdCtjd3QYIVkDfDCCA3gwggL_oAMCAQICFHanWzTi80o0puQ0Qvhg1fKt9rt9MAoGCCqGSM49BAMDMGAxCzAJBgNVBAYTAkVTMREwDwYDVQQKDAhGTk1ULVJDTTEYMBYGA1UEYQwPVkFURVMtUTI4MjYwMDRKMSQwIgYDVQQDDBtBQyBSQUlaIEZOTVQtUkNNIEVVRElXIFRFU1QwHhcNMjYxMDA1MTMxMDU3WhcNNDExMDAxMTMxMDU2WjBnMQswCQYDVQQGEwJFUzERMA8GA1UECgwIRk5NVC1SQ00xGDAWBgNVBGEMD1ZBVEVTLVEyODI2MDA0SjErMCkGA1UEAwwiQUMgRk5NVCBFVURJV1JQUkMgUFJPVklERVIgU1cgVEVTVDB2MBAGByqGSM49AgEGBSuBBAAiA2IABFaBrGurljd-ZkW3TH_mZa6Dkj3wsPEeIvoVzxWJCvLVl97oOMlkxZuGFsJUgkkSOaFiTBkv7StZJTxg9d-TBuVtnw5fLVl4PVQTZw-Ho-PxAYuYzJKi5WCSKvOu_URVB6OCAXEwggFtMBIGA1UdEwEB_wQIMAYBAf8CAQAwHwYDVR0jBBgwFoAUKY0sRmeLtHsVVrYDXnvUC65vZvYwgZUGCCsGAQUFBwEBBIGIMIGFMEIGCCsGAQUFBzAChjZodHRwOi8vY3JsLXZhLmludGVnLmNlcnQuZm5tdC5lcy9jZXJ0cy9BQ1JBSVpFVURJVy5jcnQwPwYIKwYBBQUHMAGGM2h0dHA6Ly9jcmwtdmEuaW50ZWcuY2VydC5mbm10LmVzL29jc3AvT2NzcFJlc3BvbmRlcjARBgNVHSAECjAIMAYGBFUdIAAwEwYDVR0lBAwwCgYIKwYBBQUHAyQwRwYDVR0fBEAwPjA8oDqgOIY2aHR0cDovL2NybC12YS5pbnRlZy5jZXJ0LmZubXQuZXMvY3Jscy9BUkxSQUlaRVVESVcuY3JsMB0GA1UdDgQWBBRhXiYgbHbISagRFJxpV6OrzCiaqDAOBgNVHQ8BAf8EBAMCAkQwCgYIKoZIzj0EAwMDZwAwZAIwb-xcFjbBfgE1UChgfZV3L_5haV1QoKT6PxJ6BuL2zpm2MG5iRj8M4qpyg1l4fwvkAjBC_fFj2_o-82EQzDelY6krtXz58xsZkuYN3gfwCAWKtS_MO57o_iDqkNWVqUdASCr_v_9YuL8CeHpodHRwczovL3dycHJjLmRldi5jcmVkZW5jaWFsZXMuZm5tdC5lcy90b2tlbi1zdGF0dXMtbGlzdC9jcmVkZW50aWFsL3N0YXR1cy9zdGF0dXMtbGlzdC1pZC81NDBkY2UyM2Q2MzMzNmMxNzRiNTViMGQ0MmFlYzZlYQYaat9agAQabMCOABn__b9kYml0cwFjbHN0WBx4nO3BMQEAAADCoPVPbQo_oAAAAACAtwETiAAB__9YYEEiaP-uVKpcTx7HF4eM70cWtvq1u7DvQAzEPOiHP1V3pXKRN5RylmE-2rfkaO7uyhmWZY2L3jsoE8MTxFCsbmJ2sjRQXTi7PhpLNCZv_cTeq0QmuIh2NZBGlGXxCBrkmA"
++    }
++}

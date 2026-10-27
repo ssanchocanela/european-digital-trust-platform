@@ -29,16 +29,22 @@ const EMBLEM = { left: 0, top: 0, width: 323, height: 392 };
  * pixel with no hue — the black lettering — is drawn white instead.
  */
 const unwhite = async (input, lightInk = false) => {
-  const { data, info } = await sharp(input).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(input)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   const out = Buffer.alloc(info.width * info.height * 4);
   for (let i = 0; i < info.width * info.height; i++) {
     const [r, g, b] = [data[i * 3], data[i * 3 + 1], data[i * 3 + 2]];
     const a = Math.max(255 - r, 255 - g, 255 - b);
-    let rgb = a === 0 ? [0, 0, 0] : [r, g, b].map((c) => Math.round((255 * (c - (255 - a))) / a));
+    let rgb =
+      a === 0 ? [0, 0, 0] : [r, g, b].map((c) => Math.round((255 * (c - (255 - a))) / a));
     if (lightInk && Math.max(...rgb) - Math.min(...rgb) < 40) rgb = [255, 255, 255];
     out.set([...rgb, a], i * 4);
   }
-  return sharp(out, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer();
+  return sharp(out, { raw: { width: info.width, height: info.height, channels: 4 } })
+    .png()
+    .toBuffer();
 };
 
 const out = (...parts) => {
@@ -58,24 +64,42 @@ const centred = async (mark, size, inner, background) => {
 };
 
 const emblemSource = await sharp(source).extract(EMBLEM).toBuffer();
-for (const [qualifier, lightInk] of [["", false], ["-night", true]]) {
+for (const [qualifier, lightInk] of [
+  ["", false],
+  ["-night", true],
+]) {
   const logo = await unwhite(source, lightInk);
   const emblem = await unwhite(emblemSource, lightInk);
   // In-app: the splash mark (160 dp) and the header's logo (161 dp wide), at xxhdpi.
-  await (await centred(emblem, 480, 400, transparent)).png().toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon.png"));
-  await sharp(logo).resize({ width: 483 }).png().toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon_and_text.png"));
+  await (await centred(emblem, 480, 400, transparent))
+    .png()
+    .toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon.png"));
+  await sharp(logo)
+    .resize({ width: 483 })
+    .png()
+    .toFile(out(`drawable${qualifier}-xxhdpi`, "ic_logo_icon_and_text.png"));
 }
 
 // The launcher icon: the blue emblem on white. The adaptive foreground keeps to the 66 dp safe zone.
 const emblem = await unwhite(emblemSource);
-for (const [density, scale] of [["mdpi", 1], ["hdpi", 1.5], ["xhdpi", 2], ["xxhdpi", 3], ["xxxhdpi", 4]]) {
+for (const [density, scale] of [
+  ["mdpi", 1],
+  ["hdpi", 1.5],
+  ["xhdpi", 2],
+  ["xxhdpi", 3],
+  ["xxxhdpi", 4],
+]) {
   const foreground = Math.round(108 * scale);
   const legacy = Math.round(48 * scale);
   await (await centred(emblem, foreground, Math.round(54 * scale), transparent))
     .webp({ lossless: true })
     .toFile(out(`mipmap-${density}`, "ic_launcher_foreground.webp"));
-  const square = await (await centred(emblem, legacy, Math.round(32 * scale), white)).png().toBuffer();
-  await sharp(square).webp({ lossless: true }).toFile(out(`mipmap-${density}`, "ic_launcher.webp"));
+  const square = await (await centred(emblem, legacy, Math.round(32 * scale), white))
+    .png()
+    .toBuffer();
+  await sharp(square)
+    .webp({ lossless: true })
+    .toFile(out(`mipmap-${density}`, "ic_launcher.webp"));
   const circle = Buffer.from(
     `<svg width="${legacy}" height="${legacy}"><circle cx="${legacy / 2}" cy="${legacy / 2}" r="${legacy / 2}"/></svg>`,
   );

@@ -1132,6 +1132,18 @@ diagnostic variant, for our own phone only, is the same without WD-7 and with `-
       --mdl-lote   https://development.trust.tech.ec.europa.eu/lists/eudiw/mdl-providers.json \
       --brand fnmt-color --app-id-suffix .fnmtce --app-name "FNMT-RCM Cartera demo CE"
 
+**Run, 27 October 2026, diagnostic variant (`8f7f959a…`): an mDL obtained by presenting the PID.**
+The first attempt stopped at FNMT-RCM's verifier. Its Request Object endpoint answered `500
+Unsupported curve type: P-384`, and the wallet reported `InvalidJarJwt`. FNMT-RCM fixed that on its
+side. On the second attempt the issuer returned the mDL (`200`), and the wallet refused it:
+`Issuer certificate chain is not trusted` (`Path does not chain with any of the trust anchors`). The
+mDL's `x5chain` leaf is `CN=FNMT Test PID Issuer, O=FNMT-RCM Test` (`NTRES-FNMTRCMTEST001`), which
+is on the Commission's **PID** Providers list only. FNMT-RCM's entry on the **mDL** Providers list is
+`CN=FNMT-RCM TEST`, under `AC FNMT QEAA-PSBEAA PROVIDER TEST`. The mDL is evaluated under the mDL
+list (WD-12), as ARF §6.3.2.4 has a trust anchor set per attestation type, so a PID signer does not
+make an mDL trusted. This is an issuer configuration error, not a wallet defect. FNMT-RCM is moving
+the mDL to its registered mDL signer.
+
 ---
 
 ## What a test run must record

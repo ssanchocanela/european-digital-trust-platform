@@ -1168,9 +1168,12 @@ GRADLE
     # The published release's own POM, renamed: its dependencies are the library's own. Without its
     # pointer to Gradle module metadata, which we do not publish.
     curl -fsSL "https://repo1.maven.org/maven2/eu/europa/ec/eudi/eudi-lib-android-wallet-core/$WALLET_CORE_VERSION/eudi-lib-android-wallet-core-$WALLET_CORE_VERSION.pom" |
-      sed -e '/published-with-gradle-metadata/d' \
-          -e '0,/<groupId>eu.europa.ec.eudi<\/groupId>/s//<groupId>eu.europa.ec.eudi.edtp<\/groupId>/' \
-          -e "0,/<artifactId>eudi-lib-android-wallet-core<\\/artifactId>/s//<artifactId>$WD14_ARTIFACT<\\/artifactId>/" \
+      awk -v art="$WD14_ARTIFACT" '
+        /published-with-gradle-metadata/ { next }
+        !g && sub(/<groupId>eu\.europa\.ec\.eudi<\/groupId>/, "<groupId>eu.europa.ec.eudi.edtp</groupId>") { g=1 }
+        !a && sub(/<artifactId>eudi-lib-android-wallet-core<\/artifactId>/, "<artifactId>" art "</artifactId>") { a=1 }
+        { print }
+      ' \
       > "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.pom"
     grep -q "<artifactId>$WD14_ARTIFACT</artifactId>" "$WD14_REPO/$WD14_ARTIFACT-$WALLET_CORE_VERSION.pom" ||
       die "the WD-14 POM was not written."

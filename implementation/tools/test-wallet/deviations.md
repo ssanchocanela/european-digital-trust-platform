@@ -1146,6 +1146,35 @@ the mDL to its registered mDL signer.
 
 ---
 
+### F16 — F15's deviations, rebuilt on the MacBook Pro (diagnostic), 27 October 2026
+
+**Built on the Mac, diagnostic variant.** No new deviation: the set is F15's. The F-number marks a new
+build record, produced on a different machine (the Mac, the only one at the testing event) rather than
+a change in behaviour. WD-7 out, `--diagnostics` in, identity `.fnmtcediag`, brand `fnmt-color`.
+
+    EDTP_DEVIATIONS     wd-3,wd-4,wd-6,wd-8,wd-10,wd-11,wd-12,wd-13,wd-14,wd-15,wd-16,wd-17,wd-18,wd-19,wd-20
+    EDTP_DIAGNOSTICS    yes
+    APK                 out/edtp-test-wallet-2026.09.42-edtptest-release-20261027T071033Z.apk
+    APK SHA-256         4a4ecae7e2b5e408345acb10c00dbab33d64771ec52b06dfe7d5bfdc13c3ded3
+    signing cert SHA-256 5e60c99f78c691ce8ed714daa8bc4515ea8dc3f030a1d8d11e3ecfa84b7644a8
+    package             eu.europa.ec.euidi.fnmtcediag  (label "FNMT CE diag")
+    build type          release
+    upstream            Wallet/Demo_Version=2026.09.42-Demo_Build=42 @ 43f362d2 ; Wallet Core 0.30.2
+    dependencies        ETSI lib rebuilt with wd-10/wd-12/wd-13/wd-15 ; Wallet Core rebuilt with wd-14/wd-16/wd-17
+
+The two diagnostic variants of F15 and F16 carry the same deviations; F15's diagnostic
+(`8f7f959a…`) was built on the Linux machine, F16's (`4a4ecae7…`) on the Mac.
+
+**The Mac build needed one portability fix to `build.sh`.** The WD-14 step rewrites the Wallet Core
+POM's group and artifact ids. It used `sed '0,/re/s//…/'`, whose `0,/re/` address is a GNU-sed
+extension that the BSD `sed` on macOS does not apply, so the renamed artifact id was never written and
+the build stopped with `the WD-14 POM was not written`. The two substitutions were replaced with a
+portable `awk` that rewrites only the first occurrence of each — same result on GNU and BSD `awk`. No
+deviation and no APK behaviour changed: it only lets the documented Mac target build. The **deliverable**
+F16 (`.fnmtce`, with WD-7) is not built.
+
+---
+
 ## What a test run must record
 
 Per the scope decision, every run records all of:

@@ -19,8 +19,8 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S0** | `sandbox/s0-investigation` | Findings, D1–D8 | Accepted 12 Nov 2026 |
 | **S1** | `sandbox/s0-investigation` | Specification, ADR 0014, ADR 0015, this plan | Approved 12 Nov 2026 |
 | **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR #42; real run pending |
-| **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR, STOP ← *built* |
-| **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR, STOP |
+| **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR #43 |
+| **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
 | **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP |
 | **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
 
@@ -117,6 +117,28 @@ the lists verify with the existing LoTE verifier; the register answers for a tes
 
 **Done when:** those runs are recorded, each with its wallet build, deviations and preference
 position, and nothing in them is described as more than it is.
+
+**State, 12 November 2026 — built, not yet run with a wallet.**
+
+Built:
+- the hosted verifier, on a runtime engine tenant with the sandbox PID list loaded;
+- certificate swaps between runs, with defective certificates sent on purpose;
+- one policy per intended use, returning claim presence only;
+- run reports with the tester's observation;
+- the portal pages;
+- `build.sh --profile sandbox`;
+- the gateway rule for `/sandbox/public`;
+- `cli.js issue-access` for the operator's own sign-in verifier.
+
+Tested against the fake engine: 8 integration tests on the verifier, plus the portal and profile unit
+tests.
+
+Two findings on the way:
+- a newest-by-timestamp access-certificate lookup could pick the wrong one when two replacements
+  shared a millisecond, so it is now an atomic replace;
+- the sign-in verifier itself needs a sandbox access certificate once the sandbox wallet build is used.
+
+The runs are in [`s4-run-sheet.md`](s4-run-sheet.md).
 
 ## S5 — The PID Provider role
 

@@ -29,7 +29,8 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 | Sandbox S0 — EUDI ecosystem sandbox, investigation, no product code | `sandbox/s0-investigation` | [`docs/sandbox/s0-findings.md`](docs/sandbox/s0-findings.md), D1–D8 accepted 12 Nov 2026 ← *complete* |
 | Sandbox S1 — specification | `sandbox/s0-investigation` | [`specification.md`](docs/sandbox/specification.md), ADR 0014, ADR 0015, [`plan.md`](docs/sandbox/plan.md) — approved 12 Nov 2026 ← *complete* |
 | Sandbox S2 — foundations: people, sign-in by PID, PKI, runtime engine tenants, portal | `sandbox/s2-foundations` | PR #42; real run per [`s2-run-sheet.md`](docs/sandbox/s2-run-sheet.md) ← *built, run pending* |
-| Sandbox S3 — certificate service, defect catalogue, lists, register | `sandbox/s3-certificates` (from S2) | PR, **STOP** ← *built* |
+| Sandbox S3 — certificate service, defect catalogue, lists, register | `sandbox/s3-certificates` (from S2) | PR #43 |
+| Sandbox S4 — hosted verifier, run reports, sandbox wallet build | `sandbox/s4-relying-party` (from S3) | PR, **STOP**; runs per [`s4-run-sheet.md`](docs/sandbox/s4-run-sheet.md) ← *built, runs pending* |
 
 **The EUDI ecosystem sandbox** (decided 12 November 2026): same repository; v1 covers the Relying
 Party and PID Provider roles only. S0 investigation → S1 specification → milestones, each with a

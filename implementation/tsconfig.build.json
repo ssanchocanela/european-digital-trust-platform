@@ -26,6 +26,9 @@
       "path": "./packages/registration-client"
     },
     {
+      "path": "./packages/sandbox-pki"
+    },
+    {
       "path": "./apps/platform-api"
     },
     {

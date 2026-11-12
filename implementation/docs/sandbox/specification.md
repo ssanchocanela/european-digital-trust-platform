@@ -329,11 +329,9 @@ says so.
 - **Validity:** 90 days by default, at most 1 year. **Key:** P-256.
 - **Revocation:** a CRL distribution point per issuing CA (`AS-MS-27-019`, `Reg_12`). OCSP is out of
   v1.
-- **To read in S2 before implementing:** key usage, EKU and the CRL profile (EN 319 411-1 §6.6.1–6.6.3,
-  EN 319 412-2/-3).
-  - The working assumption is `digitalSignature` with EKU `clientAuth`, as the existing dev Access CA
-    issues and the pinned wallet accepts.
-  - It is an assumption, recorded as such until read.
+- **Key usage `digitalSignature`, EKU `clientAuth`**, AKI, SKI, CRL distribution point, AIA
+  `caIssuers`, and a qcStatements SemanticsInformation naming the sandbox register as the identifier's
+  registration authority (Q-S1, Q-S2).
 
 ### 7.2 Registration certificate (WRPRC)
 
@@ -396,9 +394,8 @@ Commission publishes. The sandbox uses the same values because the wallet select
 it states the reuse in the scheme information and on the portal. **This is imitation of a list type,
 not of a publisher.** The operator name, the signer and the URLs are all the sandbox's.
 
-The `sigT` question (TS 119 182-1 not read; the engine cannot parse `crit: sigT`,
-`interop-findings.md` A30) is settled in S2 by reading TS 119 182-1. Until then lists are signed as
-`make-test-lote.mjs` signs them today.
+**Signature:** compact JAdES B-B with protected header `{alg: ES256, typ, x5c, iat}` and no `sigT`
+or `crit` (Q-S4, TS 119 182-1 V1.2.1 §5.1.11 and §5.2.1).
 
 **The PID list carries:**
 - the sign-in anchor set: reference PID Providers and "PID (demo)", so a sandbox wallet can hold the
@@ -550,10 +547,10 @@ The five classes of CLAUDE.md §5 stay separate.
 
 | # | Question | Where it is settled |
 |---|---|---|
-| Q-S1 | Identifier form for an organisation without an EUID. It must have EN 319 412-1 §5.1.4 semantics and must not imitate a real registration number | S2, after reading EN 319 412-1 |
-| Q-S2 | WRPAC key usage, EKU and CRL profile | S2, EN 319 411-1 / EN 319 412-2/-3 |
+| Q-S1 | **Closed 12 Nov 2026.** EN 319 412-1 V1.7.1 LEG-5.1.4-03 item 7 allows a *locally defined* type reference: two characters and `:`. With it, LEG-5.1.4-05 requires `nameRegistrationAuthorities` with a URI in the SemanticsInformation (qcStatements, `id-qcs-pkixQCSyntax-v2`, semantics `0.4.0.194121.1.2`). The sandbox uses **`SB:<CC>-<n>`**, e.g. `SB:ES-000001`, with the URI of the sandbox register. It cannot be read as a VAT, NTR or LEI number. **Interpretation, recorded as such:** item 7 frames the form as a national scheme. **Always this form**, even when the organisation declares an EUID: the sandbox does not verify a declared EUID, so a certificate must not carry one (ADR 0015 Decision 6) | §7.1 |
+| Q-S2 | **Closed 12 Nov 2026.** EN 319 411-1 V1.5.1 GEN-6.6.1-02 delegates to EN 319 412-3. Its rules: KeyUsage present with one setting, preferably non-mixed (NAT-4.3.2-1, applied by LEG-4.3.1-2); **`digitalSignature` only** for RP authentication. LEG-4.3.1-3 would force `nonRepudiation` only for signatures that evidence the origin of *content*, an interpretation recorded. EKU not critical, no value mandated (GEN-4.3.10-1), so `clientAuth` stays as the wallet accepts it. AKI (GEN-4.3.1-1), `certificatePolicies` (GEN-4.3.3-2), CRL DP (GEN-4.3.11-1) and AIA `caIssuers` (GEN-4.4.1-2) are present. CRL: RFC 5280 (OVR-6.6.2-01), published at least every 24 h (CSS-6.3.9-05), status kept until expiry (CSS-6.3.10-04), no reinstatement after revocation (REV-6.3.9-04). The KeyUsage table's columns did not survive text extraction, so the A–F mapping is unverified | §7.1 |
 | Q-S3 | Claim name of the WRPRC unique id (GEN-6.2.6.1-03 names none) | S2; record in `interop-findings.md` |
-| Q-S4 | Whether JAdES B-B needs `sigT` for the lists, and whether the engine can read them then (A30) | S2, TS 119 182-1 |
+| Q-S4 | **Closed 12 Nov 2026.** TS 119 182-1 V1.2.1 (the version TS 119 602 cites) §5.2.1: from 2025-07-15 `sigT` *shall not* be incorporated, and §5.1.11 makes `iat` mandatory. §5.1.9: no `crit` is needed without `sigD`. The lists' compact B-B header is `{alg, typ, x5c, iat}`, which also removes the engine's `crit: sigT` problem (A30) for sandbox lists | §7.3 |
 | Q-S5 | Does Wallet Core 0.30.2 compare the Service identifier, as `RPRC_17a` requires? Its binding function compares the entity identifier only, as far as the bytecode shows | S3, from the source |
-| Q-S6 | A cryptographic library for X.509 and CRL issuance in Node (a new dependency, ADR 0001) | S2 — **a dependency the user approves** |
-| Q-S7 | The sandbox's own policy OID arc | S2 — the user decides whether to use a private-enterprise arc of their own or a UUID-based OID (`2.25.…`) |
+| Q-S6 | **Decided by the user, 12 Nov 2026: a DER encoder of our own** over `node:crypto`, no new dependency (`packages/sandbox-pki/src/der.ts`). Tested against Node's `X509Certificate` and `openssl` | — |
+| Q-S7 | **Decided by the user, 12 Nov 2026: `2.25.122722476230885567871422612338706645671`** (ITU-T X.667, from UUID `5c537d3b-0c20-4d92-9b1f-81c674ea82a7`). It is replaceable by a private-enterprise arc later | §7.1 |

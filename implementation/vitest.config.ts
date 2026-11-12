@@ -20,6 +20,7 @@ const workspaceAliases = {
   "@edtp/eudiplo-adapter": resolve(here, "packages/eudiplo-adapter/src/index.ts"),
   "@edtp/start-token": resolve(here, "packages/start-token/src/index.ts"),
   "@edtp/registration-client": resolve(here, "packages/registration-client/src/index.ts"),
+  "@edtp/sandbox-pki": resolve(here, "packages/sandbox-pki/src/index.ts"),
   // The console is an application, not a library, so it has no barrel. Its individual modules are
   // aliased by path so the escaping, the rendering and the one piece of state it holds can be tested
   // without starting a server — which is also why those modules are pure functions.

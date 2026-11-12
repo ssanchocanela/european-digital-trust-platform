@@ -75,6 +75,7 @@ PID Providers or from "PID (demo)" is accepted for that.</li>
 <li>Your organisation is <strong>self-declared and not verified</strong>.</li>
 <li>Use synthetic data only.</li>
 </ul>
+<p><a href="/wallet">Get the sandbox wallet build</a></p>
 <form method="post" action="/sign-up/start">${interactionChoice()}<button>Sign up with your PID</button></form>
 <form method="post" action="/sign-in/start">${interactionChoice()}<button class="secondary">Sign in with your PID</button></form>`,
   );
@@ -95,23 +96,31 @@ const qrSvg = (value: string): string => {
 };
 
 /** After a sign-in starts: a wallet link, or a QR code with a page that polls by refreshing. */
-export function walletStep(walletUri: string, interaction: "SAME_DEVICE" | "QR"): string {
+export function walletStep(
+  walletUri: string,
+  interaction: "SAME_DEVICE" | "QR",
+  options: { waitUrl?: string; about?: string } = {},
+): string {
+  const waitUrl = options.waitUrl ?? "/sign-in/wait";
+  const about =
+    options.about ?? "Your wallet will ask you to present your PID to the EDTP Sandbox.";
   if (interaction === "QR") {
     return page(
       "Scan with your wallet",
       `<h1>Scan with your wallet</h1>
 <div class="qr">${qrSvg(walletUri)}</div>
-<p class="muted">This page checks every few seconds. Only this browser can complete the sign-in.</p>
-<p><a class="button" href="/sign-in/wait">I have presented my PID</a></p>`,
+<p>${escapeHtml(about)}</p>
+<p class="muted">This page checks every few seconds. Only this browser sees the outcome.</p>
+<p><a class="button" href="${escapeHtml(waitUrl)}">I have presented</a></p>`,
       { refreshSeconds: 3 },
     ).replace(
       '<meta http-equiv="refresh" content="3">',
-      '<meta http-equiv="refresh" content="3;url=/sign-in/wait">',
+      `<meta http-equiv="refresh" content="3;url=${escapeHtml(waitUrl)}">`,
     );
   }
   return page(
     "Open your wallet",
-    `<h1>Open your wallet</h1><p>Your wallet will ask you to present your PID to the EDTP Sandbox.</p>
+    `<h1>Open your wallet</h1><p>${escapeHtml(about)}</p>
 <p><a class="button" href="${escapeHtml(walletUri)}">Open wallet</a></p>
 <p class="muted">After presenting, your wallet returns you here.</p>`,
   );
@@ -267,7 +276,7 @@ export interface VariantOption {
   readonly id: string;
   readonly title: string;
   readonly requirement: string;
-  readonly takeAwayOnly?: boolean;
+  readonly issuanceSide?: boolean;
 }
 
 export interface ServiceSummary {
@@ -307,7 +316,7 @@ export interface CertificateSummary {
   readonly revokedAt?: string;
   readonly intendedUseId?: string;
   readonly walletCoreReason?: string;
-  readonly takeAwayOnly?: boolean;
+  readonly issuanceSide?: boolean;
   readonly fingerprintSha256?: string;
   readonly notAfter?: string;
   readonly body?: string;
@@ -318,7 +327,7 @@ const options = (variants: readonly VariantOption[]) =>
   variants
     .map(
       (v) =>
-        `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.takeAwayOnly ? " (take-away only)" : ""}`)}</option>`,
+        `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.issuanceSide ? " (checked at issuance only)" : ""}`)}</option>`,
     )
     .join("");
 
@@ -335,6 +344,8 @@ export function servicePage(input: {
   readonly wrpacVariants: readonly VariantOption[];
   readonly wrprcVariants: readonly VariantOption[];
   readonly error?: string;
+  /** The hosted verifier section, when the platform offers one (S4). */
+  readonly verifierHtml?: string;
 }): string {
   const org = escapeHtml(input.orgId);
   const svc = escapeHtml(input.service.relyingPartyServiceId);
@@ -368,6 +379,7 @@ family_name
 birthdate</textarea>
 <button>Register the intended use</button></form>`
 }
+${input.verifierHtml ?? ""}
 <h2>Certificates</h2>
 ${certs ? `<table><tr><th>Certificate</th><th>Variant</th><th>State</th></tr>${certs}</table>` : "<p>None yet.</p>"}
 <h3>Access certificate (take-away)</h3>
@@ -421,7 +433,7 @@ ${
 <p class="muted">The sandbox's own check is not a wallet's verdict. What a wallet does with this certificate is
 what you record in a run report, together with the wallet build and the position of
 <em>Check Registration Certificates</em>.</p>
-${cert.takeAwayOnly ? "<p><strong>Take-away only.</strong> The hosted issuer cannot exercise this defect: the engine publishes no signed issuer metadata, so the sandbox wallet does not apply its issuer registration checks (G-10).</p>" : ""}
+${cert.issuanceSide ? "<p><strong>Checked at issuance only.</strong> A wallet looks at it before requesting a PID, and only when the issuer's metadata is signed and the wallet build does not carry WD-2: use the <code>sandbox-strict</code> wallet build. With the ordinary sandbox build it is not exercised.</p>" : ""}
 ${cert.body ? `<p><a class="button" href="/org/${org}/certificates/${id}/download">Download</a></p>` : "<p>RC-01 is the absence of a registration certificate: there is nothing to download.</p>"}
 ${cert.revokedAt ? "" : `<form method="post" action="/org/${org}/certificates/${id}/revoke"><button class="secondary">Revoke (final)</button></form>`}
 <p><a href="/org/${org}">Back to the organisation</a></p>`,
@@ -440,4 +452,338 @@ export function parseClaimLines(text: string): (string | number | null)[][] {
         .split(".")
         .map((part) => (part === "*" ? null : /^\d+$/.test(part) ? Number(part) : part)),
     );
+}
+
+// --- the hosted verifier and runs (S4) ---------------------------------------------------------
+
+export interface VerifierView {
+  readonly configured: boolean;
+  readonly accessCertificate?: CertificateSummary;
+  readonly uses?: readonly {
+    intendedUseId: string;
+    registrationCertificate: CertificateSummary;
+  }[];
+}
+
+export function verifierSection(input: {
+  readonly orgId: string;
+  readonly serviceId: string;
+  readonly intendedUses: readonly { id: string; intendedUseIdentifier: string }[];
+  readonly verifier: VerifierView;
+  readonly wrpacVariants: readonly VariantOption[];
+  readonly wrprcVariants: readonly VariantOption[];
+}): string {
+  const org = escapeHtml(input.orgId);
+  const svc = escapeHtml(input.serviceId);
+  if (input.intendedUses.length === 0) {
+    return "<h2>Hosted verifier</h2><p>Register an intended use first.</p>";
+  }
+  const current = input.verifier.configured
+    ? `<p>Presents now: access certificate <a href="/org/${org}/certificates/${escapeHtml(input.verifier.accessCertificate?.id ?? "")}"><code>${escapeHtml(input.verifier.accessCertificate?.variant ?? "")}</code></a>${(
+        input.verifier.uses ?? []
+      )
+        .map((u) => {
+          const use = input.intendedUses.find((x) => x.id === u.intendedUseId);
+          return `; for <code>${escapeHtml(use?.intendedUseIdentifier ?? "")}</code> registration certificate <a href="/org/${org}/certificates/${escapeHtml(u.registrationCertificate.id)}"><code>${escapeHtml(u.registrationCertificate.variant)}</code></a>`;
+        })
+        .join("")}.</p>`
+    : "<p>Not configured yet. The first configuration creates its engine tenant.</p>";
+  const variantSelect = (name: string, variants: readonly VariantOption[]) =>
+    `<select name="${escapeHtml(name)}">${variants
+      .filter((v) => !v.issuanceSide)
+      .map(
+        (v) =>
+          `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}`)}</option>`,
+      )
+      .join("")}</select>`;
+  const configured = input.verifier.configured
+    ? `<h3>Run a presentation</h3>
+<form method="post" action="/org/${org}/services/${svc}/runs">
+<label>Intended use<select name="intendedUseId">${input.intendedUses
+        .map(
+          (u) =>
+            `<option value="${escapeHtml(u.id)}">${escapeHtml(u.intendedUseIdentifier)}</option>`,
+        )
+        .join("")}</select></label>
+<label>Where is the wallet?<select name="interaction"><option value="SAME_DEVICE">On this device</option><option value="QR">On my phone (QR — a cross-device flow the ARF discourages)</option></select></label>
+<button>Start a run</button></form>`
+    : "";
+  return `<h2>Hosted verifier</h2>
+<p class="muted">A verifier the sandbox runs for this service, presenting the certificates you choose. Each
+configuration issues fresh certificates and swaps them in for the next run.</p>
+${current}
+<form method="post" action="/org/${org}/services/${svc}/verifier">
+<label>Access certificate variant ${variantSelect("accessVariant", input.wrpacVariants)}</label>
+${input.intendedUses
+  .map(
+    (u) =>
+      `<label>Registration certificate for <code>${escapeHtml(u.intendedUseIdentifier)}</code> ${variantSelect(`rc_${u.id}`, input.wrprcVariants)}</label>`,
+  )
+  .join("")}
+<button>${input.verifier.configured ? "Reconfigure" : "Configure"} the hosted verifier</button></form>
+${configured}`;
+}
+
+export const OBSERVATIONS: readonly [string, string][] = [
+  ["refused_before_consent", "The wallet refused before asking me anything"],
+  ["warned_user_stopped", "The wallet warned me, and I stopped"],
+  ["warned_user_continued", "The wallet warned me, and I continued"],
+  ["presented_without_warning", "The wallet asked for consent without any warning"],
+  ["error_shown", "The wallet showed an error"],
+  ["nothing_happened", "Nothing happened"],
+  ["other", "Something else (say what in the note)"],
+];
+
+export interface RunReport {
+  readonly id: string;
+  readonly createdAt: string;
+  readonly interaction: string;
+  readonly outcome: {
+    readonly status: string;
+    readonly failureCode?: string;
+    readonly sentWithoutRegistrationCertificate?: boolean;
+    readonly claimsPresent?: Record<string, unknown>;
+  };
+  readonly accessCertificate: CertificateSummary;
+  readonly registrationCertificate: CertificateSummary;
+  readonly expected: {
+    readonly access: { variant: string; requirement: string };
+    readonly registration: { variant: string; requirement: string; registrationCheck: boolean };
+  };
+  readonly observation: {
+    readonly walletBuild?: string;
+    readonly checkRegistrationCertificates?: string;
+    readonly observation?: string;
+    readonly note?: string;
+    readonly observedAt?: string;
+  };
+}
+
+const TERMINAL = new Set([
+  "VERIFIED",
+  "REJECTED",
+  "EXPIRED",
+  "CANCELLED",
+  "POLICY_NOT_SATISFIED",
+  "PROTOCOL_ERROR",
+  "DECLINED_BY_USER",
+]);
+
+export function runPage(orgId: string, report: RunReport): string {
+  const org = escapeHtml(orgId);
+  const o = report.observation;
+  const settled = TERMINAL.has(report.outcome.status);
+  const observed = Boolean(o.observedAt);
+  return page(
+    "Run report",
+    `<h1>Run report</h1>
+<table>
+<tr><th>Started</th><td>${escapeHtml(report.createdAt)} — ${escapeHtml(report.interaction)}</td></tr>
+<tr><th>Access certificate</th><td><a href="/org/${org}/certificates/${escapeHtml(report.accessCertificate.id)}"><code>${escapeHtml(report.expected.access.variant)}</code></a> ${escapeHtml(report.accessCertificate.variantTitle)} — ${escapeHtml(report.expected.access.requirement)}</td></tr>
+<tr><th>Registration certificate</th><td><a href="/org/${org}/certificates/${escapeHtml(report.registrationCertificate.id)}"><code>${escapeHtml(report.expected.registration.variant)}</code></a> ${escapeHtml(report.registrationCertificate.variantTitle)} — ${escapeHtml(report.expected.registration.requirement)}${report.expected.registration.registrationCheck ? " <em>(a wallet looks at it only with <strong>Check Registration Certificates</strong> on)</em>" : ""}</td></tr>
+<tr><th>The platform's outcome</th><td><code>${escapeHtml(report.outcome.status)}</code>${report.outcome.failureCode ? ` — <code>${escapeHtml(report.outcome.failureCode)}</code>` : ""}${report.outcome.sentWithoutRegistrationCertificate ? "; sent without a registration certificate" : ""}${settled ? "" : " — not settled yet; this page refreshes"}</td></tr>
+${
+  report.outcome.claimsPresent
+    ? `<tr><th>Claims present</th><td>${escapeHtml(
+        Object.keys(report.outcome.claimsPresent)
+          .map((k) => k.replace(/^present_/, ""))
+          .join(", "),
+      )} (presence only — no value is kept)</td></tr>`
+    : ""
+}
+</table>
+<h2>What the wallet did</h2>
+<p class="muted">Only you can say: the sandbox sees the protocol, not the wallet's screen. Record the build and the
+position of <em>Check Registration Certificates</em> — without them the observation cannot be read.
+<strong>No credential value belongs in the note.</strong></p>
+${
+  observed
+    ? `<table><tr><th>Wallet build</th><td>${escapeHtml(o.walletBuild ?? "")}</td></tr><tr><th>Check Registration Certificates</th><td>${escapeHtml(o.checkRegistrationCertificates ?? "")}</td></tr><tr><th>Observation</th><td>${escapeHtml(OBSERVATIONS.find(([k]) => k === o.observation)?.[1] ?? o.observation ?? "")}</td></tr>${o.note ? `<tr><th>Note</th><td>${escapeHtml(o.note)}</td></tr>` : ""}</table>`
+    : `<form method="post" action="/org/${org}/runs/${escapeHtml(report.id)}/observation">
+<label for="walletBuild">Wallet build (e.g. "EDTP sandbox wallet S1, modified")</label><input id="walletBuild" name="walletBuild" required maxlength="100">
+<label>Check Registration Certificates<select name="checkRegistrationCertificates"><option value="off">off</option><option value="on">on</option><option value="unknown">I do not know</option></select></label>
+<label>What happened<select name="observation">${OBSERVATIONS.map(([k, v]) => `<option value="${escapeHtml(k)}">${escapeHtml(v)}</option>`).join("")}</select></label>
+<label for="note">Note (optional, 500 characters, no credential values)</label><input id="note" name="note" maxlength="500">
+<button>Record the observation</button></form>`
+}
+<p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true, ...(settled ? {} : { refreshSeconds: 3 }) },
+  );
+}
+
+export function runsSection(
+  orgId: string,
+  runs: readonly { id: string; createdAt: string; interaction: string; observed: boolean }[],
+): string {
+  if (runs.length === 0) return "";
+  const org = escapeHtml(orgId);
+  return `<h2>Runs</h2><table><tr><th>Started</th><th>Flow</th><th>Observed</th></tr>${runs
+    .slice(0, 20)
+    .map(
+      (r) =>
+        `<tr><td><a href="/org/${org}/runs/${escapeHtml(r.id)}">${escapeHtml(r.createdAt)}</a></td><td>${escapeHtml(r.interaction)}</td><td>${r.observed ? "yes" : "not yet"}</td></tr>`,
+    )
+    .join("")}</table>`;
+}
+
+// --- the hosted PID issuer (S5) ----------------------------------------------------------------
+
+export interface IssuerView {
+  readonly configured: boolean;
+  readonly signingCertificate?: {
+    id: string;
+    variant: string;
+    variantTitle: string;
+    requirement: string;
+    notAfter?: string;
+  };
+  readonly registrationCertificate?: CertificateSummary;
+  readonly issuances?: readonly { id: string; createdAt: string; revokedAt?: string }[];
+}
+
+export function issuerSection(input: {
+  readonly orgId: string;
+  readonly serviceId: string;
+  readonly issuer: IssuerView;
+  readonly signingVariants: readonly VariantOption[];
+  readonly wrprcVariants: readonly VariantOption[];
+  /** The access certificate variants: the certificate that signs the issuer's metadata (S5b). */
+  readonly accessVariants?: readonly VariantOption[];
+}): string {
+  const org = escapeHtml(input.orgId);
+  const svc = escapeHtml(input.serviceId);
+  const select = (name: string, variants: readonly VariantOption[]) =>
+    `<select name="${escapeHtml(name)}">${variants
+      .map(
+        (v) =>
+          `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.issuanceSide ? " (checked at issuance only)" : ""}`)}</option>`,
+      )
+      .join("")}</select>`;
+  const i = input.issuer;
+  const current = i.configured
+    ? `<p>Signs now with <code>${escapeHtml(i.signingCertificate?.variant ?? "")}</code> ${escapeHtml(i.signingCertificate?.variantTitle ?? "")}; publishes registration certificate <a href="/org/${org}/certificates/${escapeHtml(i.registrationCertificate?.id ?? "")}"><code>${escapeHtml(i.registrationCertificate?.variant ?? "")}</code></a> as its issuer information.</p>`
+    : "<p>Not configured yet. The first configuration creates its engine tenant and its PID credential type.</p>";
+  const issuances = (i.issuances ?? [])
+    .slice(0, 20)
+    .map(
+      (x) =>
+        `<tr><td><a href="/org/${org}/issuances/${escapeHtml(x.id)}">${escapeHtml(x.createdAt)}</a></td><td>${x.revokedAt ? "revoked" : ""}</td></tr>`,
+    )
+    .join("");
+  const offerForm = i.configured
+    ? `<h3>Issue a synthetic PID</h3>
+<p><strong>Synthetic data only.</strong> The sandbox cannot tell a real name from an invented one, so it
+relies on you: type values that belong to nobody. They are passed to the issuer and kept nowhere by the
+platform; the engine holds them for its session window only.</p>
+<form method="post" action="/org/${org}/services/${svc}/issuer/offers">
+<label for="givenName">Given name</label><input id="givenName" name="givenName" required maxlength="100">
+<label for="familyName">Family name</label><input id="familyName" name="familyName" required maxlength="100">
+<label for="birthdate">Date of birth</label><input id="birthdate" name="birthdate" type="date" required>
+<label for="birthCountry">Country of birth (ISO 3166-1 alpha-2)</label><input id="birthCountry" name="birthCountry" required pattern="[A-Z]{2}" maxlength="2">
+<label for="nationalities">Nationalities (alpha-2, separated by spaces)</label><input id="nationalities" name="nationalities" required maxlength="20">
+<label>Where is the wallet?<select name="interaction"><option value="SAME_DEVICE">On this device (a link)</option><option value="QR">On my phone (a QR code)</option></select></label>
+<button>Offer the PID</button></form>
+${issuances ? `<h3>Issued</h3><table><tr><th>Offered</th><th></th></tr>${issuances}</table>` : ""}`
+    : "";
+  return `<h2>Hosted PID issuer</h2>
+<p class="muted">An issuer the sandbox runs for this service, signing PIDs with a certificate the sandbox PID
+CA issues — correct or defective. The sandbox signs this issuer's metadata with its access certificate
+(ADR 0016), so a wallet can authenticate it before asking for a PID. The issuance-side registration checks
+are exercised only by the <code>sandbox-strict</code> wallet build: the ordinary sandbox build carries WD-2,
+which switches them off.</p>
+${current}
+<form method="post" action="/org/${org}/services/${svc}/issuer">
+${input.accessVariants ? `<label>Access certificate variant (signs the metadata) ${select("accessVariant", input.accessVariants)}</label>` : ""}
+<label>Signing certificate variant ${select("signingVariant", input.signingVariants)}</label>
+<label>Registration certificate variant ${select("registrationVariant", input.wrprcVariants)}</label>
+<button>${i.configured ? "Reconfigure" : "Configure"} the hosted issuer</button></form>
+${offerForm}`;
+}
+
+export interface IssuanceStatusView {
+  readonly id: string;
+  readonly status: string;
+  readonly failureCode?: string;
+  readonly revocable: boolean;
+  readonly revokedAt?: string;
+  readonly signingCertificate: { variant: string; variantTitle: string; requirement: string };
+}
+
+const ISSUANCE_TERMINAL = new Set([
+  "ISSUED",
+  "DECLINED_BY_USER",
+  "TRUST_ERROR",
+  "PROTOCOL_ERROR",
+  "EXPIRED",
+  "CANCELLED",
+  "NOT_ELIGIBLE",
+  "FAILED",
+]);
+
+export function issuancePage(orgId: string, view: IssuanceStatusView): string {
+  const org = escapeHtml(orgId);
+  const settled = ISSUANCE_TERMINAL.has(view.status);
+  return page(
+    "Issuance",
+    `<h1>Synthetic PID issuance</h1>
+<table>
+<tr><th>Signing certificate</th><td><code>${escapeHtml(view.signingCertificate.variant)}</code> ${escapeHtml(view.signingCertificate.variantTitle)} — ${escapeHtml(view.signingCertificate.requirement)}</td></tr>
+<tr><th>The platform's outcome</th><td><code>${escapeHtml(view.status)}</code>${view.failureCode ? ` — <code>${escapeHtml(view.failureCode)}</code>` : ""}${settled ? "" : " — not settled yet; this page refreshes"}</td></tr>
+${view.revokedAt ? `<tr><th>Revoked</th><td>${escapeHtml(view.revokedAt)} — final</td></tr>` : ""}
+</table>
+<p class="muted">A PID issued under PID-01 or PID-02 is issued all the same: whether the wallet accepts it,
+and whether a verifier then does, is what the run tells you.</p>
+${view.revocable ? `<form method="post" action="/org/${org}/issuances/${escapeHtml(view.id)}/revoke"><button class="secondary">Revoke this PID (PID-03, final)</button></form>` : ""}
+<p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true, ...(settled ? {} : { refreshSeconds: 3 }) },
+  );
+}
+
+/** The sandbox wallet build page (ADR 0017): behind Cloudflare Access, like the whole portal. */
+export function walletPage(
+  offer:
+    | { readonly state: "none"; readonly reason: string }
+    | {
+        readonly state: "offered";
+        readonly builds: readonly {
+          readonly file: string;
+          readonly sha256: string;
+          readonly profile: string;
+          readonly deviations: string;
+          readonly builtAt: string;
+          readonly notice: string;
+        }[];
+      },
+): string {
+  const terms = `<h2>What this is</h2>
+<ul>
+<li>A <strong>modified</strong> build of the EUDI Wallet Reference Implementation (Android), licensed under the
+<strong>EUPL 1.2</strong>. It is not the Reference Wallet and not any Member State's wallet.</li>
+<li>It trusts only this sandbox's test trust lists, and it carries the deviations listed with each build. Its
+applicationId, signing key (<code>OU=TEST ONLY</code>) and the banner on every screen say so.</li>
+<li>The source of the modifications is <a href="https://github.com/ssanchocanela/european-digital-trust-platform/tree/main/implementation/tools/test-wallet">tools/test-wallet</a>;
+each build's notice names the upstream release, the modifications and the licence terms.</li>
+<li>Test use with synthetic data only. Not on Google Play, and not to be redistributed as anything but what it is.</li>
+</ul>`;
+  if (offer.state === "none") {
+    return page(
+      "Sandbox wallet",
+      `<h1>Sandbox wallet</h1><p>${escapeHtml(offer.reason)}</p>${terms}`,
+    );
+  }
+  const rows = offer.builds
+    .map(
+      (b) => `<tr><td><a href="/wallet/${escapeHtml(b.file)}">${escapeHtml(b.file)}</a></td>
+<td>${escapeHtml(b.profile)}</td><td><code>${escapeHtml(b.deviations)}</code></td><td>${escapeHtml(b.builtAt)}</td>
+<td><code class="wrap">${escapeHtml(b.sha256)}</code></td><td><a href="/wallet/${escapeHtml(b.notice)}">notice</a></td></tr>`,
+    )
+    .join("");
+  return page(
+    "Sandbox wallet",
+    `<h1>Sandbox wallet</h1>
+<p>Install beside any other wallet: it has its own applicationId. <strong>sandbox-strict</strong> requires signed
+issuer metadata and runs the issuer registration checks; <strong>sandbox</strong> does not (WD-2).</p>
+<table><thead><tr><th>Build</th><th>Profile</th><th>Deviations</th><th>Built</th><th>SHA-256</th><th>Terms</th></tr></thead>
+<tbody>${rows}</tbody></table>${terms}`,
+  );
 }

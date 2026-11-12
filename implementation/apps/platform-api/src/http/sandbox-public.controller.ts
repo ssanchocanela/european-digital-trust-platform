@@ -1,7 +1,18 @@
 import { PlatformError } from "@edtp/shared";
-import { Controller, Get, Header, HttpCode, Inject, Param, Query, Res } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Header,
+  Headers,
+  HttpCode,
+  Inject,
+  Param,
+  Query,
+  Res,
+} from "@nestjs/common";
 import { ApiExcludeController } from "@nestjs/swagger";
 import type { Response } from "express";
+import type { SandboxMetadataService } from "../modules/sandbox/metadata.service.js";
 import type { SandboxPublicationService } from "../modules/sandbox/publication.service.js";
 import type { SandboxRegister } from "../modules/sandbox/register.js";
 import type { SandboxTrustDomain } from "../modules/sandbox/trust-domain.runtime.js";
@@ -13,6 +24,8 @@ export interface SandboxPublicDependencies {
   readonly publications: SandboxPublicationService;
   readonly register: SandboxRegister;
   readonly domain: SandboxTrustDomain;
+  /** Signed metadata for sandbox issuers (S5b), when hosted issuers are configured. */
+  readonly metadata?: SandboxMetadataService;
 }
 
 const CA_FILES = new Set([
@@ -97,6 +110,32 @@ export class SandboxPublicController {
     res.setHeader("content-type", "application/pkix-cert");
     res.setHeader("cache-control", "public, max-age=3600");
     res.send(this.on().domain.certificate(name));
+  }
+
+  /**
+   * A sandbox issuer's Credential Issuer metadata (ADR 0016), reached through the test gateway, which
+   * sends `/.well-known/openid-credential-issuer/issuers/sbx-iss-…` here instead of to the engine.
+   * Signed (`application/jwt`) when the wallet asks for it and the issuer has an access certificate;
+   * the engine's JSON otherwise, unchanged.
+   */
+  @Get("issuer-metadata/:ref")
+  async issuerMetadata(
+    @Param("ref") ref: string,
+    @Headers("accept") accept: string | undefined,
+    @Res() res: Response,
+  ) {
+    const service = this.on().metadata;
+    if (!service) throw PlatformError.notFound("Credential Issuer");
+    const { json, jwt } = await service.metadata(ref);
+    res.setHeader("cache-control", "no-store");
+    res.setHeader("vary", "accept");
+    if (jwt && (accept ?? "").toLowerCase().includes("application/jwt")) {
+      res.setHeader("content-type", "application/jwt");
+      res.send(jwt);
+      return;
+    }
+    res.setHeader("content-type", "application/json");
+    res.send(JSON.stringify(json));
   }
 
   @Get("cps")

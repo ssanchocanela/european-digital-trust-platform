@@ -1,4 +1,5 @@
 import {
+  PID_VARIANT_INFO,
   WRPAC_VARIANT_INFO,
   WRPAC_VARIANTS,
   WRPRC_VARIANT_INFO,
@@ -11,20 +12,32 @@ import {
   type CertificateSummary,
   certificatePage,
   dashboard,
+  type IssuanceStatusView,
+  type IssuerView,
   invitationLanding,
+  issuancePage,
+  issuerSection,
   landing,
   message,
+  OBSERVATIONS,
   organisationPage,
   page,
   parseClaimLines,
   profileForm,
+  type RunReport,
+  runPage,
+  runsSection,
   type ServiceSummary,
   STYLE,
   servicePage,
   servicesSection,
+  type VerifierView,
+  verifierSection,
   waiting,
+  walletPage,
   walletStep,
 } from "./pages.js";
+import { offeredFile, openFile, readWalletOffer } from "./wallet.js";
 
 /**
  * The sandbox portal (specification §8.1, ADR 0015).
@@ -40,6 +53,14 @@ import {
 export interface PortalOptions {
   readonly publicUrl: string;
   readonly api: SandboxApi;
+  /**
+   * Refuse every request that does not carry the identity Cloudflare Access injects (ADR 0017). On
+   * the sandbox VM the whole portal is behind Access; this is the second lock, as for the
+   * demonstration portal's operator view.
+   */
+  readonly requireAccess?: boolean;
+  /** Where an operator places the sandbox wallet build and its `wallet.json` (wallet.ts). */
+  readonly walletDir?: string;
 }
 
 export const SESSION_COOKIE = "__Host-sbx-session";
@@ -114,6 +135,18 @@ export function createApp(options: PortalOptions): express.Express {
     res.setHeader("cache-control", "no-store");
     next();
   });
+  if (options.requireAccess) {
+    app.use((req, res, next) => {
+      if (req.get("cf-access-authenticated-user-email")) return next();
+      res
+        .status(403)
+        .type("html")
+        .send(
+          message("Refused", "The sandbox portal is reached through Cloudflare Access only."),
+        );
+    });
+  }
+
   // 32 kB: a certification request in PEM is the largest thing a form carries.
   app.use(express.urlencoded({ extended: false, limit: "32kb" }));
 
@@ -139,6 +172,26 @@ export function createApp(options: PortalOptions): express.Express {
   });
 
   const session = (req: Request) => parseCookies(req.get("cookie"))[SESSION_COOKIE];
+
+  // --- the sandbox wallet build (ADR 0017) ---------------------------------------------------
+
+  app.get("/wallet", (_req, res) => {
+    res.type("html").send(walletPage(readWalletOffer(options.walletDir)));
+  });
+  app.get("/wallet/:file", (req, res) => {
+    const found = offeredFile(options.walletDir, req.params.file);
+    if (!found) {
+      res.status(404).type("html").send(message("Not found", "No such file is offered."));
+      return;
+    }
+    if (found.kind === "apk") {
+      res.type("application/vnd.android.package-archive");
+      res.setHeader("content-disposition", `attachment; filename="${req.params.file}"`);
+    } else {
+      res.type("text/plain; charset=utf-8");
+    }
+    openFile(found.path).pipe(res);
+  });
 
   // --- start and sign-in ---------------------------------------------------------------------
 
@@ -397,10 +450,22 @@ export function createApp(options: PortalOptions): express.Express {
     const services = await options.api.call("GET", `organisations/${id}/services`, {
       session: token,
     });
+    const runs = await options.api.call("GET", `organisations/${id}/runs`, { session: token });
     const sections =
-      services.status === 200
+      (services.status === 200
         ? servicesSection(id, services.body as unknown as ServiceSummary[])
-        : "";
+        : "") +
+      (runs.status === 200
+        ? runsSection(
+            id,
+            runs.body as unknown as {
+              id: string;
+              createdAt: string;
+              interaction: string;
+              observed: boolean;
+            }[],
+          )
+        : "");
     res.type("html").send(
       organisationPage(
         {
@@ -558,6 +623,51 @@ export function createApp(options: PortalOptions): express.Express {
       const a = WRPRC_VARIANT_INFO[v].appliesTo;
       return a === "both" || a === role;
     }).map((v) => ({ id: v, ...WRPRC_VARIANT_INFO[v] }));
+    // The hosted verifier (S4) or the hosted issuer (S5), when the platform offers it: a 404 from
+    // its route means it is not configured on this deployment, and the section is left out.
+    let hostedHtml: string | undefined;
+    if (role === "service_provider") {
+      const verifier = await options.api.call(
+        "GET",
+        `organisations/${org}/services/${sid}/verifier`,
+        {
+          session: token,
+        },
+      );
+      if (verifier.status === 200) {
+        hostedHtml = verifierSection({
+          orgId: org,
+          serviceId: sid,
+          intendedUses:
+            (service.body.intendedUses as { id: string; intendedUseIdentifier: string }[]) ??
+            [],
+          verifier: verifier.body as unknown as VerifierView,
+          wrpacVariants,
+          wrprcVariants,
+        });
+      }
+    }
+    if (role === "pid_provider") {
+      const issuer = await options.api.call(
+        "GET",
+        `organisations/${org}/services/${sid}/issuer`,
+        {
+          session: token,
+        },
+      );
+      if (issuer.status === 200) {
+        hostedHtml = issuerSection({
+          orgId: org,
+          serviceId: sid,
+          issuer: issuer.body as unknown as IssuerView,
+          signingVariants: (["PID-00", "PID-01", "PID-02"] as const).map((v) => ({
+            id: v,
+            ...PID_VARIANT_INFO[v],
+          })),
+          wrprcVariants,
+        });
+      }
+    }
     res
       .status(error ? 400 : 200)
       .type("html")
@@ -569,6 +679,7 @@ export function createApp(options: PortalOptions): express.Express {
           wrpacVariants,
           wrprcVariants,
           ...(error ? { error } : {}),
+          ...(hostedHtml ? { verifierHtml: hostedHtml } : {}),
         }),
       );
   };
@@ -725,6 +836,173 @@ export function createApp(options: PortalOptions): express.Express {
       { session: token },
     );
     res.redirect(303, `/org/${req.params.id}/certificates/${req.params.cid}`);
+  });
+
+  // --- the hosted verifier and runs (S4) -------------------------------------------------------
+
+  app.post("/org/:id/services/:sid/verifier", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const uses = Object.entries(body)
+      .filter(([k]) => /^rc_[0-9a-f-]{36}$/.test(k))
+      .map(([k, v]) => ({ intendedUseId: k.slice(3), registrationVariant: String(v) }));
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/verifier`,
+      {
+        session: token,
+        body: { accessVariant: String(body.accessVariant ?? ""), uses },
+      },
+    );
+    if (result.status !== 200)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/services/${req.params.sid}`);
+  });
+
+  app.post("/org/:id/services/:sid/runs", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const interaction = req.body?.interaction === "QR" ? "QR" : "SAME_DEVICE";
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/runs`,
+      {
+        session: token,
+        body: { intendedUseId: String(req.body?.intendedUseId ?? ""), interaction },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.type("html").send(
+      walletStep(String(result.body.walletUri ?? ""), interaction, {
+        waitUrl: `/org/${req.params.id}/runs/${String(result.body.runId)}`,
+        about:
+          "Your wallet will be asked to present to this service's hosted verifier, with the certificates you configured.",
+      }),
+    );
+  });
+
+  app.get("/org/:id/runs/:rid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.rid)) return void res.status(404).end();
+    const run = await options.api.call(
+      "GET",
+      `organisations/${req.params.id}/runs/${req.params.rid}`,
+      { session: token },
+    );
+    if (run.status !== 200)
+      return void res.status(404).type("html").send(message("Not found", "No such run."));
+    res.type("html").send(runPage(req.params.id, run.body as unknown as RunReport));
+  });
+
+  app.post("/org/:id/runs/:rid/observation", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.rid)) return void res.status(404).end();
+    const b = req.body ?? {};
+    const observation = OBSERVATIONS.some(([k]) => k === b.observation)
+      ? String(b.observation)
+      : "other";
+    const note =
+      typeof b.note === "string" && b.note.trim() ? b.note.trim().slice(0, 500) : undefined;
+    await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/runs/${req.params.rid}/observation`,
+      {
+        session: token,
+        body: {
+          walletBuild: String(b.walletBuild ?? "").slice(0, 100),
+          checkRegistrationCertificates: ["on", "off", "unknown"].includes(
+            b.checkRegistrationCertificates,
+          )
+            ? b.checkRegistrationCertificates
+            : "unknown",
+          observation,
+          ...(note ? { note } : {}),
+        },
+      },
+    );
+    res.redirect(303, `/org/${req.params.id}/runs/${req.params.rid}`);
+  });
+
+  // --- the hosted PID issuer (S5) --------------------------------------------------------------
+
+  app.post("/org/:id/services/:sid/issuer", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/issuer`,
+      {
+        session: token,
+        body: {
+          signingVariant: String(req.body?.signingVariant ?? ""),
+          registrationVariant: String(req.body?.registrationVariant ?? ""),
+        },
+      },
+    );
+    if (result.status !== 200)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/services/${req.params.sid}`);
+  });
+
+  app.post("/org/:id/services/:sid/issuer/offers", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const b = req.body ?? {};
+    const interaction = b.interaction === "QR" ? "QR" : "SAME_DEVICE";
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/issuer/offers`,
+      {
+        session: token,
+        body: {
+          givenName: String(b.givenName ?? ""),
+          familyName: String(b.familyName ?? ""),
+          birthdate: String(b.birthdate ?? ""),
+          birthCountry: String(b.birthCountry ?? "").toUpperCase(),
+          nationalities: String(b.nationalities ?? "")
+            .toUpperCase()
+            .split(/[\s,]+/)
+            .filter(Boolean),
+        },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.type("html").send(
+      walletStep(String(result.body.offerUri ?? ""), interaction, {
+        waitUrl: `/org/${req.params.id}/issuances/${String(result.body.id)}`,
+        about:
+          "Your wallet will be offered a synthetic TEST PID from this service's hosted issuer.",
+      }),
+    );
+  });
+
+  app.get("/org/:id/issuances/:iid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.iid)) return void res.status(404).end();
+    const view = await options.api.call(
+      "GET",
+      `organisations/${req.params.id}/issuances/${req.params.iid}`,
+      { session: token },
+    );
+    if (view.status !== 200)
+      return void res.status(404).type("html").send(message("Not found", "No such issuance."));
+    res
+      .type("html")
+      .send(issuancePage(req.params.id, view.body as unknown as IssuanceStatusView));
+  });
+
+  app.post("/org/:id/issuances/:iid/revoke", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.iid)) return void res.status(404).end();
+    await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/issuances/${req.params.iid}/revoke`,
+      { session: token },
+    );
+    res.redirect(303, `/org/${req.params.id}/issuances/${req.params.iid}`);
   });
 
   app.use((_req, res) => {

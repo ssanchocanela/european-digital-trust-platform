@@ -8,6 +8,29 @@ linked rather than repeated.
 
 ---
 
+## 12 November 2026 — **the EUDI ecosystem sandbox: S0–S6 built, nothing deployed, no wallet run yet**
+
+The sandbox (`docs/sandbox/`) lets organisations sign up with a PID and play the Relying Party and PID
+Provider roles against certificates the sandbox issues, correct or defective. Where it stands:
+
+- **Pull requests:**
+  - #42 (S0–S2) and #43 (S3) are merged;
+  - #44 (S4), #45 (S5) and #46 (S5b) are open and stacked. #45 fixes two portal sections #44 never
+    rendered;
+  - #47 (`issuedCredentialId` on every read) is standalone;
+  - S6 is on `sandbox/s6-deployment`.
+- **No real run has happened.** The S2, S4, S5 and S5b run sheets are written and need the user's
+  phone. The signed issuer metadata (ADR 0016) is read from the wallet library's bytecode, and no
+  wallet has accepted it yet.
+- **S6 built the sandbox VM, and deployed nothing.** It is [ADR 0017](adr/0017-sandbox-vm.md),
+  proposed, with [`infra/sandbox-vm/`](../infra/sandbox-vm/README.md). Every step there that touches
+  Hetzner, Cloudflare or GitHub needs a person, and every deployment needs the user's confirmation.
+- **The next action is the user's:**
+  - accept ADR 0017;
+  - then either the first run on the laptop (S2 run sheet) or the VM's steps 1–4.
+
+---
+
 ## 7 October 2026 — **a wallet build for FNMT-RCM, and a place on Murcata for trust lists**
 
 **F1, "FNMT-RCM Cartera demo"**, was built and installed by the user: the test wallet with FNMT-RCM's

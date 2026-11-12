@@ -278,11 +278,11 @@ describe("services and certificates (S3)", () => {
       variantTitle: "<b>x</b>",
       requirement: "AS-AP-44-007 (RPRC_23)",
       createdAt: "2026-11-12",
-      takeAwayOnly: true,
+      issuanceSide: true,
       selfTest: { fails: ["provides_attestation"], asDesigned: true },
     });
     expect(html).toContain("not a wallet's verdict");
-    expect(html).toContain("Take-away only");
+    expect(html).toContain("Checked at issuance only");
     expect(html).toContain("— as designed");
     expect(html).not.toContain("<b>x</b>");
   });
@@ -332,5 +332,298 @@ describe("services and certificates (S3)", () => {
         })
       ).status,
     ).toBe(404);
+  });
+});
+
+describe("the hosted verifier and runs (S4)", () => {
+  const SERVICE = "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const USE = "abababab-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const RUN = "cdcdcdcd-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+
+  it("configures from one variant per intended use, read from the rc_<id> fields", async () => {
+    const { request, calls } = await serve((_m, path) =>
+      path.endsWith("/verifier")
+        ? { status: 200, body: { configured: true } }
+        : { status: 404, body: {} },
+    );
+    const res = await request(`/org/${ORG}/services/${SERVICE}/verifier`, {
+      method: "POST",
+      cookie,
+      body: new URLSearchParams({
+        accessVariant: "AC-02",
+        [`rc_${USE}`]: "RC-06",
+        rc_bad: "RC-00",
+      }).toString(),
+    });
+    expect(res.status).toBe(303);
+    expect(calls[0]?.body).toEqual({
+      accessVariant: "AC-02",
+      uses: [{ intendedUseId: USE, registrationVariant: "RC-06" }],
+    });
+  });
+
+  it("starts a cross-device run whose page polls the run report", async () => {
+    const { request } = await serve((_m, path) =>
+      path.endsWith("/runs")
+        ? { status: 201, body: { runId: RUN, walletUri: "openid4vp://?x" } }
+        : { status: 404, body: {} },
+    );
+    const html = await (
+      await request(`/org/${ORG}/services/${SERVICE}/runs`, {
+        method: "POST",
+        cookie,
+        body: `intendedUseId=${USE}&interaction=QR`,
+      })
+    ).text();
+    expect(html).toContain(`content="3;url=/org/${ORG}/runs/${RUN}"`);
+    expect(html).toContain("<svg");
+  });
+
+  it("asks for the wallet build and the Check Registration Certificates position, and says no value belongs in the note", async () => {
+    const { runPage } = await import("@edtp/sandbox-portal/pages.js");
+    const cert = {
+      id: RUN,
+      kind: "WRPRC",
+      variant: "RC-06",
+      variantTitle: "Not bound",
+      requirement: "EW-DM-44-020 (RPRC_17a)",
+      createdAt: "x",
+    };
+    const html = runPage(ORG, {
+      id: RUN,
+      createdAt: "2026-11-12",
+      interaction: "SAME_DEVICE",
+      outcome: { status: "AWAITING_WALLET" },
+      accessCertificate: { ...cert, kind: "WRPAC", variant: "AC-00" },
+      registrationCertificate: cert,
+      expected: {
+        access: { variant: "AC-00", requirement: "—" },
+        registration: {
+          variant: "RC-06",
+          requirement: "EW-DM-44-020 (RPRC_17a)",
+          registrationCheck: true,
+        },
+      },
+      observation: {},
+    });
+    expect(html).toContain('name="checkRegistrationCertificates"');
+    expect(html).toContain("No credential value belongs in the note");
+    expect(html).toContain("only with <strong>Check Registration Certificates</strong> on");
+    expect(html).toContain('http-equiv="refresh"');
+  });
+
+  it("sanitises an observation before sending it", async () => {
+    const { request, calls } = await serve(() => ({ status: 204, body: {} }));
+    await request(`/org/${ORG}/runs/${RUN}/observation`, {
+      method: "POST",
+      cookie,
+      body: new URLSearchParams({
+        walletBuild: "W",
+        checkRegistrationCertificates: "maybe",
+        observation: "made_up",
+        note: "  n  ",
+      }).toString(),
+    });
+    expect(calls[0]?.body).toEqual({
+      walletBuild: "W",
+      checkRegistrationCertificates: "unknown",
+      observation: "other",
+      note: "n",
+    });
+  });
+
+  it("offers no issuance-side variant to the hosted verifier", async () => {
+    const { verifierSection } = await import("@edtp/sandbox-portal/pages.js");
+    const html = verifierSection({
+      orgId: ORG,
+      serviceId: SERVICE,
+      intendedUses: [{ id: USE, intendedUseIdentifier: "S001-U01" }],
+      verifier: { configured: false },
+      wrpacVariants: [{ id: "AC-00", title: "Correct", requirement: "—" }],
+      wrprcVariants: [
+        { id: "RC-00", title: "Correct", requirement: "—" },
+        { id: "RC-11", title: "Wrong entitlement", requirement: "x", issuanceSide: true },
+      ],
+    });
+    expect(html).toContain('value="RC-00"');
+    expect(html).not.toContain('value="RC-11"');
+  });
+});
+
+describe("the hosted PID issuer (S5)", () => {
+  const SERVICE = "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const ISS = "efefefef-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+
+  it("sends the typed synthetic values normalised, and shows the offer as a QR code that polls the issuance", async () => {
+    const { request, calls } = await serve((_m, path) =>
+      path.endsWith("/issuer/offers")
+        ? {
+            status: 201,
+            body: { id: ISS, offerUri: "openid-credential-offer://?credential_offer_uri=x" },
+          }
+        : { status: 404, body: {} },
+    );
+    const html = await (
+      await request(`/org/${ORG}/services/${SERVICE}/issuer/offers`, {
+        method: "POST",
+        cookie,
+        body: new URLSearchParams({
+          givenName: "Zelda",
+          familyName: "Quintanilla",
+          birthdate: "1991-02-03",
+          birthCountry: "es",
+          nationalities: "es, pt",
+          interaction: "QR",
+        }).toString(),
+      })
+    ).text();
+    expect(calls[0]?.body).toEqual({
+      givenName: "Zelda",
+      familyName: "Quintanilla",
+      birthdate: "1991-02-03",
+      birthCountry: "ES",
+      nationalities: ["ES", "PT"],
+    });
+    expect(html).toContain("<svg");
+    expect(html).toContain(`content="3;url=/org/${ORG}/issuances/${ISS}"`);
+  });
+
+  it("says which wallet build exercises the issuance-side checks, offers them, and insists on synthetic data", async () => {
+    const { issuerSection } = await import("@edtp/sandbox-portal/pages.js");
+    const html = issuerSection({
+      orgId: ORG,
+      serviceId: SERVICE,
+      issuer: {
+        configured: true,
+        signingCertificate: {
+          id: "x",
+          variant: "PID-00",
+          variantTitle: "Correct",
+          requirement: "—",
+        },
+        issuances: [],
+      },
+      signingVariants: [{ id: "PID-00", title: "Correct", requirement: "—" }],
+      wrprcVariants: [
+        { id: "RC-00", title: "Correct", requirement: "—" },
+        { id: "RC-12", title: "Not registered", requirement: "x", issuanceSide: true },
+      ],
+    });
+    expect(html).toContain("<code>sandbox-strict</code> wallet build");
+    expect(html).toContain("Synthetic data only");
+    expect(html).toContain('value="RC-12"');
+    expect(html).toContain("(checked at issuance only)");
+  });
+
+  it("offers revocation only for a revocable PID, and refreshes until settled", async () => {
+    const { issuancePage } = await import("@edtp/sandbox-portal/pages.js");
+    const pending = issuancePage(ORG, {
+      id: ISS,
+      status: "AWAITING_WALLET",
+      revocable: false,
+      signingCertificate: { variant: "PID-01", variantTitle: "x", requirement: "ISSU_07" },
+    });
+    expect(pending).toContain('http-equiv="refresh"');
+    expect(pending).not.toContain("/revoke");
+    const issued = issuancePage(ORG, {
+      id: ISS,
+      status: "ISSUED",
+      revocable: true,
+      signingCertificate: { variant: "PID-00", variantTitle: "x", requirement: "—" },
+    });
+    expect(issued).not.toContain('http-equiv="refresh"');
+    expect(issued).toContain(`/org/${ORG}/issuances/${ISS}/revoke`);
+  });
+});
+
+describe("the service page, end to end through its route", () => {
+  const SERVICE = "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const USE = "abababab-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+
+  // Found when an edit meant to add the hosted verifier to this page had not applied: the section and
+  // its routes were each tested, the page that joins them was not.
+  const script =
+    (role: string, hosted: "verifier" | "issuer" | "none") => (_m: string, path: string) => {
+      if (path === `organisations/${ORG}/services/${SERVICE}`) {
+        return {
+          status: 200,
+          body: {
+            relyingPartyServiceId: SERVICE,
+            serviceIdentifier: "S001",
+            serviceTradeName: "Svc",
+            role,
+            intendedUses: [
+              {
+                id: USE,
+                intendedUseIdentifier: "S001-U01",
+                purpose: [{ lang: "en", value: "p" }],
+              },
+            ],
+          },
+        };
+      }
+      if (path.startsWith(`organisations/${ORG}/certificates`))
+        return { status: 200, body: [] as unknown as Record<string, unknown> };
+      if (path.endsWith("/verifier") && hosted === "verifier")
+        return { status: 200, body: { configured: false } };
+      if (path.endsWith("/issuer") && hosted === "issuer")
+        return { status: 200, body: { configured: false } };
+      return { status: 404, body: {} };
+    };
+
+  it("shows a Relying Party service its hosted verifier", async () => {
+    const { request } = await serve(script("service_provider", "verifier"));
+    const html = await (await request(`/org/${ORG}/services/${SERVICE}`, { cookie })).text();
+    expect(html).toContain("<h2>Hosted verifier</h2>");
+    expect(html).toContain(`name="rc_${USE}"`);
+  });
+
+  it("shows a PID Provider service its hosted issuer", async () => {
+    const { request } = await serve(script("pid_provider", "issuer"));
+    const html = await (await request(`/org/${ORG}/services/${SERVICE}`, { cookie })).text();
+    expect(html).toContain("<h2>Hosted PID issuer</h2>");
+    expect(html).toContain('name="signingVariant"');
+  });
+
+  it("leaves the section out when the platform does not offer it", async () => {
+    const { request } = await serve(script("service_provider", "none"));
+    const html = await (await request(`/org/${ORG}/services/${SERVICE}`, { cookie })).text();
+    expect(html).not.toContain("Hosted verifier");
+  });
+});
+
+describe("the organisation page, end to end through its route", () => {
+  const RUN = "cdcdcdcd-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  it("lists the organisation's services and runs", async () => {
+    const { request } = await serve((_m, path) => {
+      if (path === `organisations/${ORG}`)
+        return {
+          status: 200,
+          body: {
+            role: "member",
+            organisation: { localIdentifier: "SB:ES-000001", country: "ES" },
+          },
+        };
+      if (path.endsWith("/members"))
+        return { status: 200, body: [] as unknown as Record<string, unknown> };
+      if (path.endsWith("/services"))
+        return { status: 200, body: [] as unknown as Record<string, unknown> };
+      if (path.endsWith("/runs"))
+        return {
+          status: 200,
+          body: [
+            { id: RUN, createdAt: "2026-11-12", interaction: "QR", observed: false },
+          ] as unknown as Record<string, unknown>,
+        };
+      return { status: 404, body: {} };
+    });
+    const html = await (
+      await request(`/org/${ORG}`, { cookie: `${SESSION_COOKIE}=${SESSION}` })
+    ).text();
+    expect(html).toContain("<h2>Services</h2>");
+    expect(html).toContain(`/org/${ORG}/runs/${RUN}`);
   });
 });

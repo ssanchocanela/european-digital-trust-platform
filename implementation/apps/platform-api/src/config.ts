@@ -69,7 +69,7 @@ const schema = z.object({
   ENGINE_ROOT_CLIENT_SECRET: unsetIfEmpty(z.string().min(1).optional()),
   ENGINE_CREDENTIALS_KEY: base64Key(32, true),
   /** Engine trust list of wallet providers. Unset: no wallet attestation at the token endpoint. */
-  ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: z.string().min(1).optional(),
+  ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: unsetIfEmpty(z.string().min(1).optional()),
   /**
    * Issuer trust lists loaded into the engine, as `<trust anchor source ref>=<engine list id>`
    * pairs separated by commas. The ref is the list's published URL, as a policy names it; the id is
@@ -170,6 +170,19 @@ const schema = z.object({
   SANDBOX_PKI_DIR: unsetIfEmpty(z.string().min(1).optional()),
   SANDBOX_KEYSTORE_KEY: base64Key(32, true),
   SANDBOX_PUBLIC_BASE_URL: unsetIfEmpty(z.string().url().optional()),
+  /**
+   * The host a wallet reaches the engine's wallet-facing endpoints at — the `dNSName` of every hosted
+   * verifier's access certificate (S4). Unset: no hosted verifier.
+   */
+  SANDBOX_VERIFIER_DNS_NAME: unsetIfEmpty(
+    z
+      .string()
+      .regex(
+        /^(?=.{1,253}$)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$/,
+        "must be a lower-case host name",
+      )
+      .optional(),
+  ),
   /** Trust anchor source refs participants' PID Providers are placed on, comma-separated. */
   SANDBOX_PARTICIPANT_TRUST_SOURCES: z
     .string()

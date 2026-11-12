@@ -315,3 +315,43 @@ it("RC-08's payload registers a claim no request asks for", async () => {
   });
   expect(JSON.stringify(payload.credentials)).toContain("_edtp_rc08_not_requested");
 });
+
+describe("PID signing certificates (S5)", () => {
+  async function pidSigning(variant: "PID-00" | "PID-01" | "PID-02") {
+    const { issuePidSigningCertificate, PID_VARIANT_INFO } = await import("@edtp/sandbox-pki");
+    const info = PID_VARIANT_INFO[variant];
+    const issuer = TRUST_DOMAIN.find((m) => m.name === info.issuer);
+    const { publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+    const { der } = issuePidSigningCertificate({
+      variant,
+      subject: org,
+      subjectPublicKey: publicKey,
+      issuer: {
+        name: nameOf(issuer?.commonName ?? ""),
+        signer: await store.signer(info.issuer),
+      },
+      now,
+    });
+    return new X509Certificate(der);
+  }
+
+  it("PID-00 chains to the sandbox PID CA, the anchor the PID list carries", async () => {
+    const x = await pidSigning("PID-00");
+    expect(x.checkIssued(cert("pid-ca"))).toBe(true);
+    expect(x.subject).toContain("organizationIdentifier=SB:ES-000042");
+    expect(x.ca).toBe(false);
+    expect(Date.parse(x.validTo)).toBeGreaterThan(now.getTime());
+  });
+
+  it("PID-01 chains to the untrusted PID CA only", async () => {
+    const x = await pidSigning("PID-01");
+    expect(x.checkIssued(cert("pid-ca"))).toBe(false);
+    expect(x.checkIssued(cert("pid-ca-untrusted"))).toBe(true);
+  });
+
+  it("PID-02 has expired, under the trusted CA", async () => {
+    const x = await pidSigning("PID-02");
+    expect(x.checkIssued(cert("pid-ca"))).toBe(true);
+    expect(Date.parse(x.validTo)).toBeLessThan(now.getTime());
+  });
+});

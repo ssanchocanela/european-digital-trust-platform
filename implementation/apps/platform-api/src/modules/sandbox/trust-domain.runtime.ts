@@ -26,19 +26,23 @@ export class SandboxTrustDomain {
       readonly name: string;
       readonly certificate: Buffer;
     }[],
+    /**
+     * The Wallet Providers whose wallet attestations a hosted PID issuer accepts (S5), from
+     * `wallet-provider-anchors/*.pem`: the EUDI development Wallet Providers, placed by the operator.
+     */
+    readonly walletProviderAnchors: readonly {
+      readonly name: string;
+      readonly certificate: Buffer;
+    }[] = [],
   ) {}
 
-  static async load(directory: string, sealingKey: Buffer): Promise<SandboxTrustDomain> {
-    const certificates = new Map<string, Buffer>();
-    for (const member of TRUST_DOMAIN) {
-      const pem = await readFile(join(directory, "certs", `${member.name}.pem`), "utf8");
-      certificates.set(member.name, new X509Certificate(pem).raw);
-    }
+  private static async readAnchors(
+    directory: string,
+  ): Promise<{ name: string; certificate: Buffer }[]> {
     const anchors: { name: string; certificate: Buffer }[] = [];
-    const anchorDir = join(directory, "pid-sign-in-anchors");
-    const files = await readdir(anchorDir).catch(() => [] as string[]);
+    const files = await readdir(directory).catch(() => [] as string[]);
     for (const file of files.filter((f) => f.endsWith(".pem")).sort()) {
-      const x = new X509Certificate(await readFile(join(anchorDir, file), "utf8"));
+      const x = new X509Certificate(await readFile(join(directory, file), "utf8"));
       const cn =
         x.subject
           .split("\n")
@@ -46,10 +50,26 @@ export class SandboxTrustDomain {
           ?.slice(3) ?? file;
       anchors.push({ name: cn, certificate: x.raw });
     }
+    return anchors;
+  }
+
+  static async load(directory: string, sealingKey: Buffer): Promise<SandboxTrustDomain> {
+    const certificates = new Map<string, Buffer>();
+    for (const member of TRUST_DOMAIN) {
+      const pem = await readFile(join(directory, "certs", `${member.name}.pem`), "utf8");
+      certificates.set(member.name, new X509Certificate(pem).raw);
+    }
+    const anchors = await SandboxTrustDomain.readAnchors(
+      join(directory, "pid-sign-in-anchors"),
+    );
+    const walletProviders = await SandboxTrustDomain.readAnchors(
+      join(directory, "wallet-provider-anchors"),
+    );
     return new SandboxTrustDomain(
       new FileKeyStore(join(directory, "keys"), sealingKey),
       certificates,
       anchors,
+      walletProviders,
     );
   }
 
@@ -58,8 +78,9 @@ export class SandboxTrustDomain {
     store: SandboxKeyStore,
     certificates: ReadonlyMap<string, Buffer>,
     pidSignInAnchors: readonly { name: string; certificate: Buffer }[] = [],
+    walletProviderAnchors: readonly { name: string; certificate: Buffer }[] = [],
   ): SandboxTrustDomain {
-    return new SandboxTrustDomain(store, certificates, pidSignInAnchors);
+    return new SandboxTrustDomain(store, certificates, pidSignInAnchors, walletProviderAnchors);
   }
 
   certificate(name: string): Buffer {
@@ -80,6 +101,14 @@ export class SandboxTrustDomain {
 
   signer(name: string): Promise<Signer> {
     return this.store.signer(name);
+  }
+
+  /**
+   * A new key in the sandbox's sealed store, for a hosted issuer's metadata-signing access certificate
+   * (S5b). Never replaced: each configuration makes a fresh one.
+   */
+  createKey(name: string): Promise<Signer> {
+    return this.store.create(name);
   }
 
   /** The chain for a signing leaf, leaf first, root last: the whole chain, as a WRPRC carries it. */

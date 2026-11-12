@@ -1,5 +1,5 @@
 import { asId, type TenantId } from "@edtp/shared";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "../db.js";
 import {
   intendedUses,
@@ -37,7 +37,7 @@ export interface SandboxCertificateRecord {
   readonly tenantId: TenantId;
   readonly relyingPartyServiceId: string;
   readonly intendedUseId?: string;
-  readonly kind: "WRPAC" | "WRPRC";
+  readonly kind: "WRPAC" | "WRPRC" | "PID_SIGNING";
   readonly variant: string;
   readonly issuerKey: string;
   readonly serialHex?: string;
@@ -49,6 +49,8 @@ export interface SandboxCertificateRecord {
   readonly dnsNames: readonly string[];
   readonly createdAt: Date;
   readonly revokedAt?: Date;
+  /** `takeaway`: issued against the participant's request. `hosted`: its key went to the engine. */
+  readonly mode: "takeaway" | "hosted";
 }
 
 export interface Publication {
@@ -79,6 +81,7 @@ const toCertificate = (
   dnsNames: r.dnsNames as string[],
   createdAt: r.createdAt,
   ...(r.revokedAt ? { revokedAt: r.revokedAt } : {}),
+  mode: r.mode as SandboxCertificateRecord["mode"],
 });
 
 export class SandboxCertificateRepository {
@@ -211,7 +214,27 @@ export class SandboxCertificateRepository {
       fingerprintSha256: record.fingerprintSha256 ?? null,
       dnsNames: [...record.dnsNames],
       createdAt: record.createdAt,
+      mode: record.mode,
     });
+  }
+
+  /** Certificates issued for one service since `since`, for its daily quota. */
+  async countCertificatesSince(
+    tenantId: TenantId,
+    serviceId: string,
+    since: Date,
+  ): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sandboxCertificates)
+      .where(
+        and(
+          eq(sandboxCertificates.tenantId, tenantId),
+          eq(sandboxCertificates.relyingPartyServiceId, serviceId),
+          gte(sandboxCertificates.createdAt, since),
+        ),
+      );
+    return row?.n ?? 0;
   }
 
   async certificates(

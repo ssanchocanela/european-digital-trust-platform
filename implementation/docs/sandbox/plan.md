@@ -19,10 +19,11 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S0** | `sandbox/s0-investigation` | Findings, D1–D8 | Accepted 12 Nov 2026 |
 | **S1** | `sandbox/s0-investigation` | Specification, ADR 0014, ADR 0015, this plan | Approved 12 Nov 2026 |
 | **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR #42; real run pending |
-| **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR, STOP ← *built* |
-| **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR, STOP |
-| **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP |
-| **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
+| **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR #43 |
+| **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR #44; real runs pending |
+| **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
+| **S5b** | `sandbox/s5b-signed-metadata` | Signed issuer metadata for sandbox issuers ([ADR 0016](../adr/0016-sandbox-signed-issuer-metadata.md), option 2, decided) and a sandbox wallet profile without WD-2 | PR, STOP ← *built; runs per [`s5b-run-sheet.md`](s5b-run-sheet.md) pending* |
+| **S6** | `sandbox/s6-deployment` | The sandbox VM ([ADR 0017](../adr/0017-sandbox-vm.md), proposed) | PR, user-confirmed deployment, STOP ← *built; nothing deployed* |
 
 ## S2 — Foundations
 
@@ -118,6 +119,28 @@ the lists verify with the existing LoTE verifier; the register answers for a tes
 **Done when:** those runs are recorded, each with its wallet build, deviations and preference
 position, and nothing in them is described as more than it is.
 
+**State, 12 November 2026 — built, not yet run with a wallet.**
+
+Built:
+- the hosted verifier, on a runtime engine tenant with the sandbox PID list loaded;
+- certificate swaps between runs, with defective certificates sent on purpose;
+- one policy per intended use, returning claim presence only;
+- run reports with the tester's observation;
+- the portal pages;
+- `build.sh --profile sandbox`;
+- the gateway rule for `/sandbox/public`;
+- `cli.js issue-access` for the operator's own sign-in verifier.
+
+Tested against the fake engine: 8 integration tests on the verifier, plus the portal and profile unit
+tests.
+
+Two findings on the way:
+- a newest-by-timestamp access-certificate lookup could pick the wrong one when two replacements
+  shared a millisecond, so it is now an atomic replace;
+- the sign-in verifier itself needs a sandbox access certificate once the sandbox wallet build is used.
+
+The runs are in [`s4-run-sheet.md`](s4-run-sheet.md).
+
 ## S5 — The PID Provider role
 
 - Sandbox PID CA issuing participants' signing certificates (PID-00..PID-02).
@@ -131,6 +154,29 @@ position, and nothing in them is described as more than it is.
 
 **Done when:** that closed loop is recorded.
 
+**State, 12 November 2026 — built, not yet run with a wallet.**
+
+Built:
+- the hosted PID issuer: a runtime engine tenant with the Wallet Provider list, signing certificates
+  PID-00..02 from the sandbox PID CA, and the provider WRPRC as `issuer_info`;
+- the PID credential type and an operator-form policy;
+- synthetic offers by link or QR, with values kept nowhere;
+- PID-03 revocation;
+- the portal pages;
+- ADR 0016, proposed.
+
+**No change to the PID list was needed.** Participants' signing certificates are issued under the
+sandbox PID CA, which the list already carries — what D2's "sandbox-issued first" buys. Brought-in
+anchors are v1.1.
+
+Found on the way:
+- `IssuanceService.get` returns `issuedCredentialId` only on the settling read. The sandbox looks it up
+  by transaction instead; a separate fix is offered for the platform API.
+- **Two S4 portal edits had never applied**: the hosted verifier section and the runs list. Fixed here,
+  with route-level page tests and an integration test that serves the real composition over HTTP.
+
+The runs are in [`s5-run-sheet.md`](s5-run-sheet.md).
+
 ## S6 — Deployment
 
 - A new ADR for the sandbox VM (D7), following ADR 0010:
@@ -140,6 +186,37 @@ position, and nothing in them is described as more than it is.
   - backups of the CA key store.
 - **The sandbox wallet build offered behind Cloudflare Access** (CLAUDE.md §6.22).
 - **Deployment only after the user confirms it.**
+
+**Decided by the user, 12 November 2026:**
+- hostnames `sandbox-*.murcata.es`;
+- invited participants only, the portal behind Cloudflare Access;
+- no scheduled reset;
+- Hetzner's server backups plus nightly dumps on the VM.
+
+**Built** ([ADR 0017](../adr/0017-sandbox-vm.md), proposed):
+- **Quotas per organisation**, checked before any side effect, and the hosted verifier and issuer
+  refusing a suspended organisation. Found missing on the way: the specification asked for both, and
+  only the certificate service checked suspension.
+- **`sandbox-operator-cli.js`**: `participants` and `suspend` (J9, in part; SB6).
+- **The portal's `/wallet` page.** It offers nothing until the EUPL reading is confirmed, and only
+  release builds that hash as listed. `SANDBOX_PORTAL_REQUIRE_ACCESS` adds the second lock.
+- **`infra/sandbox-vm/`:**
+  - a self-contained compose file, with a drift test against the root one;
+  - the tunnel config;
+  - secrets generated on the VM;
+  - negative checks that also require the portal to redirect to Access;
+  - the scheduled checks;
+  - nightly and pre-deployment backups;
+  - `deploy.sh` with rollback.
+- **The `deploy-sandbox` workflow**, behind the GitHub environment `sandbox`.
+- **`scripts/register-sandbox-operator.mjs`** for the sign-in verifier.
+- **`create-server.sh`**, taking a role and Hetzner backups.
+
+**Not done:**
+- **Nothing is deployed.** The steps in `infra/sandbox-vm/README.md` need a person for Hetzner,
+  Cloudflare (tunnel, DNS, Access) and GitHub (environment, secrets), and the user's confirmation for
+  each deployment.
+- **No wallet build is offered** until the EUPL reading is legally confirmed.
 
 **v1.1, after S6:**
 - brought-in PID anchors with operator approval;

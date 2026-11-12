@@ -172,6 +172,41 @@ export class SandboxRepository {
     });
   }
 
+  /** For the operator: by the `SB:` identifier every certificate carries. */
+  async findOrganisationByLocalIdentifier(
+    localIdentifier: string,
+  ): Promise<SandboxOrganisation | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(sandboxOrganisations)
+      .where(eq(sandboxOrganisations.localIdentifier, localIdentifier));
+    return row ? toOrganisation(row) : undefined;
+  }
+
+  /** For the operator: every organisation, oldest first. */
+  async organisations(): Promise<SandboxOrganisation[]> {
+    const rows = await this.db
+      .select()
+      .from(sandboxOrganisations)
+      .orderBy(sandboxOrganisations.number);
+    return rows.map(toOrganisation);
+  }
+
+  /** Once: true only for the call that moved the organisation from ACTIVE to SUSPENDED. */
+  async suspendOrganisation(tenantId: TenantId, at: Date): Promise<boolean> {
+    const rows = await this.db
+      .update(sandboxOrganisations)
+      .set({ status: "SUSPENDED", suspendedAt: at })
+      .where(
+        and(
+          eq(sandboxOrganisations.tenantId, tenantId),
+          eq(sandboxOrganisations.status, "ACTIVE"),
+        ),
+      )
+      .returning({ tenantId: sandboxOrganisations.tenantId });
+    return rows.length === 1;
+  }
+
   async findOrganisation(tenantId: TenantId): Promise<SandboxOrganisation | undefined> {
     const [row] = await this.db
       .select()

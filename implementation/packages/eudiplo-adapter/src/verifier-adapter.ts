@@ -181,6 +181,69 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
     return this.client.health();
   }
 
+  async ensureTrustListSigningKey(
+    engineTenantRef: string,
+    input: {
+      readonly description: string;
+      readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+      readonly certificatePem: string;
+    },
+  ): Promise<void> {
+    const keys =
+      (await this.client.request<{ usageType?: unknown }[]>(
+        engineTenantRef,
+        "GET",
+        "/key-chain",
+      )) ?? [];
+    if (keys.some((k) => k.usageType === "trustList")) return;
+    keyChainIdSchema.parse(
+      await this.client.request(engineTenantRef, "POST", "/key-chain/import", {
+        usageType: "trustList",
+        description: input.description,
+        key: input.privateKeyJwk,
+        crt: [input.certificatePem],
+      }),
+    );
+  }
+
+  /**
+   * `POST /trust-list` or `PUT /trust-list/{id}`, as `scripts/load-issuer-trust-list.mjs` writes it:
+   * each issuer an `external` attestation provider whose certificate stands for both issuance and
+   * revocation (`docs/interop-findings.md` A30).
+   */
+  async upsertIssuerTrustList(
+    engineTenantRef: string,
+    input: {
+      readonly listId: string;
+      readonly description: string;
+      readonly issuers: readonly { readonly name: string; readonly certificatePem: string }[];
+      readonly providerType?: "attestation-provider" | "wallet-provider";
+    },
+  ): Promise<void> {
+    const body = {
+      id: input.listId,
+      description: input.description,
+      entities: input.issuers.map((i) => ({
+        type: "external",
+        providerType: input.providerType ?? "attestation-provider",
+        issuerCertPem: i.certificatePem,
+        revocationCertPem: i.certificatePem,
+        info: { name: i.name, lang: "en", country: "EU" },
+      })),
+    };
+    const path = `/trust-list/${encodeURIComponent(input.listId)}`;
+    const exists = await this.client
+      .request(engineTenantRef, "GET", path)
+      .then(() => true)
+      .catch(() => false);
+    await this.client.request(
+      engineTenantRef,
+      exists ? "PUT" : "POST",
+      exists ? path : "/trust-list",
+      body,
+    );
+  }
+
   // --- internals ------------------------------------------------------------
 
   private async upsertPresentationConfig(

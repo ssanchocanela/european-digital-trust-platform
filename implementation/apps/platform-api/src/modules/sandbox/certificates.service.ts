@@ -1,4 +1,4 @@
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, type KeyObject, X509Certificate } from "node:crypto";
 import type { RegisteredCredential as DomainCredential } from "@edtp/domain";
 import type {
   SandboxCertificateRecord,
@@ -26,6 +26,7 @@ import { asId, type Clock, newUuid, PlatformError, type TenantId } from "@edtp/s
 import type { AuditService } from "../audit/audit.service.js";
 import type { RegistrationService } from "../registration/registration.service.js";
 import type { SandboxPublicationService } from "./publication.service.js";
+import { assertQuota, quotaWindowStart } from "./quotas.js";
 import type { SandboxService, SignedInContext } from "./sandbox.service.js";
 import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
 import type { SandboxUrls } from "./urls.js";
@@ -109,6 +110,7 @@ export class SandboxCertificateService {
       relyingPartyId = rp.id;
     }
     const count = await this.repository.countServices(org.tenantId);
+    assertQuota("servicesPerOrganisation", count);
     // Unique within the organisation (Reg_33), assigned by the sandbox.
     const serviceIdentifier = `S${String(count + 1).padStart(3, "0")}`;
     const { service } = await this.registration.createRelyingPartyService({
@@ -222,17 +224,7 @@ export class SandboxCertificateService {
       readonly dnsNames: readonly string[];
     },
   ) {
-    const org = await this.organisationOf(context, tenantId);
-    const service = await this.repository.service(org.tenantId, serviceId);
-    if (!service) throw PlatformError.notFound("Service");
-    const dnsNames = [...new Set(input.dnsNames.map((d) => d.trim().toLowerCase()))];
-    if (dnsNames.length === 0 || dnsNames.length > 5 || !dnsNames.every(isAcceptableDnsName)) {
-      throw PlatformError.validation(
-        "invalid_dns_names",
-        "Give one to five DNS names: lower-case host names, no wildcard, no address.",
-      );
-    }
-    let publicKey: ReturnType<typeof readCertificationRequest>;
+    let publicKey: KeyObject;
     try {
       publicKey = readCertificationRequest(pemToDer(input.csrPem, "CERTIFICATE REQUEST"));
     } catch (error) {
@@ -241,6 +233,41 @@ export class SandboxCertificateService {
         `The certification request was refused: ${error instanceof Error ? error.message : "unreadable"}.`,
       );
     }
+    return this.issueAccessCertificateFor(context, tenantId, serviceId, {
+      variant: input.variant,
+      publicKey,
+      dnsNames: input.dnsNames,
+      mode: "takeaway",
+    });
+  }
+
+  /**
+   * An access certificate for a key the caller already holds: a take-away request's, or a hosted
+   * verifier's, generated for the engine (S4).
+   */
+  async issueAccessCertificateFor(
+    context: SignedInContext,
+    tenantId: string,
+    serviceId: string,
+    input: {
+      readonly variant: WrpacVariant;
+      readonly publicKey: KeyObject;
+      readonly dnsNames: readonly string[];
+      readonly mode: "takeaway" | "hosted";
+    },
+  ) {
+    const org = await this.organisationOf(context, tenantId);
+    const service = await this.repository.service(org.tenantId, serviceId);
+    if (!service) throw PlatformError.notFound("Service");
+    await this.assertCertificateQuota(org.tenantId, serviceId);
+    const dnsNames = [...new Set(input.dnsNames.map((d) => d.trim().toLowerCase()))];
+    if (dnsNames.length === 0 || dnsNames.length > 5 || !dnsNames.every(isAcceptableDnsName)) {
+      throw PlatformError.validation(
+        "invalid_dns_names",
+        "Give one to five DNS names: lower-case host names, no wildcard, no address.",
+      );
+    }
+    const publicKey = input.publicKey;
     const info = WRPAC_VARIANT_INFO[input.variant];
     const now = this.clock.now();
     const { der, serial } = issueWrpac({
@@ -274,6 +301,7 @@ export class SandboxCertificateService {
       fingerprintSha256: fingerprint(der),
       dnsNames,
       createdAt: now,
+      mode: input.mode,
     };
     await this.repository.createCertificate(record);
     await this.audit.record({
@@ -298,6 +326,7 @@ export class SandboxCertificateService {
     const org = await this.organisationOf(context, tenantId);
     const service = await this.repository.service(org.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
+    await this.assertCertificateQuota(org.tenantId, serviceId);
     const info = WRPRC_VARIANT_INFO[input.variant];
     if (info.appliesTo !== "both" && info.appliesTo !== service.role) {
       throw PlatformError.conflict(
@@ -377,6 +406,8 @@ export class SandboxCertificateService {
       ...(body ? { body, fingerprintSha256: fingerprint(Buffer.from(body)) } : {}),
       dnsNames: [],
       createdAt: now,
+      // A registration certificate has no key; it is always the participant's to download.
+      mode: "takeaway",
     };
     await this.repository.createCertificate(record);
     await this.audit.record({
@@ -414,6 +445,46 @@ export class SandboxCertificateService {
     return this.view(org.tenantId, id);
   }
 
+  private async assertCertificateQuota(tenantId: TenantId, serviceId: string) {
+    assertQuota(
+      "certificatesPerServicePerDay",
+      await this.repository.countCertificatesSince(
+        tenantId,
+        serviceId,
+        quotaWindowStart(this.clock.now()),
+      ),
+    );
+  }
+
+  /**
+   * The operator suspends a participant (specification J9): the organisation creates nothing more,
+   * and every certificate it still holds is revoked at once — the sandbox's reading of
+   * `AS-MS-31-025`/`-026` (`RPACANot_06`/`RPACANot_07`) and TS 119 411-8 REV-6.3.9-02..04.
+   * Revocation is final; so is the suspension, in v1. Returns what it did.
+   */
+  async suspendOrganisation(localIdentifier: string, reason: string) {
+    const organisation = await this.people.findOrganisationByLocalIdentifier(localIdentifier);
+    if (!organisation) throw PlatformError.notFound("Organisation");
+    const at = this.clock.now();
+    const suspended = await this.people.suspendOrganisation(organisation.tenantId, at);
+    const held = await this.repository.certificates(organisation.tenantId);
+    let revoked = 0;
+    for (const record of held) {
+      if (record.revokedAt) continue;
+      await this.revokeRecord(record, at);
+      revoked++;
+    }
+    await this.audit.record({
+      tenantId: organisation.tenantId,
+      actor: "sandbox-operator",
+      action: "sandbox.organisation.suspended",
+      subjectType: "sandbox_organisation",
+      subjectId: organisation.localIdentifier,
+      detail: { reason: reason.slice(0, 200), revokedCertificates: revoked },
+    });
+    return { localIdentifier, alreadySuspended: !suspended, revokedCertificates: revoked };
+  }
+
   private async revokeRecord(record: SandboxCertificateRecord, at: Date) {
     await this.repository.revoke(record.tenantId, record.id, at);
     await this.audit.record({
@@ -426,6 +497,16 @@ export class SandboxCertificateService {
     await this.publications.publishIfNeeded(
       record.kind === "WRPAC" ? `crl:${record.issuerKey}` : `status:${record.issuerKey}`,
     );
+  }
+
+  /** The record as stored, for the hosted verifier: it needs the PEM chain and the WRPRC body. */
+  async record(tenantId: TenantId, id: string): Promise<SandboxCertificateRecord | undefined> {
+    return this.repository.certificate(tenantId, id);
+  }
+
+  /** The certificate view the portal shows: description, body and the sandbox's own check. */
+  async describeById(tenantId: TenantId, id: string) {
+    return this.view(tenantId, id);
   }
 
   private describe(record: SandboxCertificateRecord) {
@@ -444,12 +525,13 @@ export class SandboxCertificateService {
       ...("walletCoreReason" in info && info.walletCoreReason
         ? { walletCoreReason: info.walletCoreReason }
         : {}),
-      ...("takeAwayOnly" in info && info.takeAwayOnly ? { takeAwayOnly: true } : {}),
+      ...("issuanceSide" in info && info.issuanceSide ? { issuanceSide: true } : {}),
       ...(record.notBefore ? { notBefore: record.notBefore } : {}),
       ...(record.notAfter ? { notAfter: record.notAfter } : {}),
       ...(record.fingerprintSha256 ? { fingerprintSha256: record.fingerprintSha256 } : {}),
       dnsNames: record.dnsNames,
       createdAt: record.createdAt,
+      mode: record.mode,
       ...(record.revokedAt ? { revokedAt: record.revokedAt } : {}),
     };
   }

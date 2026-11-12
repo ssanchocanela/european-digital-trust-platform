@@ -1,0 +1,25 @@
+# /etc/cloudflared/config.yml on the sandbox VM (ADR 0017). The tunnel is `edtp-sandbox`, separate from
+# the demonstration VM's `edtp-demo`. Its credential file sits beside this one, root-only, and is never
+# committed. Replace __TUNNEL_ID__ with the tunnel's id when installing. Default-deny: anything
+# unmatched is a 404 at the edge.
+#
+# - The engine and the platform are reached THROUGH the filtering gateway (3010, 3011), never
+#   directly: its allow-list keeps the Management API and /sandbox/v1 off the internet
+#   (CLAUDE.md §6.20, docs/test-session-gateway.md §1b).
+# - The portal (3300) is behind the Cloudflare Access application "EDTP sandbox portal", whose policy
+#   admits the invited participants' e-mail addresses. It is added here only after Access is seen
+#   protecting the hostname (README step 6). The portal refuses any request without Access's
+#   identity header as well.
+# - SSH is behind the Access application "EDTP sandbox SSH", the operator only.
+tunnel: __TUNNEL_ID__
+credentials-file: /etc/cloudflared/__TUNNEL_ID__.json
+ingress:
+  - hostname: sandbox-ssh.murcata.es
+    service: ssh://localhost:22
+  - hostname: sandbox-engine.murcata.es
+    service: http://127.0.0.1:3010
+  - hostname: sandbox-platform.murcata.es
+    service: http://127.0.0.1:3011
+  - hostname: sandbox.murcata.es
+    service: http://127.0.0.1:3300
+  - service: http_status:404

@@ -4,3 +4,4 @@
  * duplicating it.
  */
 export * from "./people.js";
+export * from "./quotas.js";

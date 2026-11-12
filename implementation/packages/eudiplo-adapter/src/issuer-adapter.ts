@@ -618,6 +618,18 @@ export class EudiploIssuerAdapter implements EudiIssuerPort, EudiIssuerProvision
    * question is what a Wallet receives, not what the platform configured. Those differ: Milestone 1
    * found the engine storing a registration certificate it then declined to publish.
    */
+  async fetchCredentialIssuerMetadata(
+    engineTenantRef: string,
+  ): Promise<Readonly<Record<string, unknown>>> {
+    const raw = await this.client.fetchProtocol(
+      `/.well-known/openid-credential-issuer/issuers/${encodeURIComponent(engineTenantRef)}`,
+    );
+    // Validated as the engine's metadata, then returned as served: the schema checks the shape the
+    // platform relies on (`credential_issuer`), and every other field passes through untouched.
+    engineCredentialIssuerMetadataSchema.parse(raw);
+    return raw as Readonly<Record<string, unknown>>;
+  }
+
   async fetchProviderAuthenticationEvidence(
     engineTenantRef: string,
   ): Promise<ProviderAuthenticationEvidence> {

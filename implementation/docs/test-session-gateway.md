@@ -71,13 +71,21 @@ Added **only when the flow under test needs them**, not pre-emptively:
 | `/issuers/{tenantId}/vci/deferred_credential` | Only if deferred issuance is tested |
 | `/issuers/{tenantId}/trust-list/{id}`, `/status-management/status-list-aggregation` | Only when publishing a list through the engine |
 
+**One engine path is served by the platform instead (sandbox S5b, ADR 0016).** With
+`GATEWAY_SANDBOX_SIGNED_METADATA=on`, `GET /.well-known/openid-credential-issuer/issuers/sbx-iss-*` —
+already on the engine allow-list — is forwarded to the platform's `/sandbox/public/issuer-metadata/…`,
+which signs the engine's metadata. No other path and no other issuer is redirected. The switch is off by
+default.
+
 ### 1b. The platform, on a separate tunnel host
 
-**One route**, and only for same-device verification:
+**One route** for same-device verification, and — since sandbox S4, 12 November 2026 — the sandbox's
+public reads:
 
 | Method | Path | Why |
 |---|---|---|
 | `GET` | `/v1/presentations/{presentationId}/return` | Where the wallet returns the user's browser after a same-device flow. Already `@Public()` and deliberately minimal — it echoes the id and a sentence, and reveals no outcome |
+| `GET` | `/sandbox/public/{lote,crl,status,ca}/…`, `/sandbox/public/cps`, `/sandbox/public/wrp…` | **Sandbox only.** The sandbox's trust lists, registration-certificate status lists, CRLs, CA certificates, CPS and signed register (`docs/sandbox/specification.md` §9). Public by design (`EW-DM-31-003`, `TLPub_04`), read-only, each name from the same closed set the controller accepts. A sandbox wallet build fetches the lists over HTTPS, so they must be reachable through the tunnel. `/sandbox/v1/*`, the portal's API, is **not** exposed, and two negative probes check it |
 
 **The issuance flow needs no platform route at all.** The credential offer URI points at the engine, and
 the platform has no public issuance endpoint. A useful result: the IaaS matrix rows need only the engine
@@ -175,7 +183,7 @@ check; the VM is what any run whose result will be recorded should use, because 
 corporate-network laptop is a policy problem regardless of its technical soundness, and because
 Cloudflare terminating TLS puts a third party inside the thing under test.
 
-**The allow-list in §1 governs either deployment**, and so do the negative checks in §4.
+**The allow-list in §1 governs either deployment**, and so do the negative checks in §4. It governs the two permanent ones too: the demonstration VM (ADR 0010) and, since sandbox S6, the **sandbox VM** ([ADR 0017](adr/0017-sandbox-vm.md), `infra/sandbox-vm/`). The sandbox VM adds no rule: its public paths are §1a and §1b, with `GATEWAY_SANDBOX_SIGNED_METADATA` on. Its portal is not behind the gateway at all but behind Cloudflare Access, and its negative checks require the portal to redirect to the Access login.
 
 | Option | Verdict |
 |---|---|

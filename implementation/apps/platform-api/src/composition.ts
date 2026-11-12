@@ -24,7 +24,9 @@ import {
   PolicyRepository,
   RegistrationRepository,
   SandboxCertificateRepository,
+  SandboxIssuerRepository,
   SandboxRepository,
+  SandboxVerifierRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
   WebhookEndpointRepository,
@@ -49,11 +51,14 @@ import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
+import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
+import { SandboxMetadataService } from "./modules/sandbox/metadata.service.js";
 import { SandboxPublicationService } from "./modules/sandbox/publication.service.js";
 import { SandboxRegister } from "./modules/sandbox/register.js";
 import { SandboxService } from "./modules/sandbox/sandbox.service.js";
 import type { SandboxTrustDomain } from "./modules/sandbox/trust-domain.runtime.js";
 import { sandboxUrls } from "./modules/sandbox/urls.js";
+import { SandboxVerifierService } from "./modules/sandbox/verifier.service.js";
 import { WebhookService } from "./webhook/webhook.service.js";
 
 /**
@@ -72,6 +77,9 @@ import { WebhookService } from "./webhook/webhook.service.js";
  */
 const ENGINE_TENANT_SESSION_TTL_SECONDS = 120;
 
+/** The engine-held copy of the sandbox PID list, on every sandbox engine tenant. */
+const SANDBOX_PID_TRUST_LIST_ID = "sbx-pid-providers";
+
 export interface Dependencies {
   readonly config: PlatformConfig;
   readonly logger: Logger;
@@ -89,6 +97,8 @@ export interface Dependencies {
     readonly listing: ListingRepository;
     readonly sandbox: SandboxRepository;
     readonly sandboxCertificates: SandboxCertificateRepository;
+    readonly sandboxVerifiers: SandboxVerifierRepository;
+    readonly sandboxIssuers: SandboxIssuerRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -115,6 +125,12 @@ export interface Dependencies {
     readonly sandboxCertificates?: SandboxCertificateService;
     readonly sandboxPublications?: SandboxPublicationService;
     readonly sandboxRegister?: SandboxRegister;
+    /** Present only when the hosted verifier is configured (`SANDBOX_VERIFIER_DNS_NAME`, S4). */
+    readonly sandboxVerifier?: SandboxVerifierService;
+    /** Present when the sandbox's PKI is configured (S5). */
+    readonly sandboxIssuer?: SandboxIssuerService;
+    /** Signed metadata for sandbox issuers (S5b, ADR 0016). */
+    readonly sandboxMetadata?: SandboxMetadataService;
     /** Present only when runtime engine tenants are configured (root client and sealing key). */
     readonly engineTenants?: EngineTenantService;
   };
@@ -158,7 +174,19 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     listing: new ListingRepository(db),
     sandbox: new SandboxRepository(db),
     sandboxCertificates: new SandboxCertificateRepository(db),
+    sandboxVerifiers: new SandboxVerifierRepository(db),
+    sandboxIssuers: new SandboxIssuerRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
+  };
+
+  // Every sandbox engine tenant holds the sandbox PID list under one id (S4), so a sandbox policy's
+  // anchor source resolves to it there as the configured lists resolve on their own tenants.
+  const sandboxPidListRef = config.SANDBOX_PUBLIC_BASE_URL
+    ? sandboxUrls(config.SANDBOX_PUBLIC_BASE_URL).lote("PID")
+    : undefined;
+  const issuerTrustLists = {
+    ...config.ENGINE_ISSUER_TRUST_LISTS,
+    ...(sandboxPidListRef ? { [sandboxPidListRef]: SANDBOX_PID_TRUST_LIST_ID } : {}),
   };
 
   const engineCredentials = config.ENGINE_CREDENTIALS_KEY
@@ -210,12 +238,12 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
   const adapter = options.verifier
     ? undefined
     : new EudiploVerifierAdapter(engineClient as EngineClient, {
-        issuerTrustLists: config.ENGINE_ISSUER_TRUST_LISTS,
+        issuerTrustLists,
       });
   const issuerAdapter = options.issuer
     ? undefined
     : new EudiploIssuerAdapter(engineClient as EngineClient, {
-        issuerTrustLists: config.ENGINE_ISSUER_TRUST_LISTS,
+        issuerTrustLists,
         ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
           ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
           : {}),
@@ -369,26 +397,85 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             clock,
             logger,
           );
+          const certificates = new SandboxCertificateService(
+            sandbox,
+            repositories.sandbox,
+            repositories.sandboxCertificates,
+            registration,
+            domain,
+            publications,
+            urls,
+            audit,
+            clock,
+          );
+          const verifier =
+            config.SANDBOX_VERIFIER_DNS_NAME && config.SANDBOX_PORTAL_PUBLIC_URL
+              ? new SandboxVerifierService(
+                  {
+                    dnsName: config.SANDBOX_VERIFIER_DNS_NAME,
+                    portalPublicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
+                    pidListRef: urls.lote("PID"),
+                    pidTrustListId: SANDBOX_PID_TRUST_LIST_ID,
+                  },
+                  sandbox,
+                  certificates,
+                  repositories.sandboxCertificates,
+                  repositories.sandboxVerifiers,
+                  repositories.registration,
+                  registration,
+                  policies,
+                  presentations,
+                  provisioning,
+                  engineTenants,
+                  domain,
+                  hostedFormReturns,
+                  audit,
+                  clock,
+                )
+              : undefined;
+          const issuerService = new SandboxIssuerService(
+            {
+              ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
+                ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
+                : {}),
+              ...(config.SANDBOX_VERIFIER_DNS_NAME
+                ? { metadataDnsName: config.SANDBOX_VERIFIER_DNS_NAME }
+                : {}),
+            },
+            sandbox,
+            repositories.sandbox,
+            certificates,
+            repositories.sandboxCertificates,
+            repositories.sandboxIssuers,
+            repositories.issuance,
+            issuances,
+            issuerProvisioning,
+            provisioning,
+            engineTenants,
+            domain,
+            audit,
+            clock,
+          );
+          const metadata = new SandboxMetadataService(
+            repositories.sandboxIssuers,
+            repositories.sandboxCertificates,
+            issuerProvisioning,
+            domain,
+            clock,
+          );
           return {
             domain,
             publications,
+            verifier,
+            issuer: issuerService,
+            metadata,
             register: new SandboxRegister(
               repositories.sandboxCertificates,
               domain,
               urls,
               clock,
             ),
-            certificates: new SandboxCertificateService(
-              sandbox,
-              repositories.sandbox,
-              repositories.sandboxCertificates,
-              registration,
-              domain,
-              publications,
-              urls,
-              audit,
-              clock,
-            ),
+            certificates,
           };
         })()
       : undefined;
@@ -428,6 +515,9 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             sandboxCertificates: pki.certificates,
             sandboxPublications: pki.publications,
             sandboxRegister: pki.register,
+            ...(pki.verifier ? { sandboxVerifier: pki.verifier } : {}),
+            sandboxIssuer: pki.issuer,
+            sandboxMetadata: pki.metadata,
           }
         : {}),
     },

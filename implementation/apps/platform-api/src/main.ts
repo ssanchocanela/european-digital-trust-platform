@@ -1,12 +1,9 @@
 import "reflect-metadata";
 import { runMigrations } from "@edtp/persistence";
-import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import { AppModule } from "./app.module.js";
 import { buildDependencies, openDatabase } from "./composition.js";
 import { loadConfig } from "./config.js";
-import { ApiKeyGuard } from "./http/auth.js";
-import { PlatformErrorFilter } from "./http/error.filter.js";
+import { createHttpApp } from "./http-app.js";
 import { Logger } from "./logging/logger.js";
 import { migrationsPath } from "./migrations-path.js";
 import { SandboxTrustDomain } from "./modules/sandbox/trust-domain.runtime.js";
@@ -43,20 +40,7 @@ const bootstrap = async (): Promise<void> => {
   // Publish at once, so a fresh sandbox serves its lists and CRLs from its first request.
   await deps.services.sandboxPublications?.publishAll();
 
-  const app = await NestFactory.create(AppModule.withDependencies(deps), {
-    // Not `false`, which is what this was.
-    //
-    // Nest's startup output is noise — a line per route — but with the logger disabled entirely a
-    // **bootstrap failure prints nothing at all**: the process ran its migrations and exited 1 in
-    // silence, because `bootstrap().catch` never sees an error Nest handles itself. That cost a
-    // debugging cycle over a missing provider. `error` and `warn` keep the noise out and the failures in.
-    logger: ["error", "warn"],
-    bodyParser: true,
-  });
-  // A modest body limit: every request in this API is small, and a large one is either a
-  // mistake or an attempt to exhaust memory.
-  app.useGlobalGuards(app.get(ApiKeyGuard));
-  app.useGlobalFilters(new PlatformErrorFilter(logger));
+  const app = await createHttpApp(deps);
 
   // Shared with `openapi-cli.ts`, which writes the same document to a file so the contract can be
   // diffed in review. One definition, or the served and the checked-in one drift apart.

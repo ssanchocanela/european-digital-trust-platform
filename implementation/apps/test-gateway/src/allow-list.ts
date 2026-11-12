@@ -102,6 +102,25 @@ export const PLATFORM_RULES: readonly Rule[] = [
     pattern: new RegExp(`^/v1/presentations/${ID}/return$`),
     why: "VaaS same-device — the browser return page",
   },
+  {
+    methods: ["GET"],
+    // The sandbox's public reads (S4): what a wallet fetches — its three lists, the registration
+    // certificate status lists and the CRLs — and what a participant reads — CA certificates, the CPS
+    // and the register. Public by design (EW-DM-31-003, TLPub_04), read-only, and every name here is
+    // the same closed set the controller accepts. `/sandbox/v1/*`, the portal's API, is not here.
+    pattern: new RegExp(
+      "^/sandbox/public/(" +
+        "lote/(PID|WRPAC|WRPRC)Providers\\.jwt" +
+        "|crl/access-ca(-untrusted)?\\.crl" +
+        "|status/(registrar(-untrusted)?-signing|unavailable)" +
+        "|ca/(access-ca|registrar|pid-ca)(-untrusted)?\\.cer" +
+        "|ca/(lote-signer|registrar(-untrusted)?-signing)\\.cer" +
+        "|cps" +
+        `|wrp(/check-intended-use|/${ID}(/services/${ID})?)?` +
+        ")$",
+    ),
+    why: "Sandbox — trust lists, status lists, CRLs, CA certificates, the CPS and the register",
+  },
 ];
 
 /**
@@ -139,4 +158,6 @@ export const NEGATIVE_PROBES: readonly {
   { target: "platform", path: "/v1/presentations", why: "enumeration of transactions" },
   { target: "platform", path: "/health", why: "engine reachability" },
   { target: "platform", path: "/openapi", why: "the API's own description" },
+  { target: "platform", path: "/sandbox/v1/me", why: "the sandbox portal's API" },
+  { target: "platform", path: "/sandbox/v1/sign-in-attempts", why: "the sandbox portal's API" },
 ];

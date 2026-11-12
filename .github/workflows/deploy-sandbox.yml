@@ -1,0 +1,66 @@
+# Deploys one published platform image to the EUDI ecosystem sandbox VM (implementation ADR 0017), on
+# the pattern of deploy-demo.yml (ADR 0010 §3.6).
+#
+# - Runs only after the user approves it: the `sandbox` environment has the repository owner as its
+#   required reviewer and admits only `main`. Anyone, Claude included, can request a deployment;
+#   nothing reaches the VM without that approval.
+# - Reaches the VM through its own Cloudflare tunnel (`edtp-sandbox`), with an Access service token.
+#   The VM has no inbound ports.
+# - Uses a deploy key whose authorized_keys entry forces one command, `deploy <tag>`
+#   (implementation/infra/sandbox-vm/deploy.sh). The key opens no shell.
+# - The VM script backs up, pulls the image, waits for the platform to become healthy, runs the
+#   negative checks, and rolls back to the previous image if they fail.
+#
+# Environment `sandbox` secrets: SANDBOX_DEPLOY_KEY, SANDBOX_KNOWN_HOSTS, CF_ACCESS_CLIENT_ID,
+# CF_ACCESS_CLIENT_SECRET.
+name: deploy-sandbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "12-hex commit tag of a demo-image build"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-sandbox
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: sandbox
+    timeout-minutes: 20
+    env:
+      TAG: ${{ inputs.tag }}
+      OWNER: ${{ github.repository_owner }}
+    steps:
+      - name: Validate the tag
+        run: |
+          [[ "$TAG" =~ ^[0-9a-f]{12}$ ]] || { echo "tag must be 12 hex digits"; exit 1; }
+          docker manifest inspect "ghcr.io/${OWNER,,}/edtp-platform:$TAG" >/dev/null || { echo "no such image: edtp-platform:$TAG"; exit 1; }
+
+      - name: Install cloudflared (pinned, checksum-verified)
+        run: |
+          curl -sfL -o cloudflared \
+            https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-linux-amd64
+          echo "03f1f25d1cc93b9ad6c60569d44060bc4f17ed97075760ed8cfca4b12dcd68cc  cloudflared" | sha256sum -c -
+          sudo install -m 755 cloudflared /usr/local/bin/cloudflared
+
+      - name: Deploy
+        env:
+          DEPLOY_KEY: ${{ secrets.SANDBOX_DEPLOY_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SANDBOX_KNOWN_HOSTS }}
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes -o HostKeyAlias=edtp-sandbox-vm \
+            -o ProxyCommand="cloudflared access ssh --hostname %h" \
+            edtp@sandbox-ssh.murcata.es "deploy $TAG"

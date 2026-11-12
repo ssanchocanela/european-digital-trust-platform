@@ -21,6 +21,7 @@ import {
 } from "../../apps/platform-api/src/composition.js";
 import { loadConfig, type PlatformConfig } from "../../apps/platform-api/src/config.js";
 import { Logger, type LogSink } from "../../apps/platform-api/src/logging/logger.js";
+import { FakeIssuer } from "./fake-issuer.js";
 
 /**
  * Integration harness.
@@ -171,6 +172,35 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
     return true;
   }
 
+  readonly trustLists: {
+    engineTenantRef: string;
+    listId: string;
+    issuers: number;
+    providerType?: string;
+  }[] = [];
+  readonly trustListKeys: string[] = [];
+
+  async upsertIssuerTrustList(
+    engineTenantRef: string,
+    input: {
+      listId: string;
+      description: string;
+      issuers: readonly { name: string; certificatePem: string }[];
+      providerType?: "attestation-provider" | "wallet-provider";
+    },
+  ): Promise<void> {
+    this.trustLists.push({
+      engineTenantRef,
+      listId: input.listId,
+      issuers: input.issuers.length,
+      ...(input.providerType ? { providerType: input.providerType } : {}),
+    });
+  }
+
+  async ensureTrustListSigningKey(engineTenantRef: string): Promise<void> {
+    if (!this.trustListKeys.includes(engineTenantRef)) this.trustListKeys.push(engineTenantRef);
+  }
+
   /**
    * Clears recorded calls, scripted responses **and the session counter**.
    *
@@ -185,6 +215,8 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
     this.retentionCalls.length = 0;
     this.cancelled.length = 0;
     this.imports.length = 0;
+    this.trustLists.length = 0;
+    this.trustListKeys.length = 0;
     this.statuses.clear();
     this.claims.clear();
     this.failCreate = undefined;
@@ -195,6 +227,8 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
 export interface Harness {
   readonly deps: Dependencies;
   readonly verifier: FakeVerifier;
+  /** Present when created with `fakeIssuer: true`. */
+  readonly issuer?: FakeIssuer;
   readonly clock: FixedClock;
   readonly logs: CapturedLog;
   readonly config: PlatformConfig;
@@ -213,6 +247,10 @@ export const createHarness = async (options?: {
   readonly now?: Date;
   /** Extra environment, e.g. the sandbox's settings. */
   readonly env?: Readonly<Record<string, string>>;
+  /** Substitute the issuer port with `FakeIssuer` instead of the adapter over `fetchImpl`. */
+  readonly fakeIssuer?: boolean;
+  /** The sandbox's trust domain, as `main.ts` loads it before composing (S3). */
+  readonly sandboxTrustDomain?: import("../../apps/platform-api/src/modules/sandbox/trust-domain.runtime.js").SandboxTrustDomain;
 }): Promise<Harness> => {
   const baseUrl = process.env.TEST_DATABASE_URL;
   if (!baseUrl) {
@@ -250,6 +288,7 @@ export const createHarness = async (options?: {
   const logs = capturingSink();
   const logger = new Logger("debug", logs.sink);
   const verifier = new FakeVerifier();
+  const issuer = options?.fakeIssuer ? new FakeIssuer() : undefined;
 
   const deps = buildDependencies({
     config,
@@ -258,6 +297,8 @@ export const createHarness = async (options?: {
     logger,
     verifier,
     provisioning: verifier,
+    ...(issuer ? { issuer, issuerProvisioning: issuer } : {}),
+    ...(options?.sandboxTrustDomain ? { sandboxTrustDomain: options.sandboxTrustDomain } : {}),
     ...(options?.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
 
@@ -271,7 +312,7 @@ export const createHarness = async (options?: {
          presentation_policy_versions, presentation_policies,
          access_certificates, registration_certificates, relying_party_instances,
          intended_uses, relying_party_services, relying_parties,
-         sandbox_publications, sandbox_certificates, sandbox_services,
+         engine_tenant_credentials, sandbox_issuances, sandbox_issuers, sandbox_runs, sandbox_verifier_uses, sandbox_verifiers, sandbox_publications, sandbox_certificates, sandbox_services,
          sandbox_sign_in_attempts, sandbox_sessions, sandbox_invitations, sandbox_memberships,
          sandbox_people, sandbox_organisations, organisations,
          api_keys, tenants
@@ -279,11 +320,13 @@ export const createHarness = async (options?: {
     );
     logs.lines.length = 0;
     verifier.reset();
+    issuer?.reset();
   };
 
   return {
     deps,
     verifier,
+    ...(issuer ? { issuer } : {}),
     clock,
     logs,
     config,

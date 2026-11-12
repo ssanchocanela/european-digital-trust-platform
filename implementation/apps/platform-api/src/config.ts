@@ -118,6 +118,24 @@ const schema = z.object({
    * platform — the same rule as the hosted form's. All three unset: off.
    */
   HOSTED_VERIFIER_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  /**
+   * Master key for `PseudonymousSubject` derivations, base64, at least 32 bytes. A secret: on the
+   * redaction deny-list, never logged. Unset: such derivations are unsatisfied (ADR 0015).
+   */
+  PSEUDONYM_MASTER_KEY: unsetIfEmpty(
+    z
+      .string()
+      .optional()
+      .transform((value, ctx) => {
+        if (value === undefined) return undefined;
+        const key = Buffer.from(value, "base64");
+        if (key.length < 32) {
+          ctx.addIssue({ code: "custom", message: "must decode to at least 32 bytes" });
+          return z.NEVER;
+        }
+        return key;
+      }),
+  ),
   HOSTED_VERIFIER_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
   HOSTED_VERIFIER_POLICIES: z
     .string()

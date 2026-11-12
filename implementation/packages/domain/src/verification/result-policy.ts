@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import {
   type ClaimPath,
   claimPathKey,
@@ -58,7 +59,37 @@ export interface ClaimInSetDerivation {
   readonly outputClaim: string;
 }
 
-export type Derivation = AgeAtLeastDerivation | ClaimPresenceDerivation | ClaimInSetDerivation;
+/**
+ * A pseudonymous subject: an HMAC over several claims, so a Relying Party can recognise a returning
+ * person without being given who they are.
+ *
+ * The key is per tenant (`ResultPolicyContext.pseudonymKey`), so the same person yields unrelated
+ * values for two tenants. The source values are normalised (Unicode NFKC, whitespace collapsed,
+ * upper case) and encoded unambiguously before hashing, so a re-issued PID with the same attributes
+ * yields the same subject. Used by the sandbox's sign-in (ADR 0015 Decision 4), and general enough for
+ * any tenant: the output is a derived result, never the values it came from.
+ */
+export interface PseudonymousSubjectDerivation {
+  readonly name: "PseudonymousSubject";
+  readonly sourcePaths: readonly ClaimPath[];
+  readonly outputClaim: string;
+}
+
+export type Derivation =
+  | AgeAtLeastDerivation
+  | ClaimPresenceDerivation
+  | ClaimInSetDerivation
+  | PseudonymousSubjectDerivation;
+
+/** What a derivation may need beyond the disclosed claims. Never content. */
+export interface ResultPolicyContext {
+  /** The tenant's key for `PseudonymousSubject`. Absent: that derivation cannot be satisfied. */
+  readonly pseudonymKey?: Buffer;
+}
+
+/** The source paths a derivation reads. */
+export const derivationSourcePaths = (d: Derivation): readonly ClaimPath[] =>
+  d.name === "PseudonymousSubject" ? d.sourcePaths : [d.sourcePath];
 
 export interface DerivedClaimsResultPolicy {
   readonly kind: "DERIVED_CLAIMS";
@@ -71,7 +102,7 @@ export type ResultPolicy = VerifiedClaimsResultPolicy | DerivedClaimsResultPolic
 export const claimPathsReadBy = (policy: ResultPolicy): readonly ClaimPath[] =>
   policy.kind === "VERIFIED_CLAIMS"
     ? policy.allowedClaims
-    : policy.derivations.map((d) => d.sourcePath);
+    : policy.derivations.flatMap(derivationSourcePaths);
 
 export type NormalisedClaims = Readonly<Record<string, unknown>>;
 
@@ -168,11 +199,47 @@ export const completedYearsBetween = (birth: Date, at: Date): number => {
   return years;
 };
 
+const normaliseForSubject = (value: unknown): string =>
+  String(value).normalize("NFKC").trim().replace(/\s+/g, " ").toUpperCase();
+
+const applyPseudonymousSubject = (
+  derivation: PseudonymousSubjectDerivation,
+  disclosed: DisclosedClaims,
+  context: ResultPolicyContext,
+): { readonly key: string; readonly value: unknown } | { readonly unsatisfied: string } => {
+  if (!context.pseudonymKey) {
+    return {
+      unsatisfied: "No pseudonym key is configured, so the subject could not be derived.",
+    };
+  }
+  const values: string[] = [];
+  for (const path of derivation.sourcePaths) {
+    const raw = readClaimAtPath(disclosed, path);
+    if (raw === undefined || raw === null || raw === "" || typeof raw === "object") {
+      return {
+        unsatisfied:
+          `The source claim '${formatClaimPath(path)}' required by derivation ` +
+          "'PseudonymousSubject' was not disclosed as a single value.",
+      };
+    }
+    values.push(normaliseForSubject(raw));
+  }
+  // JSON of an array of strings is an unambiguous encoding: no two value lists share it.
+  const subject = createHmac("sha256", context.pseudonymKey)
+    .update(JSON.stringify(values))
+    .digest("base64url");
+  return { key: derivation.outputClaim, value: subject };
+};
+
 const applyDerivation = (
   derivation: Derivation,
   disclosed: DisclosedClaims,
   at: Date,
+  context: ResultPolicyContext,
 ): { readonly key: string; readonly value: unknown } | { readonly unsatisfied: string } => {
+  if (derivation.name === "PseudonymousSubject") {
+    return applyPseudonymousSubject(derivation, disclosed, context);
+  }
   const raw = readClaimAtPath(disclosed, derivation.sourcePath);
   if (raw === undefined || raw === null || raw === "") {
     return {
@@ -218,6 +285,7 @@ export const applyResultPolicy = (
   policy: ResultPolicy,
   disclosed: DisclosedClaims,
   at: Date,
+  context: ResultPolicyContext = {},
 ): ResultPolicyOutcome => {
   const claims: Record<string, unknown> = {};
   const unsatisfied: string[] = [];
@@ -234,7 +302,7 @@ export const applyResultPolicy = (
     }
   } else {
     for (const derivation of policy.derivations) {
-      const outcome = applyDerivation(derivation, disclosed, at);
+      const outcome = applyDerivation(derivation, disclosed, at, context);
       if ("unsatisfied" in outcome) {
         unsatisfied.push(outcome.unsatisfied);
         continue;

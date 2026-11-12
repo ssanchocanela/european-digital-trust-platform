@@ -237,6 +237,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     clock,
     logger,
     config.PLATFORM_PUBLIC_URL,
+    config.PSEUDONYM_MASTER_KEY,
   );
 
   const issuances = new IssuanceService(

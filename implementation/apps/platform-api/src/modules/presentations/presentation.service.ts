@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import {
   applyCrossDeviceMitigations,
   applyResultPolicy,
@@ -83,7 +84,19 @@ export class PresentationService {
     private readonly clock: Clock,
     private readonly logger: Logger,
     private readonly publicUrl: string,
+    /**
+     * Master key for `PseudonymousSubject` derivations. Each tenant gets its own key derived from it,
+     * so a person's subject differs between tenants. Unset: those derivations are unsatisfied.
+     */
+    private readonly pseudonymMasterKey?: Buffer,
   ) {}
+
+  private pseudonymKeyFor(tenantId: string): Buffer | undefined {
+    if (!this.pseudonymMasterKey) return undefined;
+    return createHmac("sha256", this.pseudonymMasterKey)
+      .update(`edtp/pseudonymous-subject/v1/${tenantId}`)
+      .digest();
+  }
 
   async create(command: CreatePresentationCommand): Promise<PresentationView> {
     const now = this.clock.now();
@@ -457,10 +470,12 @@ export class PresentationService {
 
     // The only place disclosed content is read. It is not assigned anywhere, and it goes
     // out of scope when this method returns.
+    const pseudonymKey = this.pseudonymKeyFor(tx.tenantId);
     const outcome = applyResultPolicy(
       version.resultPolicy,
       payload.disclosedClaims,
       this.clock.now(),
+      pseudonymKey ? { pseudonymKey } : {},
     );
 
     if (!outcome.satisfied) {

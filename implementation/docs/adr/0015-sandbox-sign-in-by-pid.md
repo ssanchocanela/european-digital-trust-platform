@@ -41,17 +41,25 @@ Three facts from S0 constrain how:
    that participants' PID Providers are added to. The two sets are configured separately, and a
    start-up check refuses a configuration in which they share an anchor that came from a participant.
 
-3. **What is requested is the minimum to tell people apart and greet them:** `given_name`,
-   `family_name`, `birthdate`, and the PID Provider's identity (from the signing certificate, not a
-   claim). Nothing else.
+3. **What is requested is the minimum to tell people apart:** `given_name`, `family_name`,
+   `birthdate`, `issuing_authority` and `issuing_country` (all mandatory in the PID Rulebook). They
+   are read by a `PseudonymousSubject` derivation (Decision 4) and **only its output is kept, even as
+   a result**. No PID value reaches the platform's database.
 
 4. **What is kept of the person:**
-   - a **pseudonymous subject**: HMAC-SHA-256, under a sandbox secret, over the normalised given
-     name, family name, birth date and the issuing PID Provider anchor;
-   - a **display name** the person confirms, or edits, at sign-up.
+   - a **pseudonymous subject**: HMAC-SHA-256 over those five normalised values, under a key derived
+     for the sandbox's tenant from `PSEUDONYM_MASTER_KEY` (the `PseudonymousSubject` derivation, in
+     the domain's result policy);
+   - a **display name the person types** at sign-up. It is not prefilled from the PID: a prefilled
+     name would make a PID value travel to the page and back.
 
-   The raw PID values are discarded in the same call stack, as ADR 0005 Decision 5 does for age.
-   Never a PID value in a log or an audit record.
+   The raw PID values exist only in the call stack that applies the result policy, as for every
+   presentation (ADR 0004). Never a PID value in a log or an audit record.
+
+   *Amended in S2, 12 November 2026:* the S1 text keyed the subject on "the issuing PID Provider
+   anchor". The platform's presentation result does not carry the anchor, so `issuing_authority` and
+   `issuing_country`, which the PID Provider signs, stand in for it. The display name was to be
+   "confirmed" from the PID; it is typed, for the reason above.
 
    The basis is the attributes, not the wallet installation. Re-installing a wallet or re-issuing
    the PID keeps the person's account (the opposite of the reference registry's `hash_pid`,

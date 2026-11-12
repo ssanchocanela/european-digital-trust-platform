@@ -106,6 +106,8 @@ const DENIED_SUBSTRINGS: readonly string[] = [
   "privatekey",
   "private_key",
   "privatejwk",
+  "master_key",
+  "masterkey",
 ];
 
 export const REDACTED = "[REDACTED]";

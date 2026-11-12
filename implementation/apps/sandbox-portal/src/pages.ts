@@ -75,6 +75,7 @@ PID Providers or from "PID (demo)" is accepted for that.</li>
 <li>Your organisation is <strong>self-declared and not verified</strong>.</li>
 <li>Use synthetic data only.</li>
 </ul>
+<p><a href="/wallet">Get the sandbox wallet build</a></p>
 <form method="post" action="/sign-up/start">${interactionChoice()}<button>Sign up with your PID</button></form>
 <form method="post" action="/sign-in/start">${interactionChoice()}<button class="secondary">Sign in with your PID</button></form>`,
   );
@@ -735,5 +736,54 @@ and whether a verifier then does, is what the run tells you.</p>
 ${view.revocable ? `<form method="post" action="/org/${org}/issuances/${escapeHtml(view.id)}/revoke"><button class="secondary">Revoke this PID (PID-03, final)</button></form>` : ""}
 <p><a href="/org/${org}">Back to the organisation</a></p>`,
     { signedIn: true, ...(settled ? {} : { refreshSeconds: 3 }) },
+  );
+}
+
+/** The sandbox wallet build page (ADR 0017): behind Cloudflare Access, like the whole portal. */
+export function walletPage(
+  offer:
+    | { readonly state: "none"; readonly reason: string }
+    | {
+        readonly state: "offered";
+        readonly builds: readonly {
+          readonly file: string;
+          readonly sha256: string;
+          readonly profile: string;
+          readonly deviations: string;
+          readonly builtAt: string;
+          readonly notice: string;
+        }[];
+      },
+): string {
+  const terms = `<h2>What this is</h2>
+<ul>
+<li>A <strong>modified</strong> build of the EUDI Wallet Reference Implementation (Android), licensed under the
+<strong>EUPL 1.2</strong>. It is not the Reference Wallet and not any Member State's wallet.</li>
+<li>It trusts only this sandbox's test trust lists, and it carries the deviations listed with each build. Its
+applicationId, signing key (<code>OU=TEST ONLY</code>) and the banner on every screen say so.</li>
+<li>The source of the modifications is <a href="https://github.com/ssanchocanela/european-digital-trust-platform/tree/main/implementation/tools/test-wallet">tools/test-wallet</a>;
+each build's notice names the upstream release, the modifications and the licence terms.</li>
+<li>Test use with synthetic data only. Not on Google Play, and not to be redistributed as anything but what it is.</li>
+</ul>`;
+  if (offer.state === "none") {
+    return page(
+      "Sandbox wallet",
+      `<h1>Sandbox wallet</h1><p>${escapeHtml(offer.reason)}</p>${terms}`,
+    );
+  }
+  const rows = offer.builds
+    .map(
+      (b) => `<tr><td><a href="/wallet/${escapeHtml(b.file)}">${escapeHtml(b.file)}</a></td>
+<td>${escapeHtml(b.profile)}</td><td><code>${escapeHtml(b.deviations)}</code></td><td>${escapeHtml(b.builtAt)}</td>
+<td><code class="wrap">${escapeHtml(b.sha256)}</code></td><td><a href="/wallet/${escapeHtml(b.notice)}">notice</a></td></tr>`,
+    )
+    .join("");
+  return page(
+    "Sandbox wallet",
+    `<h1>Sandbox wallet</h1>
+<p>Install beside any other wallet: it has its own applicationId. <strong>sandbox-strict</strong> requires signed
+issuer metadata and runs the issuer registration checks; <strong>sandbox</strong> does not (WD-2).</p>
+<table><thead><tr><th>Build</th><th>Profile</th><th>Deviations</th><th>Built</th><th>SHA-256</th><th>Terms</th></tr></thead>
+<tbody>${rows}</tbody></table>${terms}`,
   );
 }

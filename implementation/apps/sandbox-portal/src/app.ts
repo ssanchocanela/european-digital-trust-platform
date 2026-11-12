@@ -34,8 +34,10 @@ import {
   type VerifierView,
   verifierSection,
   waiting,
+  walletPage,
   walletStep,
 } from "./pages.js";
+import { offeredFile, openFile, readWalletOffer } from "./wallet.js";
 
 /**
  * The sandbox portal (specification §8.1, ADR 0015).
@@ -51,6 +53,14 @@ import {
 export interface PortalOptions {
   readonly publicUrl: string;
   readonly api: SandboxApi;
+  /**
+   * Refuse every request that does not carry the identity Cloudflare Access injects (ADR 0017). On
+   * the sandbox VM the whole portal is behind Access; this is the second lock, as for the
+   * demonstration portal's operator view.
+   */
+  readonly requireAccess?: boolean;
+  /** Where an operator places the sandbox wallet build and its `wallet.json` (wallet.ts). */
+  readonly walletDir?: string;
 }
 
 export const SESSION_COOKIE = "__Host-sbx-session";
@@ -125,6 +135,18 @@ export function createApp(options: PortalOptions): express.Express {
     res.setHeader("cache-control", "no-store");
     next();
   });
+  if (options.requireAccess) {
+    app.use((req, res, next) => {
+      if (req.get("cf-access-authenticated-user-email")) return next();
+      res
+        .status(403)
+        .type("html")
+        .send(
+          message("Refused", "The sandbox portal is reached through Cloudflare Access only."),
+        );
+    });
+  }
+
   // 32 kB: a certification request in PEM is the largest thing a form carries.
   app.use(express.urlencoded({ extended: false, limit: "32kb" }));
 
@@ -150,6 +172,26 @@ export function createApp(options: PortalOptions): express.Express {
   });
 
   const session = (req: Request) => parseCookies(req.get("cookie"))[SESSION_COOKIE];
+
+  // --- the sandbox wallet build (ADR 0017) ---------------------------------------------------
+
+  app.get("/wallet", (_req, res) => {
+    res.type("html").send(walletPage(readWalletOffer(options.walletDir)));
+  });
+  app.get("/wallet/:file", (req, res) => {
+    const found = offeredFile(options.walletDir, req.params.file);
+    if (!found) {
+      res.status(404).type("html").send(message("Not found", "No such file is offered."));
+      return;
+    }
+    if (found.kind === "apk") {
+      res.type("application/vnd.android.package-archive");
+      res.setHeader("content-disposition", `attachment; filename="${req.params.file}"`);
+    } else {
+      res.type("text/plain; charset=utf-8");
+    }
+    openFile(found.path).pipe(res);
+  });
 
   // --- start and sign-in ---------------------------------------------------------------------
 

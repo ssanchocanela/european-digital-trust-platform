@@ -13,6 +13,13 @@ const schema = z.object({
   SANDBOX_PORTAL_PUBLIC_URL: z.string().url(),
   SANDBOX_PLATFORM_URL: z.string().url(),
   SANDBOX_PORTAL_SECRET: z.string().min(32),
+  /** `true` on the sandbox VM: every request must carry Cloudflare Access's identity (ADR 0017). */
+  SANDBOX_PORTAL_REQUIRE_ACCESS: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+  /** The directory holding the wallet build and its wallet.json; unset, nothing is offered. */
+  SANDBOX_PORTAL_WALLET_DIR: z.string().min(1).optional(),
 });
 
 function main(): void {
@@ -27,6 +34,10 @@ function main(): void {
   const app = createApp({
     publicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
     api: httpApi(config.SANDBOX_PLATFORM_URL, config.SANDBOX_PORTAL_SECRET),
+    requireAccess: config.SANDBOX_PORTAL_REQUIRE_ACCESS,
+    ...(config.SANDBOX_PORTAL_WALLET_DIR
+      ? { walletDir: config.SANDBOX_PORTAL_WALLET_DIR }
+      : {}),
   });
   const server = app.listen(config.SANDBOX_PORTAL_PORT, config.SANDBOX_PORTAL_BIND_HOST, () => {
     process.stdout.write(

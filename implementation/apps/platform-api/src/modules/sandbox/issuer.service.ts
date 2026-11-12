@@ -33,6 +33,7 @@ import type { AuditService } from "../audit/audit.service.js";
 import { EngineTenantService } from "../engine-tenants/engine-tenant.service.js";
 import type { IssuanceService } from "../issuances/issuance.service.js";
 import type { SandboxCertificateService } from "./certificates.service.js";
+import { assertQuota, quotaWindowStart } from "./quotas.js";
 import type { SandboxService, SignedInContext } from "./sandbox.service.js";
 import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
 
@@ -141,7 +142,7 @@ export class SandboxIssuerService {
   ) {}
 
   private async providerOf(context: SignedInContext, orgId: string, serviceId: string) {
-    const membership = this.sandbox.membershipIn(context, orgId);
+    const membership = await this.sandbox.activeMembershipIn(context, orgId);
     const service = await this.sandboxCertificates.service(membership.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
     if (service.role !== "pid_provider") {
@@ -305,6 +306,9 @@ export class SandboxIssuerService {
     };
     const now = this.clock.now();
     const existing = await this.repository.issuer(tenantId, serviceId);
+    if (!existing) {
+      assertQuota("hostedIssuersPerOrganisation", await this.repository.countIssuers(tenantId));
+    }
     const engineTenantRef = existing?.engineTenantRef ?? EngineTenantService.newRef("sbx-iss");
     if (!existing) {
       if (!this.engineTenants) {
@@ -561,6 +565,14 @@ export class SandboxIssuerService {
         "sandbox_issuer_not_configured",
         "Configure the hosted issuer first.",
       );
+    assertQuota(
+      "offersPerServicePerDay",
+      await this.repository.countIssuancesSince(
+        tenantId,
+        serviceId,
+        quotaWindowStart(this.clock.now()),
+      ),
+    );
     const view = await this.issuances.create({
       tenantId,
       policyId: issuer.issuancePolicyId,

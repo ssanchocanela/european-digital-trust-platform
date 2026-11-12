@@ -34,6 +34,7 @@ import type { PolicyService } from "../policies/policy.service.js";
 import type { PresentationService } from "../presentations/presentation.service.js";
 import type { RegistrationService } from "../registration/registration.service.js";
 import type { SandboxCertificateService } from "./certificates.service.js";
+import { assertQuota, quotaWindowStart } from "./quotas.js";
 import type { SandboxService, SignedInContext } from "./sandbox.service.js";
 import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
 
@@ -87,7 +88,7 @@ export class SandboxVerifierService {
   ) {}
 
   private async serviceOf(context: SignedInContext, orgId: string, serviceId: string) {
-    const membership = this.sandbox.membershipIn(context, orgId);
+    const membership = await this.sandbox.activeMembershipIn(context, orgId);
     const service = await this.sandboxCertificates.service(membership.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
     if (service.role !== "service_provider") {
@@ -196,6 +197,12 @@ export class SandboxVerifierService {
     }
     const now = this.clock.now();
     let verifier = await this.repository.verifier(tenantId, serviceId);
+    if (!verifier) {
+      assertQuota(
+        "hostedVerifiersPerOrganisation",
+        await this.repository.countVerifiers(tenantId),
+      );
+    }
     const engineTenantRef =
       verifier?.engineTenantRef ?? (await this.createEngineTenant(service.serviceTradeName));
 
@@ -415,6 +422,14 @@ export class SandboxVerifierService {
     const { tenantId } = await this.serviceOf(context, orgId, serviceId);
     const verifier = await this.repository.verifier(tenantId, serviceId);
     const use = verifier?.uses.find((u) => u.intendedUseId === input.intendedUseId);
+    assertQuota(
+      "runsPerServicePerDay",
+      await this.repository.countRunsSince(
+        tenantId,
+        serviceId,
+        quotaWindowStart(this.clock.now()),
+      ),
+    );
     if (!verifier || !use) {
       throw PlatformError.conflict(
         "sandbox_verifier_not_configured",

@@ -1,5 +1,5 @@
 import { asId, type TenantId } from "@edtp/shared";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import type { Database } from "../db.js";
 import { sandboxIssuances, sandboxIssuers } from "../schema.js";
 
@@ -71,6 +71,34 @@ export class SandboxIssuerRepository {
         ),
       );
     return row ? toIssuer(row) : undefined;
+  }
+
+  /** Hosted issuers of one organisation: each holds an engine tenant. */
+  async countIssuers(tenantId: TenantId): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sandboxIssuers)
+      .where(eq(sandboxIssuers.tenantId, tenantId));
+    return row?.n ?? 0;
+  }
+
+  /** Offers one hosted issuer made since `since`, for its daily quota. */
+  async countIssuancesSince(
+    tenantId: TenantId,
+    serviceId: string,
+    since: Date,
+  ): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sandboxIssuances)
+      .where(
+        and(
+          eq(sandboxIssuances.tenantId, tenantId),
+          eq(sandboxIssuances.relyingPartyServiceId, serviceId),
+          gte(sandboxIssuances.createdAt, since),
+        ),
+      );
+    return row?.n ?? 0;
   }
 
   async createIssuer(

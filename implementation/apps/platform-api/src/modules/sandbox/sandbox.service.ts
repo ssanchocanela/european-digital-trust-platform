@@ -394,6 +394,23 @@ export class SandboxService {
     return membership;
   }
 
+  /**
+   * The membership, refused while the organisation is suspended (specification J9): a suspended
+   * participant creates nothing more, hosted or take-away.
+   */
+  async activeMembershipIn(context: SignedInContext, tenantId: string): Promise<Membership> {
+    const membership = this.membershipIn(context, tenantId);
+    const organisation = await this.repository.findOrganisation(membership.tenantId);
+    if (!organisation) throw PlatformError.notFound("Organisation");
+    if (organisation.status !== "ACTIVE") {
+      throw PlatformError.forbidden(
+        "sandbox_organisation_suspended",
+        "The organisation is suspended.",
+      );
+    }
+    return membership;
+  }
+
   private ownerIn(context: SignedInContext, tenantId: string): Membership {
     const membership = this.membershipIn(context, tenantId);
     if (!canManage(membership)) {

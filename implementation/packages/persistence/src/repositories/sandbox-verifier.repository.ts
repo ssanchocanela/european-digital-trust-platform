@@ -1,5 +1,5 @@
 import { asId, type TenantId } from "@edtp/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import type { Database } from "../db.js";
 import { sandboxRuns, sandboxVerifiers, sandboxVerifierUses } from "../schema.js";
 
@@ -102,6 +102,30 @@ export class SandboxVerifierRepository {
         policyId: u.policyId,
       })),
     };
+  }
+
+  /** Hosted verifiers of one organisation: each holds an engine tenant. */
+  async countVerifiers(tenantId: TenantId): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sandboxVerifiers)
+      .where(eq(sandboxVerifiers.tenantId, tenantId));
+    return row?.n ?? 0;
+  }
+
+  /** Runs one hosted verifier started since `since`, for its daily quota. */
+  async countRunsSince(tenantId: TenantId, serviceId: string, since: Date): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sandboxRuns)
+      .where(
+        and(
+          eq(sandboxRuns.tenantId, tenantId),
+          eq(sandboxRuns.relyingPartyServiceId, serviceId),
+          gte(sandboxRuns.createdAt, since),
+        ),
+      );
+    return row?.n ?? 0;
   }
 
   async createVerifier(input: {

@@ -1,5 +1,5 @@
 import { asId, type TenantId } from "@edtp/shared";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, sql } from "drizzle-orm";
 import type { Database } from "../db.js";
 import {
   intendedUses,
@@ -216,6 +216,25 @@ export class SandboxCertificateRepository {
       createdAt: record.createdAt,
       mode: record.mode,
     });
+  }
+
+  /** Certificates issued for one service since `since`, for its daily quota. */
+  async countCertificatesSince(
+    tenantId: TenantId,
+    serviceId: string,
+    since: Date,
+  ): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sandboxCertificates)
+      .where(
+        and(
+          eq(sandboxCertificates.tenantId, tenantId),
+          eq(sandboxCertificates.relyingPartyServiceId, serviceId),
+          gte(sandboxCertificates.createdAt, since),
+        ),
+      );
+    return row?.n ?? 0;
   }
 
   async certificates(

@@ -26,6 +26,7 @@ import { asId, type Clock, newUuid, PlatformError, type TenantId } from "@edtp/s
 import type { AuditService } from "../audit/audit.service.js";
 import type { RegistrationService } from "../registration/registration.service.js";
 import type { SandboxPublicationService } from "./publication.service.js";
+import { assertQuota, quotaWindowStart } from "./quotas.js";
 import type { SandboxService, SignedInContext } from "./sandbox.service.js";
 import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
 import type { SandboxUrls } from "./urls.js";
@@ -109,6 +110,7 @@ export class SandboxCertificateService {
       relyingPartyId = rp.id;
     }
     const count = await this.repository.countServices(org.tenantId);
+    assertQuota("servicesPerOrganisation", count);
     // Unique within the organisation (Reg_33), assigned by the sandbox.
     const serviceIdentifier = `S${String(count + 1).padStart(3, "0")}`;
     const { service } = await this.registration.createRelyingPartyService({
@@ -257,6 +259,7 @@ export class SandboxCertificateService {
     const org = await this.organisationOf(context, tenantId);
     const service = await this.repository.service(org.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
+    await this.assertCertificateQuota(org.tenantId, serviceId);
     const dnsNames = [...new Set(input.dnsNames.map((d) => d.trim().toLowerCase()))];
     if (dnsNames.length === 0 || dnsNames.length > 5 || !dnsNames.every(isAcceptableDnsName)) {
       throw PlatformError.validation(
@@ -323,6 +326,7 @@ export class SandboxCertificateService {
     const org = await this.organisationOf(context, tenantId);
     const service = await this.repository.service(org.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
+    await this.assertCertificateQuota(org.tenantId, serviceId);
     const info = WRPRC_VARIANT_INFO[input.variant];
     if (info.appliesTo !== "both" && info.appliesTo !== service.role) {
       throw PlatformError.conflict(
@@ -439,6 +443,46 @@ export class SandboxCertificateService {
       );
     await this.revokeRecord(record, this.clock.now());
     return this.view(org.tenantId, id);
+  }
+
+  private async assertCertificateQuota(tenantId: TenantId, serviceId: string) {
+    assertQuota(
+      "certificatesPerServicePerDay",
+      await this.repository.countCertificatesSince(
+        tenantId,
+        serviceId,
+        quotaWindowStart(this.clock.now()),
+      ),
+    );
+  }
+
+  /**
+   * The operator suspends a participant (specification J9): the organisation creates nothing more,
+   * and every certificate it still holds is revoked at once — the sandbox's reading of
+   * `AS-MS-31-025`/`-026` (`RPACANot_06`/`RPACANot_07`) and TS 119 411-8 REV-6.3.9-02..04.
+   * Revocation is final; so is the suspension, in v1. Returns what it did.
+   */
+  async suspendOrganisation(localIdentifier: string, reason: string) {
+    const organisation = await this.people.findOrganisationByLocalIdentifier(localIdentifier);
+    if (!organisation) throw PlatformError.notFound("Organisation");
+    const at = this.clock.now();
+    const suspended = await this.people.suspendOrganisation(organisation.tenantId, at);
+    const held = await this.repository.certificates(organisation.tenantId);
+    let revoked = 0;
+    for (const record of held) {
+      if (record.revokedAt) continue;
+      await this.revokeRecord(record, at);
+      revoked++;
+    }
+    await this.audit.record({
+      tenantId: organisation.tenantId,
+      actor: "sandbox-operator",
+      action: "sandbox.organisation.suspended",
+      subjectType: "sandbox_organisation",
+      subjectId: organisation.localIdentifier,
+      detail: { reason: reason.slice(0, 200), revokedCertificates: revoked },
+    });
+    return { localIdentifier, alreadySuspended: !suspended, revokedCertificates: revoked };
   }
 
   private async revokeRecord(record: SandboxCertificateRecord, at: Date) {

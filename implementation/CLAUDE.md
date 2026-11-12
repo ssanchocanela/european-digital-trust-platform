@@ -26,6 +26,11 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 | Phase 0 — investigation, no product code | `implementation/platform-v0` | **STOP**, summary, await approval ← *complete* |
 | Milestone 1 — foundations + Verification as a Service | `implementation/platform-v0` | PR 1, then **STOP** ← *complete* |
 | Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 ← *complete* |
+| Sandbox S0 — EUDI ecosystem sandbox, investigation, no product code | `sandbox/s0-investigation` | **STOP**, [`docs/sandbox/s0-findings.md`](docs/sandbox/s0-findings.md), decisions D1–D8 ← *in progress* |
+
+**The EUDI ecosystem sandbox** (decided 12 November 2026): same repository; v1 covers the Relying
+Party and PID Provider roles only. S0 investigation → S1 specification → milestones, each with a
+checkpoint.
 
 ### Milestone 2 starts with an investigation, and with a checkpoint of its own
 

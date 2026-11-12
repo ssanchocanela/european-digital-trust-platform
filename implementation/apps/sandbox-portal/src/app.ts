@@ -1,4 +1,5 @@
 import {
+  PID_VARIANT_INFO,
   WRPAC_VARIANT_INFO,
   WRPAC_VARIANTS,
   WRPRC_VARIANT_INFO,
@@ -11,7 +12,11 @@ import {
   type CertificateSummary,
   certificatePage,
   dashboard,
+  type IssuanceStatusView,
+  type IssuerView,
   invitationLanding,
+  issuancePage,
+  issuerSection,
   landing,
   message,
   OBSERVATIONS,
@@ -403,10 +408,22 @@ export function createApp(options: PortalOptions): express.Express {
     const services = await options.api.call("GET", `organisations/${id}/services`, {
       session: token,
     });
+    const runs = await options.api.call("GET", `organisations/${id}/runs`, { session: token });
     const sections =
-      services.status === 200
+      (services.status === 200
         ? servicesSection(id, services.body as unknown as ServiceSummary[])
-        : "";
+        : "") +
+      (runs.status === 200
+        ? runsSection(
+            id,
+            runs.body as unknown as {
+              id: string;
+              createdAt: string;
+              interaction: string;
+              observed: boolean;
+            }[],
+          )
+        : "");
     res.type("html").send(
       organisationPage(
         {
@@ -564,6 +581,51 @@ export function createApp(options: PortalOptions): express.Express {
       const a = WRPRC_VARIANT_INFO[v].appliesTo;
       return a === "both" || a === role;
     }).map((v) => ({ id: v, ...WRPRC_VARIANT_INFO[v] }));
+    // The hosted verifier (S4) or the hosted issuer (S5), when the platform offers it: a 404 from
+    // its route means it is not configured on this deployment, and the section is left out.
+    let hostedHtml: string | undefined;
+    if (role === "service_provider") {
+      const verifier = await options.api.call(
+        "GET",
+        `organisations/${org}/services/${sid}/verifier`,
+        {
+          session: token,
+        },
+      );
+      if (verifier.status === 200) {
+        hostedHtml = verifierSection({
+          orgId: org,
+          serviceId: sid,
+          intendedUses:
+            (service.body.intendedUses as { id: string; intendedUseIdentifier: string }[]) ??
+            [],
+          verifier: verifier.body as unknown as VerifierView,
+          wrpacVariants,
+          wrprcVariants,
+        });
+      }
+    }
+    if (role === "pid_provider") {
+      const issuer = await options.api.call(
+        "GET",
+        `organisations/${org}/services/${sid}/issuer`,
+        {
+          session: token,
+        },
+      );
+      if (issuer.status === 200) {
+        hostedHtml = issuerSection({
+          orgId: org,
+          serviceId: sid,
+          issuer: issuer.body as unknown as IssuerView,
+          signingVariants: (["PID-00", "PID-01", "PID-02"] as const).map((v) => ({
+            id: v,
+            ...PID_VARIANT_INFO[v],
+          })),
+          wrprcVariants,
+        });
+      }
+    }
     res
       .status(error ? 400 : 200)
       .type("html")
@@ -575,6 +637,7 @@ export function createApp(options: PortalOptions): express.Express {
           wrpacVariants,
           wrprcVariants,
           ...(error ? { error } : {}),
+          ...(hostedHtml ? { verifierHtml: hostedHtml } : {}),
         }),
       );
   };
@@ -818,6 +881,86 @@ export function createApp(options: PortalOptions): express.Express {
       },
     );
     res.redirect(303, `/org/${req.params.id}/runs/${req.params.rid}`);
+  });
+
+  // --- the hosted PID issuer (S5) --------------------------------------------------------------
+
+  app.post("/org/:id/services/:sid/issuer", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/issuer`,
+      {
+        session: token,
+        body: {
+          signingVariant: String(req.body?.signingVariant ?? ""),
+          registrationVariant: String(req.body?.registrationVariant ?? ""),
+        },
+      },
+    );
+    if (result.status !== 200)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/services/${req.params.sid}`);
+  });
+
+  app.post("/org/:id/services/:sid/issuer/offers", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const b = req.body ?? {};
+    const interaction = b.interaction === "QR" ? "QR" : "SAME_DEVICE";
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/issuer/offers`,
+      {
+        session: token,
+        body: {
+          givenName: String(b.givenName ?? ""),
+          familyName: String(b.familyName ?? ""),
+          birthdate: String(b.birthdate ?? ""),
+          birthCountry: String(b.birthCountry ?? "").toUpperCase(),
+          nationalities: String(b.nationalities ?? "")
+            .toUpperCase()
+            .split(/[\s,]+/)
+            .filter(Boolean),
+        },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.type("html").send(
+      walletStep(String(result.body.offerUri ?? ""), interaction, {
+        waitUrl: `/org/${req.params.id}/issuances/${String(result.body.id)}`,
+        about:
+          "Your wallet will be offered a synthetic TEST PID from this service's hosted issuer.",
+      }),
+    );
+  });
+
+  app.get("/org/:id/issuances/:iid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.iid)) return void res.status(404).end();
+    const view = await options.api.call(
+      "GET",
+      `organisations/${req.params.id}/issuances/${req.params.iid}`,
+      { session: token },
+    );
+    if (view.status !== 200)
+      return void res.status(404).type("html").send(message("Not found", "No such issuance."));
+    res
+      .type("html")
+      .send(issuancePage(req.params.id, view.body as unknown as IssuanceStatusView));
+  });
+
+  app.post("/org/:id/issuances/:iid/revoke", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.iid)) return void res.status(404).end();
+    await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/issuances/${req.params.iid}/revoke`,
+      { session: token },
+    );
+    res.redirect(303, `/org/${req.params.id}/issuances/${req.params.iid}`);
   });
 
   app.use((_req, res) => {

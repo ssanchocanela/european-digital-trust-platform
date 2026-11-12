@@ -249,6 +249,8 @@ export const createHarness = async (options?: {
   readonly env?: Readonly<Record<string, string>>;
   /** Substitute the issuer port with `FakeIssuer` instead of the adapter over `fetchImpl`. */
   readonly fakeIssuer?: boolean;
+  /** The sandbox's trust domain, as `main.ts` loads it before composing (S3). */
+  readonly sandboxTrustDomain?: import("../../apps/platform-api/src/modules/sandbox/trust-domain.runtime.js").SandboxTrustDomain;
 }): Promise<Harness> => {
   const baseUrl = process.env.TEST_DATABASE_URL;
   if (!baseUrl) {
@@ -296,6 +298,7 @@ export const createHarness = async (options?: {
     verifier,
     provisioning: verifier,
     ...(issuer ? { issuer, issuerProvisioning: issuer } : {}),
+    ...(options?.sandboxTrustDomain ? { sandboxTrustDomain: options.sandboxTrustDomain } : {}),
     ...(options?.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
 

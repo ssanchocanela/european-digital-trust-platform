@@ -624,3 +624,113 @@ export function runsSection(
     )
     .join("")}</table>`;
 }
+
+// --- the hosted PID issuer (S5) ----------------------------------------------------------------
+
+export interface IssuerView {
+  readonly configured: boolean;
+  readonly signingCertificate?: {
+    id: string;
+    variant: string;
+    variantTitle: string;
+    requirement: string;
+    notAfter?: string;
+  };
+  readonly registrationCertificate?: CertificateSummary;
+  readonly issuances?: readonly { id: string; createdAt: string; revokedAt?: string }[];
+}
+
+export function issuerSection(input: {
+  readonly orgId: string;
+  readonly serviceId: string;
+  readonly issuer: IssuerView;
+  readonly signingVariants: readonly VariantOption[];
+  readonly wrprcVariants: readonly VariantOption[];
+}): string {
+  const org = escapeHtml(input.orgId);
+  const svc = escapeHtml(input.serviceId);
+  const select = (name: string, variants: readonly VariantOption[]) =>
+    `<select name="${escapeHtml(name)}">${variants
+      .filter((v) => !v.takeAwayOnly)
+      .map(
+        (v) =>
+          `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}`)}</option>`,
+      )
+      .join("")}</select>`;
+  const i = input.issuer;
+  const current = i.configured
+    ? `<p>Signs now with <code>${escapeHtml(i.signingCertificate?.variant ?? "")}</code> ${escapeHtml(i.signingCertificate?.variantTitle ?? "")}; publishes registration certificate <a href="/org/${org}/certificates/${escapeHtml(i.registrationCertificate?.id ?? "")}"><code>${escapeHtml(i.registrationCertificate?.variant ?? "")}</code></a> as its issuer information.</p>`
+    : "<p>Not configured yet. The first configuration creates its engine tenant and its PID credential type.</p>";
+  const issuances = (i.issuances ?? [])
+    .slice(0, 20)
+    .map(
+      (x) =>
+        `<tr><td><a href="/org/${org}/issuances/${escapeHtml(x.id)}">${escapeHtml(x.createdAt)}</a></td><td>${x.revokedAt ? "revoked" : ""}</td></tr>`,
+    )
+    .join("");
+  const offerForm = i.configured
+    ? `<h3>Issue a synthetic PID</h3>
+<p><strong>Synthetic data only.</strong> The sandbox cannot tell a real name from an invented one, so it
+relies on you: type values that belong to nobody. They are passed to the issuer and kept nowhere by the
+platform; the engine holds them for its session window only.</p>
+<form method="post" action="/org/${org}/services/${svc}/issuer/offers">
+<label for="givenName">Given name</label><input id="givenName" name="givenName" required maxlength="100">
+<label for="familyName">Family name</label><input id="familyName" name="familyName" required maxlength="100">
+<label for="birthdate">Date of birth</label><input id="birthdate" name="birthdate" type="date" required>
+<label for="birthCountry">Country of birth (ISO 3166-1 alpha-2)</label><input id="birthCountry" name="birthCountry" required pattern="[A-Z]{2}" maxlength="2">
+<label for="nationalities">Nationalities (alpha-2, separated by spaces)</label><input id="nationalities" name="nationalities" required maxlength="20">
+<label>Where is the wallet?<select name="interaction"><option value="SAME_DEVICE">On this device (a link)</option><option value="QR">On my phone (a QR code)</option></select></label>
+<button>Offer the PID</button></form>
+${issuances ? `<h3>Issued</h3><table><tr><th>Offered</th><th></th></tr>${issuances}</table>` : ""}`
+    : "";
+  return `<h2>Hosted PID issuer</h2>
+<p class="muted">An issuer the sandbox runs for this service, signing PIDs with a certificate the sandbox PID
+CA issues — correct or defective. The issuance-side registration checks are <strong>not</strong>
+exercised: the engine signs no issuer metadata, and the sandbox wallet build switches those checks off
+(G-10). The defects that would test them are offered as take-away certificates only.</p>
+${current}
+<form method="post" action="/org/${org}/services/${svc}/issuer">
+<label>Signing certificate variant ${select("signingVariant", input.signingVariants)}</label>
+<label>Registration certificate variant ${select("registrationVariant", input.wrprcVariants)}</label>
+<button>${i.configured ? "Reconfigure" : "Configure"} the hosted issuer</button></form>
+${offerForm}`;
+}
+
+export interface IssuanceStatusView {
+  readonly id: string;
+  readonly status: string;
+  readonly failureCode?: string;
+  readonly revocable: boolean;
+  readonly revokedAt?: string;
+  readonly signingCertificate: { variant: string; variantTitle: string; requirement: string };
+}
+
+const ISSUANCE_TERMINAL = new Set([
+  "ISSUED",
+  "DECLINED_BY_USER",
+  "TRUST_ERROR",
+  "PROTOCOL_ERROR",
+  "EXPIRED",
+  "CANCELLED",
+  "NOT_ELIGIBLE",
+  "FAILED",
+]);
+
+export function issuancePage(orgId: string, view: IssuanceStatusView): string {
+  const org = escapeHtml(orgId);
+  const settled = ISSUANCE_TERMINAL.has(view.status);
+  return page(
+    "Issuance",
+    `<h1>Synthetic PID issuance</h1>
+<table>
+<tr><th>Signing certificate</th><td><code>${escapeHtml(view.signingCertificate.variant)}</code> ${escapeHtml(view.signingCertificate.variantTitle)} — ${escapeHtml(view.signingCertificate.requirement)}</td></tr>
+<tr><th>The platform's outcome</th><td><code>${escapeHtml(view.status)}</code>${view.failureCode ? ` — <code>${escapeHtml(view.failureCode)}</code>` : ""}${settled ? "" : " — not settled yet; this page refreshes"}</td></tr>
+${view.revokedAt ? `<tr><th>Revoked</th><td>${escapeHtml(view.revokedAt)} — final</td></tr>` : ""}
+</table>
+<p class="muted">A PID issued under PID-01 or PID-02 is issued all the same: whether the wallet accepts it,
+and whether a verifier then does, is what the run tells you.</p>
+${view.revocable ? `<form method="post" action="/org/${org}/issuances/${escapeHtml(view.id)}/revoke"><button class="secondary">Revoke this PID (PID-03, final)</button></form>` : ""}
+<p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true, ...(settled ? {} : { refreshSeconds: 3 }) },
+  );
+}

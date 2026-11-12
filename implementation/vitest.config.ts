@@ -28,6 +28,7 @@ const workspaceAliases = {
   "@edtp/operator-console": resolve(here, "apps/operator-console/src"),
   "@edtp/platform-api": resolve(here, "apps/platform-api/src"),
   "@edtp/test-gateway": resolve(here, "apps/test-gateway/src"),
+  "@edtp/sandbox-portal": resolve(here, "apps/sandbox-portal/src"),
 };
 
 /**

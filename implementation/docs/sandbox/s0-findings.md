@@ -329,3 +329,10 @@ role in this same sandbox could provide.
 - A milestone plan with checkpoints.
 
 **Nothing in S0 is product code.** This document is the only deliverable.
+
+## 10. Checkpoint outcome
+
+**12 November 2026: the user accepted every recommendation of §8, D1–D8, as written.** S1 starts
+from them.
+
+ADR numbers: 0013 is held by PR #25 (renumbering pending), so the sandbox ADRs take **0014** onwards.

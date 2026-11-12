@@ -1,0 +1,192 @@
+# The EUDI ecosystem sandbox VM (ADR 0017), run from the checkout's implementation/ directory as:
+#
+#   docker compose -f infra/sandbox-vm/docker-compose.sandbox.yml --env-file .env up -d
+#
+# A stack of its own, on a VM of its own (sandbox S0, D7): the sandbox resets and changes far more
+# often than a demonstration may. It is self-contained rather than an override of docker-compose.yml,
+# because that file requires the demonstrations' secrets and starts their processes.
+#
+# - The engine block repeats the root docker-compose.yml's: the same image digest, the same retention
+#   and logging settings (ADR 0004). tests/unit/sandbox-vm-compose.test.ts fails if they drift apart.
+# - Every platform process runs the published image (EDTP_IMAGE, a 12-hex demo-image tag).
+# - Every port binds to 127.0.0.1. cloudflared on the same host is the only way in, through the
+#   filtering gateway for the engine and the platform, and Cloudflare Access for the portal.
+# - The sandbox's CA keys live in /var/lib/edtp-sandbox/pki on the host, sealed under
+#   SANDBOX_KEYSTORE_KEY, and are backed up nightly (infra/sandbox-vm/nightly-backup.sh).
+
+name: edtp-sandbox
+
+x-platform-image: &platform-image
+  image: ${EDTP_IMAGE:?set EDTP_IMAGE to ghcr.io/<owner>/edtp-platform:<12-hex tag>}
+  restart: unless-stopped
+
+services:
+  platform-db:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${PLATFORM_DB_USER:-edtp}
+      POSTGRES_PASSWORD: ${PLATFORM_DB_PASSWORD:?set PLATFORM_DB_PASSWORD in .env}
+      POSTGRES_DB: ${PLATFORM_DB_NAME:-edtp_platform}
+    volumes:
+      - platform-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLATFORM_DB_USER:-edtp} -d ${PLATFORM_DB_NAME:-edtp_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  engine-db:
+    image: postgres:17.6-alpine@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${ENGINE_DB_USER:-eudiplo}
+      POSTGRES_PASSWORD: ${ENGINE_DB_PASSWORD:?set ENGINE_DB_PASSWORD in .env}
+      POSTGRES_DB: ${ENGINE_DB_NAME:-eudiplo}
+    volumes:
+      - engine-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ENGINE_DB_USER:-eudiplo} -d ${ENGINE_DB_NAME:-eudiplo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # EUDIPLO v7.6.0, pinned by digest, never patched (CLAUDE.md §1). Settings as in docker-compose.yml.
+  eudiplo:
+    image: ghcr.io/openwallet-foundation/eudiplo:7.6.0@sha256:8dd60a2fe38f7c6f91b6a3c4003182fbb1a3659a5a7a697166ad0f0c5120c667
+    restart: unless-stopped
+    depends_on:
+      engine-db:
+        condition: service_healthy
+    environment:
+      PUBLIC_URL: ${ENGINE_PUBLIC_URL:?set ENGINE_PUBLIC_URL to https://sandbox-engine.murcata.es}
+      INTERNAL_URL: http://localhost:3000
+      VP_REMOVE_TA: "true"
+      OUTBOUND_URL_ALLOW_HTTP: "true"
+      OUTBOUND_URL_ALLOW_PRIVATE_NETWORK: "true"
+      OUTBOUND_URL_ALLOWED_HOSTS: platform-api
+      MASTER_SECRET: ${ENGINE_MASTER_SECRET:?set ENGINE_MASTER_SECRET in .env}
+      AUTH_CLIENT_ID: ${ENGINE_CLIENT_ID:-root}
+      AUTH_CLIENT_SECRET: ${ENGINE_CLIENT_SECRET:?set ENGINE_CLIENT_SECRET in .env}
+      DB_TYPE: postgres
+      DB_HOST: engine-db
+      DB_PORT: "5432"
+      DB_USERNAME: ${ENGINE_DB_USER:-eudiplo}
+      DB_PASSWORD: ${ENGINE_DB_PASSWORD}
+      DB_DATABASE: ${ENGINE_DB_NAME:-eudiplo}
+      DB_SSL: "false"
+      DB_MIGRATIONS_RUN: "true"
+      # true for the very first start only, then false in .env (docker-compose.yml explains why).
+      DB_SYNCHRONIZE: ${ENGINE_DB_SYNCHRONIZE:-true}
+      SESSION_TTL: "300"
+      SESSION_CLEANUP_MODE: anonymize
+      SESSION_TIDY_UP_INTERVAL: "300"
+      LOG_SESSION_STORE: "off"
+      LOG_ENABLE_HTTP_LOGGER: "false"
+      LOG_ENABLE_SESSION_LOGGER: "false"
+      LOG_LEVEL: ${ENGINE_LOG_LEVEL:-warn}
+      AUDIT_LOG_RETENTION_DAYS: "30"
+      AUDIT_LOG_MAX_ENTRIES_PER_TENANT: "5000"
+      OTEL_SDK_DISABLED: "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - engine-config:/app/config
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  platform-api:
+    <<: *platform-image
+    depends_on:
+      platform-db:
+        condition: service_healthy
+      eudiplo:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3100"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgresql://${PLATFORM_DB_USER:-edtp}:${PLATFORM_DB_PASSWORD}@platform-db:5432/${PLATFORM_DB_NAME:-edtp_platform}
+      DATABASE_SSL: "false"
+      PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:?set PLATFORM_ADMIN_API_KEY in .env}
+      PLATFORM_PUBLIC_URL: ${PLATFORM_PUBLIC_URL:?set PLATFORM_PUBLIC_URL to https://sandbox-platform.murcata.es}
+      ENGINE_BASE_URL: http://eudiplo:3000
+      # The operator's sign-in instance (sbx-operator); participants' tenants are in the database.
+      ENGINE_TENANT_CREDENTIALS: ${ENGINE_TENANT_CREDENTIALS:?set ENGINE_TENANT_CREDENTIALS in .env}
+      ENGINE_ROOT_CLIENT_ID: ${ENGINE_CLIENT_ID:-root}
+      ENGINE_ROOT_CLIENT_SECRET: ${ENGINE_CLIENT_SECRET:?}
+      ENGINE_CREDENTIALS_KEY: ${ENGINE_CREDENTIALS_KEY:?set ENGINE_CREDENTIALS_KEY in .env}
+      # The id hosted issuers load the Wallet Provider anchors under (PKI dir, wallet-provider-anchors/).
+      ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: ${ENGINE_WALLET_PROVIDER_TRUST_LIST_ID:-sbx-wallet-providers}
+      ENGINE_ISSUER_TRUST_LISTS: ${ENGINE_ISSUER_TRUST_LISTS:-}
+      PSEUDONYM_MASTER_KEY: ${PSEUDONYM_MASTER_KEY:?set PSEUDONYM_MASTER_KEY in .env}
+      SANDBOX_PORTAL_SECRET: ${SANDBOX_PORTAL_SECRET:?set SANDBOX_PORTAL_SECRET in .env}
+      SANDBOX_TRUST_ENVIRONMENT: TEST
+      SANDBOX_OPERATOR_TENANT_ID: ${SANDBOX_OPERATOR_TENANT_ID:-}
+      SANDBOX_SIGN_IN_POLICY_ID: ${SANDBOX_SIGN_IN_POLICY_ID:-}
+      SANDBOX_PORTAL_PUBLIC_URL: ${SANDBOX_PORTAL_PUBLIC_URL:?set SANDBOX_PORTAL_PUBLIC_URL to https://sandbox.murcata.es}
+      SANDBOX_PARTICIPANT_TRUST_SOURCES: ${SANDBOX_PARTICIPANT_TRUST_SOURCES:?}
+      SANDBOX_PKI_DIR: /pki
+      SANDBOX_KEYSTORE_KEY: ${SANDBOX_KEYSTORE_KEY:?set SANDBOX_KEYSTORE_KEY in .env}
+      SANDBOX_PUBLIC_BASE_URL: ${SANDBOX_PUBLIC_BASE_URL:?}
+      SANDBOX_VERIFIER_DNS_NAME: ${SANDBOX_VERIFIER_DNS_NAME:?}
+      JOB_INTERVAL_MS: "15000"
+    ports:
+      - "127.0.0.1:3100:3100"
+    volumes:
+      # Read-write: hosted issuers' metadata-signing keys are added to the sealed store (S5b).
+      - /var/lib/edtp-sandbox/pki:/pki
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  sandbox-portal:
+    <<: *platform-image
+    command: ["node", "apps/sandbox-portal/dist/main.js"]
+    depends_on: [platform-api]
+    environment:
+      NODE_ENV: production
+      SANDBOX_PORTAL_PORT: "3300"
+      SANDBOX_PORTAL_BIND_HOST: 0.0.0.0
+      SANDBOX_PORTAL_PUBLIC_URL: ${SANDBOX_PORTAL_PUBLIC_URL:?}
+      SANDBOX_PLATFORM_URL: http://platform-api:3100
+      SANDBOX_PORTAL_SECRET: ${SANDBOX_PORTAL_SECRET:?}
+      # The whole portal is behind Cloudflare Access (ADR 0017); this is the second lock.
+      SANDBOX_PORTAL_REQUIRE_ACCESS: "true"
+      SANDBOX_PORTAL_WALLET_DIR: /wallet
+    ports:
+      - "127.0.0.1:3300:3300"
+    volumes:
+      - /var/lib/edtp-sandbox/wallet:/wallet:ro
+
+  gateway:
+    <<: *platform-image
+    command: ["node", "apps/test-gateway/dist/main.js"]
+    depends_on: [eudiplo, platform-api]
+    environment:
+      NODE_ENV: production
+      GATEWAY_BIND_HOST: 0.0.0.0
+      GATEWAY_ENGINE_PORT: "3010"
+      GATEWAY_PLATFORM_PORT: "3011"
+      GATEWAY_ENGINE_TARGET: http://eudiplo:3000
+      GATEWAY_PLATFORM_TARGET: http://platform-api:3100
+      # Every sandbox wallet is the pinned test wallet (A29), as on the demonstration VM.
+      GATEWAY_PINNED_WALLET_COMPAT: "true"
+      GATEWAY_ATTESTATION_SKEW_DELAY_MS: "3000"
+      # Sandbox issuers' metadata, signed in front of the engine (ADR 0016).
+      GATEWAY_SANDBOX_SIGNED_METADATA: "on"
+    ports:
+      - "127.0.0.1:3010:3010"
+      - "127.0.0.1:3011:3011"
+
+volumes:
+  platform-db-data:
+  engine-db-data:
+  engine-config:

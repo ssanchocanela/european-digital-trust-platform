@@ -122,10 +122,16 @@ describe("signed issuer metadata", () => {
   });
 
   it("now offers the issuance-side defects on the hosted issuer (RC-11, RC-12)", async () => {
-    for (const registrationVariant of ["RC-11", "RC-12"] as const) {
-      const ref = await configuredIssuer({ registrationVariant });
-      expect((await metadata().metadata(ref)).jwt).toBeDefined();
-    }
+    // One hosted issuer per organisation (the S6 quota): RC-12 reconfigures the issuer RC-11 made.
+    const ref = await configuredIssuer({ registrationVariant: "RC-11" });
+    expect((await metadata().metadata(ref)).jwt).toBeDefined();
+    const serviceId = (await s.certificates.services(owner.context, owner.organisationId)).at(-1)
+      ?.relyingPartyServiceId as string;
+    await s.issuer?.configure(owner.context, owner.organisationId, serviceId, {
+      signingVariant: "PID-00",
+      registrationVariant: "RC-12",
+    });
+    expect((await metadata().metadata(ref)).jwt).toBeDefined();
   });
 
   it("uses a fresh key for every configuration, never the previous one", async () => {

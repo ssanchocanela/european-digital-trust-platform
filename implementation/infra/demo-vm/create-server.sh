@@ -3,6 +3,12 @@
 #
 #   ./infra/demo-vm/create-server.sh
 #
+# The sandbox VM (ADR 0017) is created by the same script, with its own name, key directory and role,
+# and with Hetzner's daily backups on:
+#
+#   EDTP_DEMO_VM_NAME=edtp-sandbox EDTP_DEMO_VM_KEY_DIR=~/.edtp/sandbox-vm EDTP_VM_ROLE=sandbox \
+#     EDTP_VM_BACKUPS=1 EDTP_BOOTSTRAP_IP=<your IPv4> ./infra/demo-vm/create-server.sh
+#
 # Reads the Hetzner API token from ~/.edtp/hetzner.token (mode 600, never printed, never committed).
 # Idempotent: an existing key, firewall or server of the same name is reused, not duplicated.
 #
@@ -22,11 +28,14 @@ NAME="${EDTP_DEMO_VM_NAME:-edtp-demo}"
 TYPE="${EDTP_DEMO_VM_TYPE:-cx23}"
 LOCATION="${EDTP_DEMO_VM_LOCATION:-fsn1}"
 IMAGE="${EDTP_DEMO_VM_IMAGE:-ubuntu-24.04}"
+ROLE="${EDTP_VM_ROLE:-demo}"
+BACKUPS="${EDTP_VM_BACKUPS:-0}"
 BOOTSTRAP_IP="${EDTP_BOOTSTRAP_IP:?set EDTP_BOOTSTRAP_IP to your public IPv4: the one address SSH is opened to during bootstrap}"
 
 die() { echo "create-server: $*" >&2; exit 1; }
 [ -f "$TOKEN_FILE" ] || die "no Hetzner token at $TOKEN_FILE."
 [[ "$BOOTSTRAP_IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || die "EDTP_BOOTSTRAP_IP must be a single IPv4 address."
+[[ "$ROLE" =~ ^(demo|sandbox)$ ]] || die "EDTP_VM_ROLE must be demo or sandbox."
 TOKEN="$(cat "$TOKEN_FILE")"
 api() { # <method> <path> [json]
   curl -sS -X "$1" "https://api.hetzner.cloud/v1$2" -H "Authorization: Bearer $TOKEN" \
@@ -59,9 +68,9 @@ SERVER="$(api GET "/servers?name=$NAME" | jq -c '.servers[0] // empty')"
 if [ -z "$SERVER" ]; then
   USER_DATA="$(sed "s|__SSH_PUBLIC_KEY__|$PUB|" "$HERE/cloud-init.yaml")"
   SERVER="$(api POST /servers "$(jq -n --arg n "$NAME" --arg t "$TYPE" --arg l "$LOCATION" --arg i "$IMAGE" \
-    --arg u "$USER_DATA" --argjson k "$KEY_ID" --argjson f "$FW_ID" '{
+    --arg u "$USER_DATA" --argjson k "$KEY_ID" --argjson f "$FW_ID" --arg r "$ROLE" '{
       name:$n, server_type:$t, location:$l, image:$i, user_data:$u, ssh_keys:[$k],
-      firewalls:[{firewall:$f}], labels:{project:"edtp", role:"demo"},
+      firewalls:[{firewall:$f}], labels:{project:"edtp", role:$r},
       public_net:{enable_ipv4:true, enable_ipv6:true}
     }')" | jq -c '.server // .error')"
   echo "$SERVER" | jq -e '.id' >/dev/null || die "server creation refused: $SERVER"
@@ -71,6 +80,12 @@ else
 fi
 echo "$SERVER" | jq -r '"    id \(.id), \(.server_type.name // "'"$TYPE"'"), \(.datacenter.name // "'"$LOCATION"'"), ipv4 \(.public_net.ipv4.ip)"'
 IPV4="$(echo "$SERVER" | jq -r '.public_net.ipv4.ip')"
+if [ "$BACKUPS" = 1 ]; then
+  # Hetzner's daily backups, 7 kept, at 20 % of the server's price. Idempotent: enabling twice is refused
+  # by the API as already enabled, which is fine.
+  api POST "/servers/$(echo "$SERVER" | jq -r '.id')/actions/enable_backup" >/dev/null
+  echo "==> Daily backups enabled"
+fi
 echo "$IPV4" > "$KEY_DIR/ipv4"
 echo
 echo "First boot takes a few minutes (package upgrade, Docker, cloudflared). Then:"

@@ -1,0 +1,10 @@
+[Unit]
+Description=EDTP sandbox: negative checks every 15 minutes (ADR 0017)
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

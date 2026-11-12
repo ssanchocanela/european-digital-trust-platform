@@ -1,0 +1,8 @@
+[Unit]
+Description=EDTP sandbox: negative checks (ADR 0017)
+After=network-online.target cloudflared.service
+
+[Service]
+Type=oneshot
+User=edtp
+ExecStart=/home/edtp/edtp/implementation/infra/sandbox-vm/scheduled-checks.sh

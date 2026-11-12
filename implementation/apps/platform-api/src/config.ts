@@ -69,7 +69,7 @@ const schema = z.object({
   ENGINE_ROOT_CLIENT_SECRET: unsetIfEmpty(z.string().min(1).optional()),
   ENGINE_CREDENTIALS_KEY: base64Key(32, true),
   /** Engine trust list of wallet providers. Unset: no wallet attestation at the token endpoint. */
-  ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: z.string().min(1).optional(),
+  ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: unsetIfEmpty(z.string().min(1).optional()),
   /**
    * Issuer trust lists loaded into the engine, as `<trust anchor source ref>=<engine list id>`
    * pairs separated by commas. The ref is the list's published URL, as a policy names it; the id is

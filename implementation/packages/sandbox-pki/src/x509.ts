@@ -434,3 +434,13 @@ export function readKeyUsage(certificate: Buffer): KeyUsageName[] {
     .filter(([, bit]) => ((bytes[bit >> 3] ?? 0) & (0x80 >> (bit & 7))) !== 0)
     .map(([name]) => name);
 }
+
+/** A serial number as Node's `X509Certificate.serialNumber` shows it: upper-case hex, no leading zeros. */
+export const serialToHex = (serial: Buffer): string =>
+  serial
+    .toString("hex")
+    .toUpperCase()
+    .replace(/^0+(?=.)/, "");
+
+export const hexToSerial = (hex: string): Buffer =>
+  Buffer.from(hex.length % 2 ? `0${hex}` : hex, "hex");

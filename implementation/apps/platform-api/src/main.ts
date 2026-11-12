@@ -9,6 +9,7 @@ import { ApiKeyGuard } from "./http/auth.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
 import { Logger } from "./logging/logger.js";
 import { migrationsPath } from "./migrations-path.js";
+import { SandboxTrustDomain } from "./modules/sandbox/trust-domain.runtime.js";
 import { openApiConfig } from "./openapi.js";
 
 /**
@@ -29,7 +30,18 @@ const bootstrap = async (): Promise<void> => {
     skipped: report.skipped.length,
   });
 
-  const deps = buildDependencies({ config, db: handle.db, logger });
+  const sandboxTrustDomain =
+    config.SANDBOX_PKI_DIR && config.SANDBOX_KEYSTORE_KEY
+      ? await SandboxTrustDomain.load(config.SANDBOX_PKI_DIR, config.SANDBOX_KEYSTORE_KEY)
+      : undefined;
+  const deps = buildDependencies({
+    config,
+    db: handle.db,
+    logger,
+    ...(sandboxTrustDomain ? { sandboxTrustDomain } : {}),
+  });
+  // Publish at once, so a fresh sandbox serves its lists and CRLs from its first request.
+  await deps.services.sandboxPublications?.publishAll();
 
   const app = await NestFactory.create(AppModule.withDependencies(deps), {
     // Not `false`, which is what this was.

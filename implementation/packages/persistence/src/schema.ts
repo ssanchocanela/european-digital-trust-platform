@@ -1038,3 +1038,71 @@ export const engineTenantCredentials = pgTable("engine_tenant_credentials", {
   clientSecretSealed: text("client_secret_sealed").notNull(),
   createdAt: ts("created_at").notNull(),
 });
+
+// --- sandbox certificates (S3, ADR 0014) ----------------------------------------------
+
+export const sandboxServices = pgTable(
+  "sandbox_services",
+  {
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .primaryKey()
+      .references(() => relyingPartyServices.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    supportUri: text("support_uri").notNull(),
+    privacyPolicyUri: text("privacy_policy_uri").notNull(),
+    infoUri: text("info_uri").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [index("sandbox_services_tenant_idx").on(t.tenantId)],
+);
+
+export const sandboxStatusIndexSeq = pgSequence("sandbox_status_index_seq", {
+  startWith: 0,
+  minValue: 0,
+});
+
+export const sandboxCertificates = pgTable(
+  "sandbox_certificates",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .notNull()
+      .references(() => relyingPartyServices.id, { onDelete: "cascade" }),
+    intendedUseId: uuid("intended_use_id").references(() => intendedUses.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind").notNull(),
+    variant: text("variant").notNull(),
+    issuerKey: text("issuer_key").notNull(),
+    serialHex: text("serial_hex"),
+    statusIndex: integer("status_index"),
+    notBefore: ts("not_before"),
+    notAfter: ts("not_after"),
+    body: text("body"),
+    fingerprintSha256: text("fingerprint_sha256"),
+    dnsNames: jsonb("dns_names").notNull(),
+    createdAt: ts("created_at").notNull(),
+    revokedAt: ts("revoked_at"),
+  },
+  (t) => [index("sandbox_certificates_tenant_idx").on(t.tenantId)],
+);
+
+export const sandboxPublications = pgTable(
+  "sandbox_publications",
+  {
+    id: uuid("id").primaryKey(),
+    channel: text("channel").notNull(),
+    sequence: integer("sequence").notNull(),
+    issuedAt: ts("issued_at").notNull(),
+    nextUpdate: ts("next_update").notNull(),
+    body: text("body").notNull(),
+    contentHash: text("content_hash").notNull(),
+  },
+  (t) => [uniqueIndex("sandbox_publications_channel_seq_key").on(t.channel, t.sequence)],
+);

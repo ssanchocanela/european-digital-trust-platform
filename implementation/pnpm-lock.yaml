@@ -249,6 +249,9 @@ importers:
       '@edtp/sandbox-domain':
         specifier: workspace:*
         version: link:../../packages/sandbox-domain
+      '@edtp/sandbox-pki':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-pki
       '@edtp/shared':
         specifier: workspace:*
         version: link:../../packages/shared

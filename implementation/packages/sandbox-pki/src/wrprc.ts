@@ -263,8 +263,11 @@ export const UNREGISTERED_ATTESTATION_TYPE = "urn:edtp:sandbox:rc12:not-the-pid"
 const DAY = 86_400_000;
 export const WRPRC_VALIDITY_DAYS = 90;
 
-const meta = (c: RegisteredCredential) =>
-  c.format === "dc+sd-jwt" ? { vct_values: c.types } : { doctype_value: c.types[0] };
+/** A credential's `meta`, in the DCQL vocabulary a WRPRC and the TS5 register share. */
+export const credentialMeta = (format: "dc+sd-jwt" | "mso_mdoc", types: readonly string[]) =>
+  format === "dc+sd-jwt" ? { vct_values: [...types] } : { doctype_value: types[0] };
+
+const meta = (c: RegisteredCredential) => credentialMeta(c.format, c.types);
 
 export function wrprcPayload(input: WrprcInput): Record<string, unknown> {
   const { variant, organisation, urls, now } = input;
@@ -336,7 +339,7 @@ export function wrprcPayload(input: WrprcInput): Record<string, unknown> {
         : provided
     ).map((p) => ({
       format: p.format,
-      meta: p.format === "dc+sd-jwt" ? { vct_values: [p.type] } : { doctype_value: p.type },
+      meta: credentialMeta(p.format, [p.type]),
     }));
   }
   return payload;

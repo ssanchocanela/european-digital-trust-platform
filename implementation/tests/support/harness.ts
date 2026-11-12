@@ -271,6 +271,7 @@ export const createHarness = async (options?: {
          presentation_policy_versions, presentation_policies,
          access_certificates, registration_certificates, relying_party_instances,
          intended_uses, relying_party_services, relying_parties,
+         sandbox_publications, sandbox_certificates, sandbox_services,
          sandbox_sign_in_attempts, sandbox_sessions, sandbox_invitations, sandbox_memberships,
          sandbox_people, sandbox_organisations, organisations,
          api_keys, tenants

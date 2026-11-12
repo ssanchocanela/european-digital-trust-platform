@@ -43,3 +43,5 @@ export const FEATURE_PID_DURING_ISSUANCE = Symbol("FeaturePidDuringIssuance");
 
 export const HOSTED_FORM_RETURNS = Symbol("HostedFormReturns");
 export const SANDBOX_SERVICE = Symbol("SANDBOX_SERVICE");
+export const SANDBOX_PUBLIC = Symbol("SANDBOX_PUBLIC");
+export const SANDBOX_CERTIFICATES = Symbol("SANDBOX_CERTIFICATES");

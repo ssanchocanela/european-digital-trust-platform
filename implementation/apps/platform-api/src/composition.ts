@@ -23,6 +23,7 @@ import {
   ListingRepository,
   PolicyRepository,
   RegistrationRepository,
+  SandboxCertificateRepository,
   SandboxRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
@@ -47,7 +48,12 @@ import { WalletInitiatedClaims } from "./modules/issuances/wallet-initiated-clai
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
+import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
+import { SandboxPublicationService } from "./modules/sandbox/publication.service.js";
+import { SandboxRegister } from "./modules/sandbox/register.js";
 import { SandboxService } from "./modules/sandbox/sandbox.service.js";
+import type { SandboxTrustDomain } from "./modules/sandbox/trust-domain.runtime.js";
+import { sandboxUrls } from "./modules/sandbox/urls.js";
 import { WebhookService } from "./webhook/webhook.service.js";
 
 /**
@@ -82,6 +88,7 @@ export interface Dependencies {
     readonly webhookEndpoints: WebhookEndpointRepository;
     readonly listing: ListingRepository;
     readonly sandbox: SandboxRepository;
+    readonly sandboxCertificates: SandboxCertificateRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -104,10 +111,15 @@ export interface Dependencies {
     readonly issuances: IssuanceService;
     /** Present only when the sandbox is configured (`SANDBOX_PORTAL_SECRET`). */
     readonly sandbox?: SandboxService;
+    /** Present only when the sandbox's PKI is configured (S3). */
+    readonly sandboxCertificates?: SandboxCertificateService;
+    readonly sandboxPublications?: SandboxPublicationService;
+    readonly sandboxRegister?: SandboxRegister;
     /** Present only when runtime engine tenants are configured (root client and sealing key). */
     readonly engineTenants?: EngineTenantService;
   };
   readonly jobs: BackgroundJobs;
+  readonly sandboxTrustDomain?: SandboxTrustDomain;
   /** Where a browser goes after presenting, for presentations the hosted form started. */
   readonly hostedFormReturns: HostedFormReturns;
 }
@@ -123,6 +135,8 @@ export interface BuildOptions {
   /** Substituted by the integration suite so issuance runs with no engine. */
   readonly issuer?: EudiIssuerPort & Partial<EudiIssuerProvisioningPort>;
   readonly issuerProvisioning?: EudiIssuerProvisioningPort;
+  /** The sandbox's trust domain, loaded from `SANDBOX_PKI_DIR` before composition (it reads files). */
+  readonly sandboxTrustDomain?: SandboxTrustDomain;
   /** Substituted by the integration suite so runtime engine tenants need no engine. */
   readonly engineTenants?: EngineTenantPort;
   readonly fetchImpl?: typeof fetch;
@@ -143,6 +157,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     issuance: new IssuanceRepository(db),
     listing: new ListingRepository(db),
     sandbox: new SandboxRepository(db),
+    sandboxCertificates: new SandboxCertificateRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
 
@@ -342,6 +357,42 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
         )
       : undefined;
 
+  const pki =
+    sandbox && options.sandboxTrustDomain && config.SANDBOX_PUBLIC_BASE_URL
+      ? (() => {
+          const urls = sandboxUrls(config.SANDBOX_PUBLIC_BASE_URL);
+          const domain = options.sandboxTrustDomain;
+          const publications = new SandboxPublicationService(
+            repositories.sandboxCertificates,
+            domain,
+            urls,
+            clock,
+            logger,
+          );
+          return {
+            domain,
+            publications,
+            register: new SandboxRegister(
+              repositories.sandboxCertificates,
+              domain,
+              urls,
+              clock,
+            ),
+            certificates: new SandboxCertificateService(
+              sandbox,
+              repositories.sandbox,
+              repositories.sandboxCertificates,
+              registration,
+              domain,
+              publications,
+              urls,
+              audit,
+              clock,
+            ),
+          };
+        })()
+      : undefined;
+
   const jobs = new BackgroundJobs(
     presentations,
     webhooks,
@@ -349,6 +400,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     clock,
     logger,
     config.JOB_INTERVAL_MS,
+    pki?.publications,
   );
 
   return {
@@ -371,9 +423,17 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
       issuances,
       ...(sandbox ? { sandbox } : {}),
       ...(engineTenants ? { engineTenants } : {}),
+      ...(pki
+        ? {
+            sandboxCertificates: pki.certificates,
+            sandboxPublications: pki.publications,
+            sandboxRegister: pki.register,
+          }
+        : {}),
     },
     jobs,
     hostedFormReturns,
+    ...(pki ? { sandboxTrustDomain: pki.domain } : {}),
   };
 };
 

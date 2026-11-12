@@ -123,7 +123,9 @@ be offered.
 
 ### J4 — Relying Party: get certificates
 
-1. **Access certificate**, for the service, one of two ways:
+1. **Access certificate**, for the service, one of two ways. *Since S3:* take-away is issued in S3; the
+   hosted certificate is issued when the hosted verifier is provisioned (S4), its key generated and
+   handed to the engine in the same call.
    - **hosted:** the sandbox generates the key pair and the key goes straight into the engine tenant
      of the hosted verifier, never shown;
    - **take-away:** the participant uploads a PKCS#10 CSR, and the sandbox issues against it. The
@@ -397,7 +399,9 @@ not of a publisher.** The operator name, the signer and the URLs are all the san
 **Signature:** compact JAdES B-B with protected header `{alg: ES256, typ, x5c, iat}` and no `sigT`
 or `crit` (Q-S4, TS 119 182-1 V1.2.1 §5.1.11 and §5.2.1).
 
-**The PID list carries:**
+**Status lists** have at least 16 384 entries, so an index is hidden in a herd, and grow by doubling.
+
+**The PID list carries** (the sign-in anchors from `SANDBOX_PKI_DIR/pid-sign-in-anchors/*.pem`):
 - the sign-in anchor set: reference PID Providers and "PID (demo)", so a sandbox wallet can hold the
   PID it signs in with;
 - the sandbox PID CA;
@@ -486,6 +490,10 @@ tenant is derived from the credential (CLAUDE.md §9). Request and response shap
   `GET /wrp/{identifier}/services/{serviceIdentifier}`, `GET /wrp/check-intended-use` ([TS5] §3,
   Annex A.2).
 
+The register's JWS carries the registrar's chain in `x5c`, where TS5 shows an `x-jku-url` response
+header: the registrar's key is a certificate the WRPRC providers' list already anchors. Recorded as a
+deliberate difference, decided in S3.
+
 There is no write API at TS5 level: [TS5] §3.1.2 leaves registration "for further study", and the
 sandbox's own routes above are its design.
 
@@ -551,6 +559,6 @@ The five classes of CLAUDE.md §5 stay separate.
 | Q-S2 | **Closed 12 Nov 2026.** EN 319 411-1 V1.5.1 GEN-6.6.1-02 delegates to EN 319 412-3. Its rules: KeyUsage present with one setting, preferably non-mixed (NAT-4.3.2-1, applied by LEG-4.3.1-2); **`digitalSignature` only** for RP authentication. LEG-4.3.1-3 would force `nonRepudiation` only for signatures that evidence the origin of *content*, an interpretation recorded. EKU not critical, no value mandated (GEN-4.3.10-1), so `clientAuth` stays as the wallet accepts it. AKI (GEN-4.3.1-1), `certificatePolicies` (GEN-4.3.3-2), CRL DP (GEN-4.3.11-1) and AIA `caIssuers` (GEN-4.4.1-2) are present. CRL: RFC 5280 (OVR-6.6.2-01), published at least every 24 h (CSS-6.3.9-05), status kept until expiry (CSS-6.3.10-04), no reinstatement after revocation (REV-6.3.9-04). The KeyUsage table's columns did not survive text extraction, so the A–F mapping is unverified | §7.1 |
 | Q-S3 | Claim name of the WRPRC unique id (GEN-6.2.6.1-03 names none) | S2; record in `interop-findings.md` |
 | Q-S4 | **Closed 12 Nov 2026.** TS 119 182-1 V1.2.1 (the version TS 119 602 cites) §5.2.1: from 2025-07-15 `sigT` *shall not* be incorporated, and §5.1.11 makes `iat` mandatory. §5.1.9: no `crit` is needed without `sigD`. The lists' compact B-B header is `{alg, typ, x5c, iat}`, which also removes the engine's `crit: sigT` problem (A30) for sandbox lists | §7.3 |
-| Q-S5 | Does Wallet Core 0.30.2 compare the Service identifier, as `RPRC_17a` requires? Its binding function compares the entity identifier only, as far as the bytecode shows | S3, from the source |
+| Q-S5 | **Closed 12 Nov 2026, from the source:** no. Wallet Core v0.30.2 binds by entity identifier only (`docs/interop-findings.md` C15). RC-06 changes the entity identifier, which it does check | — |
 | Q-S6 | **Decided by the user, 12 Nov 2026: a DER encoder of our own** over `node:crypto`, no new dependency (`packages/sandbox-pki/src/der.ts`). Tested against Node's `X509Certificate` and `openssl` | — |
 | Q-S7 | **Decided by the user, 12 Nov 2026: `2.25.122722476230885567871422612338706645671`** (ITU-T X.667, from UUID `5c537d3b-0c20-4d92-9b1f-81c674ea82a7`). It is replaceable by a private-enterprise arc later | §7.1 |

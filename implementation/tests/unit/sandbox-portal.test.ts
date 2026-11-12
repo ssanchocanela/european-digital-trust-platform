@@ -257,3 +257,80 @@ describe("the portal", () => {
     expect(keyPage + invitePage).not.toContain(SESSION);
   });
 });
+
+describe("services and certificates (S3)", () => {
+  const SERVICE = "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const CERT = "dddddddd-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+  it("parses claim paths: dots, * for any array element, digits for an index", async () => {
+    const { parseClaimLines } = await import("@edtp/sandbox-portal/pages.js");
+    expect(parseClaimLines("given_name\n address.locality \nnationalities.*\nx.0\n\n")).toEqual(
+      [["given_name"], ["address", "locality"], ["nationalities", null], ["x", 0]],
+    );
+  });
+
+  it("says on a certificate page that the sandbox's check is not a wallet's verdict, and escapes it", async () => {
+    const { certificatePage } = await import("@edtp/sandbox-portal/pages.js");
+    const html = certificatePage(ORG, {
+      id: CERT,
+      kind: "WRPRC",
+      variant: "RC-12",
+      variantTitle: "<b>x</b>",
+      requirement: "AS-AP-44-007 (RPRC_23)",
+      createdAt: "2026-11-12",
+      takeAwayOnly: true,
+      selfTest: { fails: ["provides_attestation"], asDesigned: true },
+    });
+    expect(html).toContain("not a wallet's verdict");
+    expect(html).toContain("Take-away only");
+    expect(html).toContain("— as designed");
+    expect(html).not.toContain("<b>x</b>");
+  });
+
+  it("sends a CSR and the DNS names it was given, and lands on the issued certificate", async () => {
+    const { request, calls } = await serve((_m, path) =>
+      path.endsWith("/access-certificates")
+        ? { status: 201, body: { id: CERT } }
+        : { status: 404, body: {} },
+    );
+    const res = await request(`/org/${ORG}/services/${SERVICE}/access-certificates`, {
+      method: "POST",
+      cookie: `${SESSION_COOKIE}=${SESSION}`,
+      body: new URLSearchParams({
+        variant: "AC-02",
+        csrPem: "-----BEGIN CERTIFICATE REQUEST-----",
+        dnsNames: "a.test\nb.test",
+      }).toString(),
+    });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe(`/org/${ORG}/certificates/${CERT}`);
+    expect(calls[0]?.body).toEqual({
+      variant: "AC-02",
+      csrPem: "-----BEGIN CERTIFICATE REQUEST-----",
+      dnsNames: ["a.test", "b.test"],
+    });
+  });
+
+  it("downloads a certificate as a file, and refuses one with no body", async () => {
+    const { request } = await serve((_m, path) =>
+      path === `organisations/${ORG}/certificates/${CERT}`
+        ? { status: 200, body: { kind: "WRPRC", variant: "RC-00", body: "eyJ.x.y" } }
+        : { status: 200, body: { kind: "WRPRC", variant: "RC-01" } },
+    );
+    const res = await request(`/org/${ORG}/certificates/${CERT}/download`, {
+      cookie: `${SESSION_COOKIE}=${SESSION}`,
+    });
+    expect(res.headers.get("content-disposition")).toContain(
+      'filename="wrprc-RC-00-dddddddd.jwt"',
+    );
+    expect(await res.text()).toBe("eyJ.x.y");
+    const other = "eeeeeeee-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    expect(
+      (
+        await request(`/org/${ORG}/certificates/${other}/download`, {
+          cookie: `${SESSION_COOKIE}=${SESSION}`,
+        })
+      ).status,
+    ).toBe(404);
+  });
+});

@@ -161,6 +161,15 @@ const schema = z.object({
   SANDBOX_OPERATOR_TENANT_ID: unsetIfEmpty(z.string().uuid().optional()),
   SANDBOX_SIGN_IN_POLICY_ID: unsetIfEmpty(z.string().uuid().optional()),
   SANDBOX_PORTAL_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
+  /**
+   * The sandbox's PKI (S3, ADR 0014): the trust domain created by `sandbox-pki init` — `keys/` sealed
+   * under `SANDBOX_KEYSTORE_KEY`, `certs/`, and optional `pid-sign-in-anchors/` — and the public base
+   * address its certificates and lists name. All three or none; without them, no certificate is
+   * issued and nothing is published.
+   */
+  SANDBOX_PKI_DIR: unsetIfEmpty(z.string().min(1).optional()),
+  SANDBOX_KEYSTORE_KEY: base64Key(32, true),
+  SANDBOX_PUBLIC_BASE_URL: unsetIfEmpty(z.string().url().optional()),
   /** Trust anchor source refs participants' PID Providers are placed on, comma-separated. */
   SANDBOX_PARTICIPANT_TRUST_SOURCES: z
     .string()
@@ -392,6 +401,21 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
     throw new Error(
       "Invalid environment configuration:\n  ENGINE_ROOT_CLIENT_ID needs ENGINE_CREDENTIALS_KEY",
     );
+  }
+  {
+    const pki = [d.SANDBOX_PKI_DIR, d.SANDBOX_KEYSTORE_KEY, d.SANDBOX_PUBLIC_BASE_URL].filter(
+      Boolean,
+    ).length;
+    if (pki !== 0 && pki !== 3) {
+      throw new Error(
+        "Invalid environment configuration:\n  SANDBOX_PKI_DIR, SANDBOX_KEYSTORE_KEY and SANDBOX_PUBLIC_BASE_URL go together",
+      );
+    }
+    if (pki === 3 && !d.SANDBOX_PORTAL_SECRET) {
+      throw new Error(
+        "Invalid environment configuration:\n  the sandbox's PKI needs the sandbox (SANDBOX_PORTAL_SECRET)",
+      );
+    }
   }
   if (d.SANDBOX_PORTAL_SECRET) {
     const missing = [

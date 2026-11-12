@@ -401,3 +401,49 @@ export function toPem(der: Buffer, label: "CERTIFICATE" | "X509 CRL"): string {
     .replace(/\n$/, "");
   return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----\n`;
 }
+
+// --- Reading -----------------------------------------------------------------------------------
+
+/** The extensions of a certificate, by OID: whether critical, and the value's DER. */
+export function readExtensions(
+  certificate: Buffer,
+): Map<string, { critical: boolean; value: Buffer }> {
+  const [tbs] = children(decode(certificate));
+  if (!tbs) throw new Error("malformed certificate");
+  const wrapper = children(tbs).find((e) => e.tag === 0xa3);
+  const out = new Map<string, { critical: boolean; value: Buffer }>();
+  if (!wrapper) return out;
+  const [list] = children(wrapper);
+  for (const ext of list ? children(list) : []) {
+    const parts = children(ext);
+    const id = parts[0];
+    const last = parts[parts.length - 1];
+    if (!id || !last) continue;
+    out.set(decodeOid(id), { critical: parts.length === 3, value: last.content });
+  }
+  return out;
+}
+
+/** The KeyUsage bits set in a certificate, by name. */
+export function readKeyUsage(certificate: Buffer): KeyUsageName[] {
+  const ext = readExtensions(certificate).get(OID.keyUsage);
+  if (!ext) return [];
+  const bits = decode(ext.value);
+  const bytes = bits.content.subarray(1);
+  return (Object.entries(KeyUsageBit) as [KeyUsageName, number][])
+    .filter(([, bit]) => ((bytes[bit >> 3] ?? 0) & (0x80 >> (bit & 7))) !== 0)
+    .map(([name]) => name);
+}
+
+/**
+ * A serial number as Node's `X509Certificate.serialNumber` shows it: upper-case hex of the DER
+ * integer's magnitude — leading zero *bytes* removed, never a leading zero nibble of a byte.
+ */
+export const serialToHex = (serial: Buffer): string => {
+  let start = 0;
+  while (start < serial.length - 1 && serial[start] === 0) start++;
+  return serial.subarray(start).toString("hex").toUpperCase();
+};
+
+export const hexToSerial = (hex: string): Buffer =>
+  Buffer.from(hex.length % 2 ? `0${hex}` : hex, "hex");

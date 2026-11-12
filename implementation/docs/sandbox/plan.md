@@ -18,8 +18,8 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 |---|---|---|---|
 | **S0** | `sandbox/s0-investigation` | Findings, D1–D8 | Accepted 12 Nov 2026 |
 | **S1** | `sandbox/s0-investigation` | Specification, ADR 0014, ADR 0015, this plan | Approved 12 Nov 2026 |
-| **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR, STOP ← *built; real run pending* |
-| **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR, STOP |
+| **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR #42; real run pending |
+| **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR, STOP ← *built* |
 | **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR, STOP |
 | **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP |
 | **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
@@ -88,6 +88,20 @@ amended on the way (Decision 3 and 4: the subject's basis and the typed display 
 
 **Done when:** every variant is issued and its self-test fails exactly the check the catalogue names;
 the lists verify with the existing LoTE verifier; the register answers for a test organisation.
+
+**State, 12 November 2026 — built.**
+- Every WRPAC and WRPRC variant is issued through the service, on a real database, and self-tests as
+  designed (`tests/integration/sandbox-certificates.test.ts`, and the pure catalogue test).
+- A sandbox PID list, signed by the sandbox LoTE signer, passed `scripts/load-issuer-trust-list.mjs`:
+  pin, signature, `NextUpdate`, one issuance certificate. It stopped only at the engine call, which
+  was not part of the check.
+- The register answers, signed, for a test organisation.
+- Every list's shape equals the notified list's, key for key (`tests/unit/sandbox-lote.test.ts`).
+
+**Not done, and why:**
+- **Hosted access certificates moved to S4**, where their key is generated and imported in one call.
+- **No wallet has read a sandbox list.** That needs the sandbox wallet build (S4).
+- The CPS is a plain-text statement, not a CP/CPS document.
 
 ## S4 — The Relying Party role
 

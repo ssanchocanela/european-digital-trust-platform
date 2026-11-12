@@ -33,6 +33,8 @@ export class BackgroundJobs {
     private readonly clock: Clock,
     private readonly logger: Logger,
     private readonly intervalMs: number,
+    /** The sandbox's CRLs, status lists and trust lists, re-signed before they lapse (S3). */
+    private readonly sandboxPublications?: { sweep(): Promise<void> },
   ) {}
 
   start(): void {
@@ -83,6 +85,14 @@ export class BackgroundJobs {
         expired = await this.presentations.expireDue(correlationId);
       } catch (error) {
         log.error("expiry pass failed", { errorName: errorName(error) });
+      }
+
+      if (this.sandboxPublications) {
+        try {
+          await this.sandboxPublications.sweep();
+        } catch (error) {
+          log.error("sandbox publication pass failed", { errorName: errorName(error) });
+        }
       }
 
       try {

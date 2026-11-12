@@ -10,7 +10,8 @@
   "dependencies": {
     "express": "5.1.0",
     "qrcode-generator": "2.0.4",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "@edtp/sandbox-pki": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "5.0.3"

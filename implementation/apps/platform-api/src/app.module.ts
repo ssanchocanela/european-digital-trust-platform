@@ -19,6 +19,8 @@ import {
   TransactionListingController,
 } from "./http/listing.controllers.js";
 import { SandboxController } from "./http/sandbox.controllers.js";
+import { SandboxCertificatesController } from "./http/sandbox-certificates.controller.js";
+import { SandboxPublicController } from "./http/sandbox-public.controller.js";
 import {
   EngineAttributesController,
   HostedFormController,
@@ -42,6 +44,8 @@ import {
   REGISTERED_CONNECTORS,
   REGISTERED_EVALUATORS,
   REGISTRATION_SERVICE,
+  SANDBOX_CERTIFICATES,
+  SANDBOX_PUBLIC,
   SANDBOX_SERVICE,
   VERIFIER_PORT,
   VERIFIER_PROVISIONING_PORT,
@@ -76,6 +80,8 @@ export class AppModule {
         HostedVerifierController,
         EngineAttributesController,
         SandboxController,
+        SandboxPublicController,
+        SandboxCertificatesController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },
@@ -102,6 +108,20 @@ export class AppModule {
         { provide: ISSUANCE_SERVICE, useValue: deps.services.issuances },
         { provide: HOSTED_FORM_RETURNS, useValue: deps.hostedFormReturns },
         { provide: SANDBOX_SERVICE, useValue: deps.services.sandbox },
+        { provide: SANDBOX_CERTIFICATES, useValue: deps.services.sandboxCertificates },
+        {
+          provide: SANDBOX_PUBLIC,
+          useValue:
+            deps.services.sandboxPublications &&
+            deps.services.sandboxRegister &&
+            deps.sandboxTrustDomain
+              ? {
+                  publications: deps.services.sandboxPublications,
+                  register: deps.services.sandboxRegister,
+                  domain: deps.sandboxTrustDomain,
+                }
+              : undefined,
+        },
         // Names only. Policy validation refuses an unknown evaluator or connector at publication,
         // so a typo fails while a reviewer is present rather than while a User is waiting.
         { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },

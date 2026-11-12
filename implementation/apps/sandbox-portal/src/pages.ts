@@ -30,7 +30,7 @@ main{max-width:46rem;margin:0 auto;padding:1.5rem 1rem 3rem}
 h1{font-size:1.6rem;margin:.5rem 0 1rem}h2{font-size:1.15rem;margin:2rem 0 .5rem}
 a{color:var(--accent)}p.muted,small{color:var(--muted)}
 form{margin:1rem 0}label{display:block;margin:.75rem 0 .25rem;font-weight:600}
-input,select{width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+input,select,textarea{width:100%;padding:.55rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
 button,.button{display:inline-block;padding:.6rem 1.1rem;border:0;border-radius:6px;background:var(--accent);color:#fff;font:inherit;cursor:pointer;text-decoration:none;margin:.5rem .5rem 0 0}
 button.secondary{background:transparent;color:var(--accent);border:1px solid var(--line)}
 table{width:100%;border-collapse:collapse;margin:.5rem 0}td,th{text-align:left;padding:.4rem;border-bottom:1px solid var(--line)}
@@ -202,6 +202,7 @@ export interface OrganisationView {
 export function organisationPage(
   view: OrganisationView,
   shown?: { label: string; value: string },
+  sections = "",
 ): string {
   const owner = view.role === "owner";
   const id = escapeHtml(view.id);
@@ -234,6 +235,7 @@ export function organisationPage(
         : ""
     }.</p>
 ${shown ? `<h2>${escapeHtml(shown.label)}</h2><p>Shown once. Copy it now: the sandbox keeps only a hash.</p><code class="secret">${escapeHtml(shown.value)}</code>` : ""}
+${sections}
 <h2>Members</h2><table><tr><th>Name</th><th>Role</th><th></th></tr>${members}</table>
 ${
   owner
@@ -257,4 +259,185 @@ export function invitationLanding(token: string): string {
 you will be asked for your name.</p>
 <form method="post" action="/invite/${escapeHtml(token)}/start">${interactionChoice()}<button>Join with your PID</button></form>`,
   );
+}
+
+// --- services and certificates (S3) ------------------------------------------------------------
+
+export interface VariantOption {
+  readonly id: string;
+  readonly title: string;
+  readonly requirement: string;
+  readonly takeAwayOnly?: boolean;
+}
+
+export interface ServiceSummary {
+  readonly relyingPartyServiceId: string;
+  readonly serviceIdentifier: string;
+  readonly serviceTradeName: string;
+  readonly role: string;
+}
+
+export function servicesSection(orgId: string, services: readonly ServiceSummary[]): string {
+  const id = escapeHtml(orgId);
+  const rows = services
+    .map(
+      (s) =>
+        `<tr><td><a href="/org/${id}/services/${escapeHtml(s.relyingPartyServiceId)}">${escapeHtml(s.serviceIdentifier)}</a></td><td>${escapeHtml(s.serviceTradeName)}</td><td>${s.role === "pid_provider" ? "PID Provider" : "Relying Party"}</td></tr>`,
+    )
+    .join("");
+  return `<h2>Services</h2>
+${services.length ? `<table><tr><th>Id</th><th>Name</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
+<form method="post" action="/org/${id}/services">
+<label for="role">Role</label><select id="role" name="role"><option value="service_provider">Relying Party (Service_Provider)</option><option value="pid_provider">PID Provider (PID_Provider)</option></select>
+<label for="tradeName">Service trade name</label><input id="tradeName" name="tradeName" required maxlength="200">
+<label for="description">Description (English)</label><input id="description" name="description" required maxlength="500">
+<label for="supportUri">Support address (https:// or mailto:)</label><input id="supportUri" name="supportUri" required maxlength="500">
+<label for="privacyPolicyUri">Privacy policy (https://)</label><input id="privacyPolicyUri" name="privacyPolicyUri" required maxlength="500">
+<label for="infoUri">Information page (https://)</label><input id="infoUri" name="infoUri" required maxlength="500">
+<button>Register the service</button></form>`;
+}
+
+export interface CertificateSummary {
+  readonly id: string;
+  readonly kind: string;
+  readonly variant: string;
+  readonly variantTitle: string;
+  readonly requirement: string;
+  readonly createdAt: string;
+  readonly revokedAt?: string;
+  readonly intendedUseId?: string;
+  readonly walletCoreReason?: string;
+  readonly takeAwayOnly?: boolean;
+  readonly fingerprintSha256?: string;
+  readonly notAfter?: string;
+  readonly body?: string;
+  readonly selfTest?: { fails: string[]; asDesigned: boolean; bindingNotChecked?: boolean };
+}
+
+const options = (variants: readonly VariantOption[]) =>
+  variants
+    .map(
+      (v) =>
+        `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.takeAwayOnly ? " (take-away only)" : ""}`)}</option>`,
+    )
+    .join("");
+
+export function servicePage(input: {
+  readonly orgId: string;
+  readonly service: ServiceSummary & {
+    readonly intendedUses: readonly {
+      id: string;
+      intendedUseIdentifier: string;
+      purpose: readonly { lang: string; value: string }[];
+    }[];
+  };
+  readonly certificates: readonly CertificateSummary[];
+  readonly wrpacVariants: readonly VariantOption[];
+  readonly wrprcVariants: readonly VariantOption[];
+  readonly error?: string;
+}): string {
+  const org = escapeHtml(input.orgId);
+  const svc = escapeHtml(input.service.relyingPartyServiceId);
+  const provider = input.service.role === "pid_provider";
+  const uses = input.service.intendedUses
+    .map(
+      (u) =>
+        `<tr><td><code>${escapeHtml(u.intendedUseIdentifier)}</code></td><td>${escapeHtml(u.purpose[0]?.value ?? "")}</td></tr>`,
+    )
+    .join("");
+  const certs = input.certificates
+    .map(
+      (c) =>
+        `<tr><td><a href="/org/${org}/certificates/${escapeHtml(c.id)}">${escapeHtml(c.kind)} ${escapeHtml(c.variant)}</a></td><td>${escapeHtml(c.variantTitle)}</td><td>${c.revokedAt ? "revoked" : "issued"}</td></tr>`,
+    )
+    .join("");
+  return page(
+    "Service",
+    `<h1>${escapeHtml(input.service.serviceTradeName)} <code>${escapeHtml(input.service.serviceIdentifier)}</code></h1>
+<p>${provider ? "PID Provider: entitlement PID_Provider, provides <code>urn:eudi:pid:1</code> in SD-JWT VC." : "Relying Party: entitlement Service_Provider."}</p>
+${input.error ? `<p role="alert"><strong>${escapeHtml(input.error)}</strong></p>` : ""}
+${
+  provider
+    ? '<p class="muted">A PID Provider has no intended use (RPRC_05).</p>'
+    : `<h2>Intended uses</h2>${uses ? `<table><tr><th>Id</th><th>Purpose</th></tr>${uses}</table>` : "<p>None yet. A registration certificate is issued per intended use.</p>"}
+<form method="post" action="/org/${org}/services/${svc}/intended-uses">
+<label for="purpose">Purpose (English)</label><input id="purpose" name="purpose" required maxlength="500">
+<label for="claims">PID claims it may request, one claim path per line (dots between elements; <code>*</code> for any array element)</label>
+<textarea id="claims" name="claims" rows="5" required>given_name
+family_name
+birthdate</textarea>
+<button>Register the intended use</button></form>`
+}
+<h2>Certificates</h2>
+${certs ? `<table><tr><th>Certificate</th><th>Variant</th><th>State</th></tr>${certs}</table>` : "<p>None yet.</p>"}
+<h3>Access certificate (take-away)</h3>
+<p class="muted">Issued against your certification request: your private key never reaches the sandbox. P-256 only.
+<code>openssl ecparam -name prime256v1 -genkey -noout -out key.pem &amp;&amp; openssl req -new -key key.pem -subj /CN=x -out req.pem</code>.
+The subject is taken from the sandbox register, not from the request.</p>
+<form method="post" action="/org/${org}/services/${svc}/access-certificates">
+<label for="ac-variant">Variant</label><select id="ac-variant" name="variant">${options(input.wrpacVariants)}</select>
+<label for="dnsNames">DNS names your verifier serves from, one per line</label><textarea id="dnsNames" name="dnsNames" rows="2" required></textarea>
+<label for="csrPem">Certification request (PEM)</label><textarea id="csrPem" name="csrPem" rows="8" required></textarea>
+<button>Issue the access certificate</button></form>
+<h3>Registration certificate</h3>
+<form method="post" action="/org/${org}/services/${svc}/registration-certificates">
+<label for="rc-variant">Variant</label><select id="rc-variant" name="variant">${options(input.wrprcVariants)}</select>
+${
+  provider
+    ? ""
+    : `<label for="intendedUseId">Intended use</label><select id="intendedUseId" name="intendedUseId">${input.service.intendedUses
+        .map(
+          (u) =>
+            `<option value="${escapeHtml(u.id)}">${escapeHtml(u.intendedUseIdentifier)}</option>`,
+        )
+        .join("")}</select>`
+}
+<button>Issue the registration certificate</button></form>
+<p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true },
+  );
+}
+
+export function certificatePage(orgId: string, cert: CertificateSummary): string {
+  const org = escapeHtml(orgId);
+  const id = escapeHtml(cert.id);
+  const test = cert.selfTest;
+  return page(
+    "Certificate",
+    `<h1>${escapeHtml(cert.kind)} <code>${escapeHtml(cert.variant)}</code> — ${escapeHtml(cert.variantTitle)}</h1>
+<table>
+<tr><th>Built to test</th><td>${escapeHtml(cert.requirement)}</td></tr>
+${cert.walletCoreReason ? `<tr><th>Wallet Core 0.30.2 reason</th><td><code>${escapeHtml(cert.walletCoreReason)}</code> (what a debug build logs)</td></tr>` : ""}
+<tr><th>Issued</th><td>${escapeHtml(cert.createdAt)}</td></tr>
+${cert.notAfter ? `<tr><th>Not after</th><td>${escapeHtml(cert.notAfter)}</td></tr>` : ""}
+${cert.fingerprintSha256 ? `<tr><th>SHA-256</th><td><code>${escapeHtml(cert.fingerprintSha256)}</code></td></tr>` : ""}
+<tr><th>State</th><td>${cert.revokedAt ? `revoked ${escapeHtml(cert.revokedAt)} — final` : "issued"}</td></tr>
+${
+  test
+    ? `<tr><th>The sandbox's own check</th><td>${test.fails.length ? `fails <code>${escapeHtml(test.fails.join(", "))}</code>` : "passes every check"}${test.asDesigned ? " — as designed" : " — <strong>not as designed</strong>"}${test.bindingNotChecked ? "; binding not checked: no correct access certificate for this service yet" : ""}</td></tr>`
+    : ""
+}
+</table>
+<p class="muted">The sandbox's own check is not a wallet's verdict. What a wallet does with this certificate is
+what you record in a run report, together with the wallet build and the position of
+<em>Check Registration Certificates</em>.</p>
+${cert.takeAwayOnly ? "<p><strong>Take-away only.</strong> The hosted issuer cannot exercise this defect: the engine publishes no signed issuer metadata, so the sandbox wallet does not apply its issuer registration checks (G-10).</p>" : ""}
+${cert.body ? `<p><a class="button" href="/org/${org}/certificates/${id}/download">Download</a></p>` : "<p>RC-01 is the absence of a registration certificate: there is nothing to download.</p>"}
+${cert.revokedAt ? "" : `<form method="post" action="/org/${org}/certificates/${id}/revoke"><button class="secondary">Revoke (final)</button></form>`}
+<p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true },
+  );
+}
+
+/** One claim path per line: dots between elements, `*` for any array element, digits for an index. */
+export function parseClaimLines(text: string): (string | number | null)[][] {
+  return text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((line) =>
+      line
+        .split(".")
+        .map((part) => (part === "*" ? null : /^\d+$/.test(part) ? Number(part) : part)),
+    );
 }

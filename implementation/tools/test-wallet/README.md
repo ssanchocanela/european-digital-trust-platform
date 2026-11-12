@@ -33,6 +33,31 @@ result is a statement about.
 `--prepare-only` stops after patching, for reviewing the patched tree. `--deviations` currently accepts
 only `none`.
 
+## The sandbox build (`--profile sandbox`)
+
+For the EUDI ecosystem sandbox (`docs/sandbox/`, ADR 0014): a build that reads the sandbox's own
+three trust lists instead of the reference ones, so it trusts the sandbox's Access CA, registrar and
+PID CA — and, through the PID list, the sign-in PID Providers the sandbox carries.
+
+```bash
+./build.sh --profile sandbox --sandbox-base https://<sandbox-host>/sandbox/public --show-config
+```
+
+`--show-config` prints what the profile expands to and stops. Drop it to build. The profile is a named
+set of existing flags and adds nothing of its own:
+- `--deviations wd-2,wd-3,wd-4,wd-6,wd-7,wd-8`;
+- the three `--*-lote` URLs under the base;
+- applicationId suffix `.sandbox` and app name "EDTP Sandbox wallet", so it installs beside a W-build
+  instead of replacing it.
+
+It refuses `--deviations` or a `--*-lote` flag given alongside it, so a build is the sandbox profile or
+something else, never half of each.
+
+**What it means for results.** Everything from it is a **modified wallet** result, with the deviations
+above. wd-2 switches off the issuer registration checks whatever *Check Registration Certificates* says
+(CLAUDE.md §6.21). So a sandbox run report always records the build, and the issuance-side WRPRC
+defects are take-away only (G-10).
+
 ## What this build is, and is not
 
 | | |

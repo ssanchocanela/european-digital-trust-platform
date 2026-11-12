@@ -100,10 +100,14 @@ describe("the engine allow-list refuses everything else", () => {
   });
 });
 
-describe("the platform allow-list is one route", () => {
-  it("permits only the same-device return page", () => {
+describe("the platform allow-list is two rules", () => {
+  it("permits the same-device return page and the sandbox's public reads, nothing else", () => {
     expect(isAllowed(PLATFORM_RULES, "GET", `/v1/presentations/${T}/return`)).toBe(true);
-    expect(PLATFORM_RULES).toHaveLength(1);
+    // A third rule is a widening of the public surface: docs/test-session-gateway.md §1b first.
+    expect(PLATFORM_RULES.map((r) => r.why)).toEqual([
+      "VaaS same-device — the browser return page",
+      "Sandbox — trust lists, status lists, CRLs, CA certificates, the CPS and the register",
+    ]);
   });
 
   it("refuses management, enumeration and the API's own description", () => {
@@ -142,5 +146,39 @@ describe("the negative probes are the ones that would be run", () => {
     expect(paths).toContain("/health");
     expect(paths).toContain("/storage/x");
     expect(paths).toContain("/");
+  });
+});
+
+describe("the sandbox's public reads (S4)", () => {
+  it("lets a wallet fetch the sandbox's lists, status lists and CRLs, read-only", () => {
+    for (const path of [
+      "/sandbox/public/lote/PIDProviders.jwt",
+      "/sandbox/public/lote/WRPACProviders.jwt",
+      "/sandbox/public/lote/WRPRCProviders.jwt",
+      "/sandbox/public/status/registrar-signing",
+      "/sandbox/public/status/unavailable",
+      "/sandbox/public/crl/access-ca.crl",
+      "/sandbox/public/ca/access-ca-untrusted.cer",
+      "/sandbox/public/cps",
+      "/sandbox/public/wrp",
+      "/sandbox/public/wrp/SB:ES-000001/services/S001",
+      "/sandbox/public/wrp/check-intended-use",
+    ]) {
+      expect(isAllowed(PLATFORM_RULES, "GET", path), path).toBe(true);
+      expect(isAllowed(PLATFORM_RULES, "POST", path), `POST ${path}`).toBe(false);
+    }
+  });
+
+  it("refuses anything else under the sandbox, the portal's API above all", () => {
+    for (const path of [
+      "/sandbox/public/lote/EAAProviders.jwt",
+      "/sandbox/public/ca/../../etc/passwd",
+      "/sandbox/public/ca/lote-signer.key",
+      "/sandbox/v1/me",
+      "/sandbox/v1/sign-in-attempts",
+      "/sandbox/v1/organisations/x/api-keys",
+    ]) {
+      expect(isAllowed(PLATFORM_RULES, "GET", path), path).toBe(false);
+    }
   });
 });

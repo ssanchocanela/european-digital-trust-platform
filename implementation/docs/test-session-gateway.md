@@ -73,11 +73,13 @@ Added **only when the flow under test needs them**, not pre-emptively:
 
 ### 1b. The platform, on a separate tunnel host
 
-**One route**, and only for same-device verification:
+**One route** for same-device verification, and — since sandbox S4, 12 November 2026 — the sandbox's
+public reads:
 
 | Method | Path | Why |
 |---|---|---|
 | `GET` | `/v1/presentations/{presentationId}/return` | Where the wallet returns the user's browser after a same-device flow. Already `@Public()` and deliberately minimal — it echoes the id and a sentence, and reveals no outcome |
+| `GET` | `/sandbox/public/{lote,crl,status,ca}/…`, `/sandbox/public/cps`, `/sandbox/public/wrp…` | **Sandbox only.** The sandbox's trust lists, registration-certificate status lists, CRLs, CA certificates, CPS and signed register (`docs/sandbox/specification.md` §9). Public by design (`EW-DM-31-003`, `TLPub_04`), read-only, each name from the same closed set the controller accepts. A sandbox wallet build fetches the lists over HTTPS, so they must be reachable through the tunnel. `/sandbox/v1/*`, the portal's API, is **not** exposed, and two negative probes check it |
 
 **The issuance flow needs no platform route at all.** The credential offer URI points at the engine, and
 the platform has no public issuance endpoint. A useful result: the IaaS matrix rows need only the engine

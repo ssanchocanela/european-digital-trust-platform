@@ -48,6 +48,15 @@
 #                           differently-signed APK cannot update it in place.
 #   --app-name <name>       overrides the on-screen app name to match.
 #   --build-type <type>     `release` (default) or `debug`.
+#   --profile sandbox       the EDTP sandbox build (docs/sandbox/, ADR 0014): reads the sandbox's three
+#                           lists instead of the reference ones. Needs --sandbox-base; expands to
+#                           --deviations wd-2,wd-3,wd-4,wd-6,wd-7,wd-8, the three --*-lote URLs under
+#                           that base, applicationId suffix .sandbox and app name "EDTP Sandbox
+#                           wallet". Refused together with --deviations or a --*-lote flag, so a
+#                           build is either the sandbox profile or something else, never half of it.
+#   --sandbox-base <url>    the sandbox's public base, e.g. https://<host>/sandbox/public.
+#   --show-config           print the settings this invocation expands to, and stop: no clone, no
+#                           build. For checking a profile before spending twenty minutes on it.
 #
 # `debug` exists for diagnosis, not for results. Upstream's NetworkModule sets the APP's Ktor HTTP
 # logging to LogLevel.BODY for DEBUG and NONE for RELEASE — but that is one of two clients. Wallet
@@ -86,6 +95,9 @@ APP_ID_SUFFIX=""
 BRAND=""
 APP_NAME=""
 BUILD_TYPE="release"
+PROFILE=""
+SANDBOX_BASE=""
+SHOW_CONFIG="no"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -102,13 +114,52 @@ while [ $# -gt 0 ]; do
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
     --build-type) BUILD_TYPE="${2:-}"; shift 2 ;;
     --prepare-only) SKIP_BUILD="yes"; shift ;;
-    -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --profile) PROFILE="${2:-}"; shift 2 ;;
+    --sandbox-base) SANDBOX_BASE="${2:-}"; shift 2 ;;
+    --show-config) SHOW_CONFIG="yes"; shift ;;
+    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
 
 die() { echo "build.sh: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
+
+# --- 0a. Profiles -----------------------------------------------------------------------------
+#
+# A profile is a named set of the flags below, nothing more: it adds no behaviour of its own, and
+# every deviation it turns on is validated exactly as if it had been typed.
+case "$PROFILE" in
+  "") ;;
+  sandbox)
+    [ "$DEVIATIONS" = "none" ] || die "--profile sandbox sets the deviations itself; drop --deviations."
+    [ -z "$WRPAC_LOTE$PID_LOTE$WRPRC_LOTE$PUBEAA_LOTE" ] ||
+      die "--profile sandbox sets the list URLs itself; drop the --*-lote flags."
+    [ -n "$SANDBOX_BASE" ] || die "--profile sandbox requires --sandbox-base https://<host>/sandbox/public."
+    case "$SANDBOX_BASE" in
+      https://*) ;;
+      *) die "--sandbox-base must be https. A wallet will not fetch a trust list over cleartext." ;;
+    esac
+    SANDBOX_BASE="${SANDBOX_BASE%/}"
+    # wd-3, wd-4, wd-8: the sandbox's access-CA, PID and registration-certificate-provider lists.
+    # wd-2 and wd-6: what issuance from the sandbox's hosted PID issuer needs (S5), as for W8/W9.
+    # wd-7: release logs kept to warnings and errors.
+    DEVIATIONS="wd-2,wd-3,wd-4,wd-6,wd-7,wd-8"
+    WRPAC_LOTE="$SANDBOX_BASE/lote/WRPACProviders.jwt"
+    PID_LOTE="$SANDBOX_BASE/lote/PIDProviders.jwt"
+    WRPRC_LOTE="$SANDBOX_BASE/lote/WRPRCProviders.jwt"
+    APP_ID_SUFFIX="${APP_ID_SUFFIX:-.sandbox}"
+    APP_NAME="${APP_NAME:-EDTP Sandbox wallet}"
+    ;;
+  *) die "--profile takes one value: sandbox." ;;
+esac
+[ -z "$SANDBOX_BASE" ] || [ "$PROFILE" = "sandbox" ] || die "--sandbox-base goes with --profile sandbox."
+
+if [ "$SHOW_CONFIG" = "yes" ]; then
+  printf 'deviations=%s\nwrpac_lote=%s\npid_lote=%s\nwrprc_lote=%s\npubeaa_lote=%s\napp_id_suffix=%s\napp_name=%s\nbuild_type=%s\n' \
+    "$DEVIATIONS" "$WRPAC_LOTE" "$PID_LOTE" "$WRPRC_LOTE" "$PUBEAA_LOTE" "$APP_ID_SUFFIX" "$APP_NAME" "$BUILD_TYPE"
+  exit 0
+fi
 
 # --- 0. Deviations -----------------------------------------------------------------------------
 #

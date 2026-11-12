@@ -183,7 +183,7 @@ check; the VM is what any run whose result will be recorded should use, because 
 corporate-network laptop is a policy problem regardless of its technical soundness, and because
 Cloudflare terminating TLS puts a third party inside the thing under test.
 
-**The allow-list in §1 governs either deployment**, and so do the negative checks in §4.
+**The allow-list in §1 governs either deployment**, and so do the negative checks in §4. It governs the two permanent ones too: the demonstration VM (ADR 0010) and, since sandbox S6, the **sandbox VM** ([ADR 0017](adr/0017-sandbox-vm.md), `infra/sandbox-vm/`). The sandbox VM adds no rule: its public paths are §1a and §1b, with `GATEWAY_SANDBOX_SIGNED_METADATA` on. Its portal is not behind the gateway at all but behind Cloudflare Access, and its negative checks require the portal to redirect to the Access login.
 
 | Option | Verdict |
 |---|---|

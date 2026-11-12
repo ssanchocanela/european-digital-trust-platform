@@ -23,7 +23,7 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR #44; real runs pending |
 | **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
 | **S5b** | `sandbox/s5b-signed-metadata` | Signed issuer metadata for sandbox issuers ([ADR 0016](../adr/0016-sandbox-signed-issuer-metadata.md), option 2, decided) and a sandbox wallet profile without WD-2 | PR, STOP ← *built; runs per [`s5b-run-sheet.md`](s5b-run-sheet.md) pending* |
-| **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
+| **S6** | `sandbox/s6-deployment` | The sandbox VM ([ADR 0017](../adr/0017-sandbox-vm.md), proposed) | PR, user-confirmed deployment, STOP ← *built; nothing deployed* |
 
 ## S2 — Foundations
 
@@ -186,6 +186,37 @@ The runs are in [`s5-run-sheet.md`](s5-run-sheet.md).
   - backups of the CA key store.
 - **The sandbox wallet build offered behind Cloudflare Access** (CLAUDE.md §6.22).
 - **Deployment only after the user confirms it.**
+
+**Decided by the user, 12 November 2026:**
+- hostnames `sandbox-*.murcata.es`;
+- invited participants only, the portal behind Cloudflare Access;
+- no scheduled reset;
+- Hetzner's server backups plus nightly dumps on the VM.
+
+**Built** ([ADR 0017](../adr/0017-sandbox-vm.md), proposed):
+- **Quotas per organisation**, checked before any side effect, and the hosted verifier and issuer
+  refusing a suspended organisation. Found missing on the way: the specification asked for both, and
+  only the certificate service checked suspension.
+- **`sandbox-operator-cli.js`**: `participants` and `suspend` (J9, in part; SB6).
+- **The portal's `/wallet` page.** It offers nothing until the EUPL reading is confirmed, and only
+  release builds that hash as listed. `SANDBOX_PORTAL_REQUIRE_ACCESS` adds the second lock.
+- **`infra/sandbox-vm/`:**
+  - a self-contained compose file, with a drift test against the root one;
+  - the tunnel config;
+  - secrets generated on the VM;
+  - negative checks that also require the portal to redirect to Access;
+  - the scheduled checks;
+  - nightly and pre-deployment backups;
+  - `deploy.sh` with rollback.
+- **The `deploy-sandbox` workflow**, behind the GitHub environment `sandbox`.
+- **`scripts/register-sandbox-operator.mjs`** for the sign-in verifier.
+- **`create-server.sh`**, taking a role and Hetzner backups.
+
+**Not done:**
+- **Nothing is deployed.** The steps in `infra/sandbox-vm/README.md` need a person for Hetzner,
+  Cloudflare (tunnel, DNS, Access) and GitHub (environment, secrets), and the user's confirmation for
+  each deployment.
+- **No wallet build is offered** until the EUPL reading is legally confirmed.
 
 **v1.1, after S6:**
 - brought-in PID anchors with operator approval;

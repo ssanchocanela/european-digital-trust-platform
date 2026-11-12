@@ -4,14 +4,22 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
+  ],
   "references": [
     {
       "path": "../shared"
     },
     {
       "path": "../domain"
+    },
+    {
+      "path": "../sandbox-domain"
     }
   ]
 }

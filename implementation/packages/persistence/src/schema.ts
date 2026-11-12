@@ -3,6 +3,7 @@ import {
   index,
   integer,
   jsonb,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -900,4 +901,129 @@ export const trustAnchorPublications = pgTable(
     uniqueIndex("trust_anchor_publications_seq_key").on(t.tenantId, t.sequenceNumber),
     index("trust_anchor_publications_tenant_idx").on(t.tenantId),
   ],
+);
+
+// --- sandbox (ADR 0015) --------------------------------------------------------------
+//
+// Configuration and transaction metadata only. No table here holds a PID value: a person is known
+// by a `PseudonymousSubject` derivation and the name they typed; secrets (session, invitation and
+// browser-binding tokens) are stored as SHA-256 hashes.
+
+/** Numbers the `SB:<CC>-<n>` identifiers. Never reused, so an identifier is never reassigned. */
+export const sandboxOrganisationNumberSeq = pgSequence("sandbox_organisation_number_seq", {
+  startWith: 1,
+});
+
+export const sandboxOrganisations = pgTable(
+  "sandbox_organisations",
+  {
+    tenantId: uuid("tenant_id")
+      .primaryKey()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "restrict" }),
+    number: integer("number").notNull(),
+    localIdentifier: text("local_identifier").notNull(),
+    country: text("country").notNull(),
+    declaredEuid: text("declared_euid"),
+    status: text("status").notNull(),
+    createdAt: ts("created_at").notNull(),
+    suspendedAt: ts("suspended_at"),
+  },
+  (t) => [
+    uniqueIndex("sandbox_organisations_number_key").on(t.number),
+    uniqueIndex("sandbox_organisations_local_identifier_key").on(t.localIdentifier),
+  ],
+);
+
+export const sandboxPeople = pgTable(
+  "sandbox_people",
+  {
+    id: uuid("id").primaryKey(),
+    /** A `PseudonymousSubject` derivation. Derived result; never a PID value. */
+    subject: text("subject").notNull(),
+    displayName: text("display_name").notNull(),
+    createdAt: ts("created_at").notNull(),
+    lastSignInAt: ts("last_sign_in_at").notNull(),
+  },
+  (t) => [uniqueIndex("sandbox_people_subject_key").on(t.subject)],
+);
+
+export const sandboxMemberships = pgTable(
+  "sandbox_memberships",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => sandboxPeople.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.personId] }),
+    index("sandbox_memberships_person_idx").on(t.personId),
+  ],
+);
+
+export const sandboxInvitations = pgTable(
+  "sandbox_invitations",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    role: text("role").notNull(),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => sandboxPeople.id, { onDelete: "cascade" }),
+    createdAt: ts("created_at").notNull(),
+    expiresAt: ts("expires_at").notNull(),
+    acceptedAt: ts("accepted_at"),
+    acceptedBy: uuid("accepted_by").references(() => sandboxPeople.id, {
+      onDelete: "set null",
+    }),
+  },
+  (t) => [
+    uniqueIndex("sandbox_invitations_token_key").on(t.tokenHash),
+    index("sandbox_invitations_tenant_idx").on(t.tenantId),
+  ],
+);
+
+export const sandboxSessions = pgTable(
+  "sandbox_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => sandboxPeople.id, { onDelete: "cascade" }),
+    createdAt: ts("created_at").notNull(),
+    lastSeenAt: ts("last_seen_at").notNull(),
+    endedAt: ts("ended_at"),
+  },
+  (t) => [index("sandbox_sessions_person_idx").on(t.personId)],
+);
+
+export const sandboxSignInAttempts = pgTable(
+  "sandbox_sign_in_attempts",
+  {
+    id: uuid("id").primaryKey(),
+    /** Hash of the token the starting browser holds in a cookie. */
+    bindingHash: text("binding_hash").notNull(),
+    purpose: text("purpose").notNull(),
+    invitationId: uuid("invitation_id").references(() => sandboxInvitations.id, {
+      onDelete: "cascade",
+    }),
+    /** The sign-in verifier's presentation. A platform id, never an engine one. */
+    presentationId: uuid("presentation_id").notNull(),
+    /** Set when the presentation verified a person not yet known. Derived result. */
+    subject: text("subject"),
+    createdAt: ts("created_at").notNull(),
+    expiresAt: ts("expires_at").notNull(),
+    completedAt: ts("completed_at"),
+  },
+  (t) => [uniqueIndex("sandbox_sign_in_attempts_presentation_key").on(t.presentationId)],
 );

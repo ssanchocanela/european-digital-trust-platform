@@ -20,6 +20,7 @@
       "@edtp/start-token": ["packages/start-token/src/index.ts"],
       "@edtp/registration-client": ["packages/registration-client/src/index.ts"],
       "@edtp/sandbox-pki": ["packages/sandbox-pki/src/index.ts"],
+      "@edtp/sandbox-domain": ["packages/sandbox-domain/src/index.ts"],
       "@edtp/operator-console/*": ["apps/operator-console/src/*"],
       "@edtp/platform-api/*": ["apps/platform-api/src/*"],
       "@edtp/test-gateway/*": ["apps/test-gateway/src/*"]

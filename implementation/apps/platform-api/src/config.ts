@@ -119,6 +119,31 @@ const schema = z.object({
    */
   HOSTED_VERIFIER_SECRET: unsetIfEmpty(z.string().min(32).optional()),
   /**
+   * The EUDI ecosystem sandbox (ADR 0014, ADR 0015). Off unless `SANDBOX_PORTAL_SECRET` is set; then
+   * every other `SANDBOX_*` value and `PSEUDONYM_MASTER_KEY` are required.
+   *
+   * `SANDBOX_TRUST_ENVIRONMENT` accepts only `TEST`: the sandbox refuses to start in a `PRODUCTION`
+   * trust environment, so its anchors can never be configured into one (specification §11).
+   */
+  SANDBOX_PORTAL_SECRET: unsetIfEmpty(z.string().min(32).optional()),
+  SANDBOX_TRUST_ENVIRONMENT: z
+    .string()
+    .default("TEST")
+    .refine((v) => v === "TEST", "the sandbox runs in the TEST trust environment only"),
+  SANDBOX_OPERATOR_TENANT_ID: unsetIfEmpty(z.string().uuid().optional()),
+  SANDBOX_SIGN_IN_POLICY_ID: unsetIfEmpty(z.string().uuid().optional()),
+  SANDBOX_PORTAL_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
+  /** Trust anchor source refs participants' PID Providers are placed on, comma-separated. */
+  SANDBOX_PARTICIPANT_TRUST_SOURCES: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  /**
    * Master key for `PseudonymousSubject` derivations, base64, at least 32 bytes. A secret: on the
    * redaction deny-list, never logged. Unset: such derivations are unsatisfied (ADR 0015).
    */
@@ -341,6 +366,37 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
     throw new Error(
       "Invalid environment configuration:\n  HOSTED_VERIFIER_SECRET must differ from the hosted form's secrets",
     );
+  }
+  if (d.SANDBOX_PORTAL_SECRET) {
+    const missing = [
+      ["SANDBOX_OPERATOR_TENANT_ID", d.SANDBOX_OPERATOR_TENANT_ID],
+      ["SANDBOX_SIGN_IN_POLICY_ID", d.SANDBOX_SIGN_IN_POLICY_ID],
+      ["SANDBOX_PORTAL_PUBLIC_URL", d.SANDBOX_PORTAL_PUBLIC_URL],
+      ["PSEUDONYM_MASTER_KEY", d.PSEUDONYM_MASTER_KEY],
+    ].filter(([, v]) => !v);
+    if (missing.length || d.SANDBOX_PARTICIPANT_TRUST_SOURCES.length === 0) {
+      // Without the participants' sources the sign-in separation check (ADR 0015 Decision 2) would
+      // compare against nothing and always pass: refuse instead.
+      const names = [
+        ...missing.map(([n]) => n),
+        ...(d.SANDBOX_PARTICIPANT_TRUST_SOURCES.length
+          ? []
+          : ["SANDBOX_PARTICIPANT_TRUST_SOURCES"]),
+      ];
+      throw new Error(
+        `Invalid environment configuration:\n  the sandbox needs ${names.join(", ")}`,
+      );
+    }
+    const others = [
+      d.HOSTED_VERIFIER_SECRET,
+      d.HOSTED_FORM_SECRET,
+      d.HOSTED_FORM_AUTHORIZE_SECRET,
+    ];
+    if (others.includes(d.SANDBOX_PORTAL_SECRET)) {
+      throw new Error(
+        "Invalid environment configuration:\n  SANDBOX_PORTAL_SECRET must differ from every other public process's secret",
+      );
+    }
   }
   if (
     Boolean(d.ENGINE_ATTRIBUTE_PROVIDER_BASE_URL) !== Boolean(d.ENGINE_ATTRIBUTE_PROVIDER_KEY)

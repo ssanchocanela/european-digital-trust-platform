@@ -22,7 +22,8 @@
     "express": "5.1.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "@edtp/sandbox-domain": "workspace:*"
   },
   "devDependencies": {
     "@types/express": "5.0.3"

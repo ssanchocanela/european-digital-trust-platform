@@ -16,11 +16,12 @@ import {
   ListingRepository,
   PolicyRepository,
   RegistrationRepository,
+  SandboxRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
   WebhookEndpointRepository,
 } from "@edtp/persistence";
-import { type Clock, systemClock } from "@edtp/shared";
+import { asId, type Clock, systemClock } from "@edtp/shared";
 import type { PlatformConfig } from "./config.js";
 import { BackgroundJobs } from "./jobs/background.jobs.js";
 import { Logger } from "./logging/logger.js";
@@ -38,6 +39,7 @@ import { WalletInitiatedClaims } from "./modules/issuances/wallet-initiated-clai
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
+import { SandboxService } from "./modules/sandbox/sandbox.service.js";
 import { WebhookService } from "./webhook/webhook.service.js";
 
 /**
@@ -65,6 +67,7 @@ export interface Dependencies {
     readonly issuance: IssuanceRepository;
     readonly webhookEndpoints: WebhookEndpointRepository;
     readonly listing: ListingRepository;
+    readonly sandbox: SandboxRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -85,6 +88,8 @@ export interface Dependencies {
     readonly presentations: PresentationService;
     readonly webhooks: WebhookService;
     readonly issuances: IssuanceService;
+    /** Present only when the sandbox is configured (`SANDBOX_PORTAL_SECRET`). */
+    readonly sandbox?: SandboxService;
   };
   readonly jobs: BackgroundJobs;
   /** Where a browser goes after presenting, for presentations the hosted form started. */
@@ -119,6 +124,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     deliveries: new WebhookDeliveryRepository(db),
     issuance: new IssuanceRepository(db),
     listing: new ListingRepository(db),
+    sandbox: new SandboxRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
 
@@ -258,6 +264,30 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
       : undefined,
   );
 
+  const hostedFormReturns = new HostedFormReturns(() => clock.now());
+  const sandbox =
+    config.SANDBOX_PORTAL_SECRET &&
+    config.SANDBOX_OPERATOR_TENANT_ID &&
+    config.SANDBOX_SIGN_IN_POLICY_ID &&
+    config.SANDBOX_PORTAL_PUBLIC_URL
+      ? new SandboxService(
+          {
+            operatorTenantId: asId<"TenantId">(config.SANDBOX_OPERATOR_TENANT_ID),
+            signInPolicyId: config.SANDBOX_SIGN_IN_POLICY_ID,
+            participantTrustSources: config.SANDBOX_PARTICIPANT_TRUST_SOURCES,
+            portalPublicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
+          },
+          repositories.sandbox,
+          repositories.policies,
+          repositories.apiKeys,
+          presentations,
+          hostedFormReturns,
+          audit,
+          clock,
+          logger,
+        )
+      : undefined;
+
   const jobs = new BackgroundJobs(
     presentations,
     webhooks,
@@ -278,9 +308,17 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     issuer,
     issuerProvisioning,
     registry: { connectors, evaluators },
-    services: { audit, registration, policies, presentations, webhooks, issuances },
+    services: {
+      audit,
+      registration,
+      policies,
+      presentations,
+      webhooks,
+      issuances,
+      ...(sandbox ? { sandbox } : {}),
+    },
     jobs,
-    hostedFormReturns: new HostedFormReturns(() => clock.now()),
+    hostedFormReturns,
   };
 };
 

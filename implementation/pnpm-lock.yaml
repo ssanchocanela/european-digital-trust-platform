@@ -246,6 +246,9 @@ importers:
       '@edtp/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@edtp/sandbox-domain':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-domain
       '@edtp/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -356,6 +359,9 @@ importers:
       '@edtp/domain':
         specifier: workspace:*
         version: link:../domain
+      '@edtp/sandbox-domain':
+        specifier: workspace:*
+        version: link:../sandbox-domain
       '@edtp/shared':
         specifier: workspace:*
         version: link:../shared
@@ -378,6 +384,14 @@ importers:
       zod:
         specifier: 3.25.76
         version: 3.25.76
+
+  packages/sandbox-domain:
+    dependencies:
+      '@edtp/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/sandbox-pki: {}
 
   packages/shared: {}
 

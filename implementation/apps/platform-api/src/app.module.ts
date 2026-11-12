@@ -18,6 +18,7 @@ import {
   TenantListingController,
   TransactionListingController,
 } from "./http/listing.controllers.js";
+import { SandboxController } from "./http/sandbox.controllers.js";
 import {
   EngineAttributesController,
   HostedFormController,
@@ -41,6 +42,7 @@ import {
   REGISTERED_CONNECTORS,
   REGISTERED_EVALUATORS,
   REGISTRATION_SERVICE,
+  SANDBOX_SERVICE,
   VERIFIER_PORT,
   VERIFIER_PROVISIONING_PORT,
   WEBHOOK_ENDPOINT_REPOSITORY,
@@ -73,6 +75,7 @@ export class AppModule {
         HostedFormController,
         HostedVerifierController,
         EngineAttributesController,
+        SandboxController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },
@@ -98,6 +101,7 @@ export class AppModule {
         { provide: ISSUER_PROVISIONING_PORT, useValue: deps.issuerProvisioning },
         { provide: ISSUANCE_SERVICE, useValue: deps.services.issuances },
         { provide: HOSTED_FORM_RETURNS, useValue: deps.hostedFormReturns },
+        { provide: SANDBOX_SERVICE, useValue: deps.services.sandbox },
         // Names only. Policy validation refuses an unknown evaluator or connector at publication,
         // so a typo fails while a reviewer is present rather than while a User is waiting.
         { provide: REGISTERED_EVALUATORS, useValue: [...deps.registry.evaluators.keys()] },

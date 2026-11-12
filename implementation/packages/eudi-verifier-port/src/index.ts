@@ -185,6 +185,32 @@ export interface EudiVerifierProvisioningPort {
   }>;
 
   healthy(): Promise<boolean>;
+
+  /**
+   * The issuers a presentation's attestations may be signed by, as a list the engine holds on this
+   * engine tenant under `listId` — created or replaced. Each issuer is its anchor certificate. The
+   * engine re-signs every list it holds, so the tenant needs a signing key of its own first
+   * (`ensureTrustListSigningKey`). Used for engine tenants the platform creates at runtime (sandbox
+   * S4); the operator's `scripts/load-issuer-trust-list.mjs` does the same by hand.
+   */
+  upsertIssuerTrustList?(
+    engineTenantRef: string,
+    input: {
+      readonly listId: string;
+      readonly description: string;
+      readonly issuers: readonly { readonly name: string; readonly certificatePem: string }[];
+    },
+  ): Promise<void>;
+
+  /** Import a key the engine signs its own trust lists with, unless the tenant already has one. */
+  ensureTrustListSigningKey?(
+    engineTenantRef: string,
+    input: {
+      readonly description: string;
+      readonly privateKeyJwk: Readonly<Record<string, unknown>>;
+      readonly certificatePem: string;
+    },
+  ): Promise<void>;
 }
 
 /**

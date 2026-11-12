@@ -113,9 +113,12 @@ describe("migrations", () => {
         "sandbox_organisations",
         "sandbox_people",
         "sandbox_publications",
+        "sandbox_runs",
         "sandbox_services",
         "sandbox_sessions",
         "sandbox_sign_in_attempts",
+        "sandbox_verifier_uses",
+        "sandbox_verifiers",
       ].sort(),
     );
   });
@@ -127,11 +130,14 @@ describe("migrations", () => {
     );
     // ADR 0015 Decision 4: a person is a pseudonymous subject and a typed display name. A column
     // named after a PID attribute would be the first step to keeping one.
-    const pidLike = /given|family|birth|nationality|address|document|portrait|personal_admin|issuing_/;
+    const pidLike =
+      /given|family|birth|nationality|address|document|portrait|personal_admin|issuing_/;
     const suspicious = rows.filter((r) => pidLike.test(r.column_name));
     expect(suspicious, "sandbox tables must hold no PID values").toEqual([]);
     // Tokens are stored as hashes only.
-    const tokenColumns = rows.filter((r) => /token|binding/.test(r.column_name)).map((r) => r.column_name);
+    const tokenColumns = rows
+      .filter((r) => /token|binding/.test(r.column_name))
+      .map((r) => r.column_name);
     expect(tokenColumns.every((c) => c.endsWith("_hash"))).toBe(true);
   });
 

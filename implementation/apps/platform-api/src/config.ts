@@ -170,6 +170,19 @@ const schema = z.object({
   SANDBOX_PKI_DIR: unsetIfEmpty(z.string().min(1).optional()),
   SANDBOX_KEYSTORE_KEY: base64Key(32, true),
   SANDBOX_PUBLIC_BASE_URL: unsetIfEmpty(z.string().url().optional()),
+  /**
+   * The host a wallet reaches the engine's wallet-facing endpoints at — the `dNSName` of every hosted
+   * verifier's access certificate (S4). Unset: no hosted verifier.
+   */
+  SANDBOX_VERIFIER_DNS_NAME: unsetIfEmpty(
+    z
+      .string()
+      .regex(
+        /^(?=.{1,253}$)[a-z0-9-]{1,63}(\.[a-z0-9-]{1,63})+$/,
+        "must be a lower-case host name",
+      )
+      .optional(),
+  ),
   /** Trust anchor source refs participants' PID Providers are placed on, comma-separated. */
   SANDBOX_PARTICIPANT_TRUST_SOURCES: z
     .string()

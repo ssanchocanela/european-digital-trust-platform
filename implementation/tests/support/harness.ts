@@ -171,6 +171,28 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
     return true;
   }
 
+  readonly trustLists: { engineTenantRef: string; listId: string; issuers: number }[] = [];
+  readonly trustListKeys: string[] = [];
+
+  async upsertIssuerTrustList(
+    engineTenantRef: string,
+    input: {
+      listId: string;
+      description: string;
+      issuers: readonly { name: string; certificatePem: string }[];
+    },
+  ): Promise<void> {
+    this.trustLists.push({
+      engineTenantRef,
+      listId: input.listId,
+      issuers: input.issuers.length,
+    });
+  }
+
+  async ensureTrustListSigningKey(engineTenantRef: string): Promise<void> {
+    if (!this.trustListKeys.includes(engineTenantRef)) this.trustListKeys.push(engineTenantRef);
+  }
+
   /**
    * Clears recorded calls, scripted responses **and the session counter**.
    *
@@ -185,6 +207,8 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
     this.retentionCalls.length = 0;
     this.cancelled.length = 0;
     this.imports.length = 0;
+    this.trustLists.length = 0;
+    this.trustListKeys.length = 0;
     this.statuses.clear();
     this.claims.clear();
     this.failCreate = undefined;
@@ -271,7 +295,7 @@ export const createHarness = async (options?: {
          presentation_policy_versions, presentation_policies,
          access_certificates, registration_certificates, relying_party_instances,
          intended_uses, relying_party_services, relying_parties,
-         sandbox_publications, sandbox_certificates, sandbox_services,
+         engine_tenant_credentials, sandbox_runs, sandbox_verifier_uses, sandbox_verifiers, sandbox_publications, sandbox_certificates, sandbox_services,
          sandbox_sign_in_attempts, sandbox_sessions, sandbox_invitations, sandbox_memberships,
          sandbox_people, sandbox_organisations, organisations,
          api_keys, tenants

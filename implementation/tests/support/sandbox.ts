@@ -1,14 +1,17 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EngineCredentialRepository } from "@edtp/persistence";
 import { createTrustDomain, FileKeyStore } from "@edtp/sandbox-pki";
 import { asId, newCorrelationId, PlatformError, type TenantId } from "@edtp/shared";
+import { EngineTenantService } from "../../apps/platform-api/src/modules/engine-tenants/engine-tenant.service.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
 import { SandboxPublicationService } from "../../apps/platform-api/src/modules/sandbox/publication.service.js";
 import { SandboxRegister } from "../../apps/platform-api/src/modules/sandbox/register.js";
 import { SandboxService } from "../../apps/platform-api/src/modules/sandbox/sandbox.service.js";
 import { SandboxTrustDomain } from "../../apps/platform-api/src/modules/sandbox/trust-domain.runtime.js";
 import { sandboxUrls } from "../../apps/platform-api/src/modules/sandbox/urls.js";
+import { SandboxVerifierService } from "../../apps/platform-api/src/modules/sandbox/verifier.service.js";
 import type { Harness } from "./harness.js";
 import { seedTenant } from "./seed.js";
 
@@ -39,9 +42,14 @@ export async function errorCode(promise: Promise<unknown>): Promise<string> {
   return "no error";
 }
 
+export const VERIFIER_DNS = "engine.sandbox.test";
+
 export async function wireSandbox(
   harness: Harness,
-  options: { pidSignInAnchors?: { name: string; certificate: Buffer }[] } = {},
+  options: {
+    pidSignInAnchors?: { name: string; certificate: Buffer }[];
+    withoutEngineTenants?: boolean;
+  } = {},
 ) {
   const operator = await seedTenant(harness, {
     name: "EDTP Sandbox operator",
@@ -150,6 +158,45 @@ export async function wireSandbox(
     return { context, organisationId: done.organisation?.tenantId as TenantId };
   }
 
+  const createdEngineTenants: string[] = [];
+  const engineTenants = options.withoutEngineTenants
+    ? undefined
+    : new EngineTenantService(
+        {
+          createEngineTenant: async ({ engineTenantRef }) => {
+            createdEngineTenants.push(engineTenantRef);
+            return { clientId: `client-${engineTenantRef}`, clientSecret: "secret" };
+          },
+        },
+        new EngineCredentialRepository(harness.handle.db, Buffer.alloc(32, 6)),
+        harness.verifier,
+        harness.clock,
+        harness.deps.logger,
+        120,
+      );
+  const verifier = new SandboxVerifierService(
+    {
+      dnsName: VERIFIER_DNS,
+      portalPublicUrl: "https://portal.sandbox.test",
+      pidListRef: urls.lote("PID"),
+      pidTrustListId: "sbx-pid-providers",
+    },
+    sandbox,
+    certificates,
+    harness.deps.repositories.sandboxCertificates,
+    harness.deps.repositories.sandboxVerifiers,
+    harness.deps.repositories.registration,
+    harness.deps.services.registration,
+    harness.deps.services.policies,
+    harness.deps.services.presentations,
+    harness.verifier,
+    engineTenants,
+    domain,
+    harness.deps.hostedFormReturns,
+    harness.deps.services.audit,
+    harness.clock,
+  );
+
   return {
     sandbox,
     domain,
@@ -157,6 +204,8 @@ export async function wireSandbox(
     publications,
     certificates,
     register,
+    verifier,
+    createdEngineTenants,
     signUp,
     operatorTenantId: asId<"TenantId">(operator.tenantId),
   };

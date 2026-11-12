@@ -18,7 +18,7 @@ import type {
   WebhookEndpointId,
 } from "@edtp/shared";
 import { asId, PlatformError } from "@edtp/shared";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { Database } from "../db.js";
 import {
   accessCertificates,
@@ -226,6 +226,29 @@ export class RegistrationRepository {
     return cert;
   }
 
+  /**
+   * Replace the registration certificate an intended use is sent with, or remove it (`undefined`:
+   * the request goes without one). Validity is not recorded: the sandbox sends defective
+   * certificates on purpose, and a recorded expiry would make the compiler refuse to send them.
+   */
+  async replaceRegistrationCertificateJwt(
+    tenantId: TenantId,
+    intendedUseId: IntendedUseId,
+    jwt: string | undefined,
+  ): Promise<boolean> {
+    const rows = await this.db
+      .update(registrationCertificates)
+      .set({ jwt: jwt ?? null, notBefore: null, notAfter: null })
+      .where(
+        and(
+          eq(registrationCertificates.tenantId, tenantId),
+          eq(registrationCertificates.intendedUseId, intendedUseId),
+        ),
+      )
+      .returning({ id: registrationCertificates.id });
+    return rows.length === 1;
+  }
+
   async findRegistrationCertificateForIntendedUse(
     tenantId: TenantId,
     intendedUseId: IntendedUseId,
@@ -272,6 +295,38 @@ export class RegistrationRepository {
     return cert;
   }
 
+  /**
+   * Replace the access certificate a Service presents, atomically: the previous binding is removed in
+   * the same transaction, so exactly one is ever found — not the newest by a timestamp two
+   * replacements in one millisecond would share. Used by the sandbox, which swaps certificates
+   * between runs (S4).
+   */
+  async replaceAccessCertificate(cert: AccessCertificate): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(accessCertificates)
+        .where(
+          and(
+            eq(accessCertificates.tenantId, cert.tenantId),
+            eq(accessCertificates.relyingPartyServiceId, cert.relyingPartyServiceId),
+          ),
+        );
+      await tx.insert(accessCertificates).values({
+        id: cert.id,
+        tenantId: cert.tenantId,
+        relyingPartyId: cert.relyingPartyId,
+        relyingPartyServiceId: cert.relyingPartyServiceId,
+        keyBindingRef: cert.keyBindingRef,
+        subject: cert.subject ?? null,
+        issuer: cert.issuer ?? null,
+        notBefore: cert.notBefore ?? null,
+        notAfter: cert.notAfter ?? null,
+        trustEnvironment: cert.trustEnvironment,
+        createdAt: cert.createdAt,
+      });
+    });
+  }
+
   async findAccessCertificateForService(
     tenantId: TenantId,
     serviceId: RelyingPartyServiceId,
@@ -285,6 +340,9 @@ export class RegistrationRepository {
           eq(accessCertificates.relyingPartyServiceId, serviceId),
         ),
       )
+      // The newest binds: a Service whose access certificate was replaced (the sandbox swaps
+      // certificates between runs) presents the one it holds now.
+      .orderBy(desc(accessCertificates.createdAt))
       .limit(1);
     if (!row) return undefined;
     return {

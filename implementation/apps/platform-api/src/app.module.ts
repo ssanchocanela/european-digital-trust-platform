@@ -21,6 +21,7 @@ import {
 import { SandboxController } from "./http/sandbox.controllers.js";
 import { SandboxCertificatesController } from "./http/sandbox-certificates.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
+import { SandboxVerifierController } from "./http/sandbox-verifier.controller.js";
 import {
   EngineAttributesController,
   HostedFormController,
@@ -47,6 +48,7 @@ import {
   SANDBOX_CERTIFICATES,
   SANDBOX_PUBLIC,
   SANDBOX_SERVICE,
+  SANDBOX_VERIFIER,
   VERIFIER_PORT,
   VERIFIER_PROVISIONING_PORT,
   WEBHOOK_ENDPOINT_REPOSITORY,
@@ -82,6 +84,7 @@ export class AppModule {
         SandboxController,
         SandboxPublicController,
         SandboxCertificatesController,
+        SandboxVerifierController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },
@@ -109,6 +112,7 @@ export class AppModule {
         { provide: HOSTED_FORM_RETURNS, useValue: deps.hostedFormReturns },
         { provide: SANDBOX_SERVICE, useValue: deps.services.sandbox },
         { provide: SANDBOX_CERTIFICATES, useValue: deps.services.sandboxCertificates },
+        { provide: SANDBOX_VERIFIER, useValue: deps.services.sandboxVerifier },
         {
           provide: SANDBOX_PUBLIC,
           useValue:

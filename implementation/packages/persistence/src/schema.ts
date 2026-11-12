@@ -1089,6 +1089,7 @@ export const sandboxCertificates = pgTable(
     dnsNames: jsonb("dns_names").notNull(),
     createdAt: ts("created_at").notNull(),
     revokedAt: ts("revoked_at"),
+    mode: text("mode").notNull(),
   },
   (t) => [index("sandbox_certificates_tenant_idx").on(t.tenantId)],
 );
@@ -1105,4 +1106,76 @@ export const sandboxPublications = pgTable(
     contentHash: text("content_hash").notNull(),
   },
   (t) => [uniqueIndex("sandbox_publications_channel_seq_key").on(t.channel, t.sequence)],
+);
+
+// --- sandbox hosted verifier (S4) -----------------------------------------------------
+
+export const sandboxVerifiers = pgTable(
+  "sandbox_verifiers",
+  {
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .primaryKey()
+      .references(() => relyingPartyServices.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    engineTenantRef: text("engine_tenant_ref").notNull(),
+    accessCertificateId: uuid("access_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    configuredAt: ts("configured_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("sandbox_verifiers_engine_tenant_key").on(t.engineTenantRef),
+    index("sandbox_verifiers_tenant_idx").on(t.tenantId),
+  ],
+);
+
+export const sandboxVerifierUses = pgTable("sandbox_verifier_uses", {
+  intendedUseId: uuid("intended_use_id")
+    .primaryKey()
+    .references(() => intendedUses.id, { onDelete: "cascade" }),
+  relyingPartyServiceId: uuid("relying_party_service_id")
+    .notNull()
+    .references(() => sandboxVerifiers.relyingPartyServiceId, { onDelete: "cascade" }),
+  registrationCertificateId: uuid("registration_certificate_id")
+    .notNull()
+    .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+  policyId: uuid("policy_id").notNull(),
+  configuredAt: ts("configured_at").notNull(),
+});
+
+export const sandboxRuns = pgTable(
+  "sandbox_runs",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .notNull()
+      .references(() => relyingPartyServices.id, { onDelete: "cascade" }),
+    intendedUseId: uuid("intended_use_id")
+      .notNull()
+      .references(() => intendedUses.id, { onDelete: "cascade" }),
+    presentationId: uuid("presentation_id").notNull(),
+    accessCertificateId: uuid("access_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    registrationCertificateId: uuid("registration_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    interaction: text("interaction").notNull(),
+    createdAt: ts("created_at").notNull(),
+    walletBuild: text("wallet_build"),
+    checkRegistrationCertificates: text("check_registration_certificates"),
+    observation: text("observation"),
+    observationNote: text("observation_note"),
+    observedAt: ts("observed_at"),
+  },
+  (t) => [
+    uniqueIndex("sandbox_runs_presentation_key").on(t.presentationId),
+    index("sandbox_runs_tenant_idx").on(t.tenantId),
+  ],
 );

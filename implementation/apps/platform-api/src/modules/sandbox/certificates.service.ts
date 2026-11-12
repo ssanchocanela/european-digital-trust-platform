@@ -1,4 +1,4 @@
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, type KeyObject, X509Certificate } from "node:crypto";
 import type { RegisteredCredential as DomainCredential } from "@edtp/domain";
 import type {
   SandboxCertificateRecord,
@@ -222,6 +222,38 @@ export class SandboxCertificateService {
       readonly dnsNames: readonly string[];
     },
   ) {
+    let publicKey: KeyObject;
+    try {
+      publicKey = readCertificationRequest(pemToDer(input.csrPem, "CERTIFICATE REQUEST"));
+    } catch (error) {
+      throw PlatformError.validation(
+        "invalid_certification_request",
+        `The certification request was refused: ${error instanceof Error ? error.message : "unreadable"}.`,
+      );
+    }
+    return this.issueAccessCertificateFor(context, tenantId, serviceId, {
+      variant: input.variant,
+      publicKey,
+      dnsNames: input.dnsNames,
+      mode: "takeaway",
+    });
+  }
+
+  /**
+   * An access certificate for a key the caller already holds: a take-away request's, or a hosted
+   * verifier's, generated for the engine (S4).
+   */
+  async issueAccessCertificateFor(
+    context: SignedInContext,
+    tenantId: string,
+    serviceId: string,
+    input: {
+      readonly variant: WrpacVariant;
+      readonly publicKey: KeyObject;
+      readonly dnsNames: readonly string[];
+      readonly mode: "takeaway" | "hosted";
+    },
+  ) {
     const org = await this.organisationOf(context, tenantId);
     const service = await this.repository.service(org.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
@@ -232,15 +264,7 @@ export class SandboxCertificateService {
         "Give one to five DNS names: lower-case host names, no wildcard, no address.",
       );
     }
-    let publicKey: ReturnType<typeof readCertificationRequest>;
-    try {
-      publicKey = readCertificationRequest(pemToDer(input.csrPem, "CERTIFICATE REQUEST"));
-    } catch (error) {
-      throw PlatformError.validation(
-        "invalid_certification_request",
-        `The certification request was refused: ${error instanceof Error ? error.message : "unreadable"}.`,
-      );
-    }
+    const publicKey = input.publicKey;
     const info = WRPAC_VARIANT_INFO[input.variant];
     const now = this.clock.now();
     const { der, serial } = issueWrpac({
@@ -274,6 +298,7 @@ export class SandboxCertificateService {
       fingerprintSha256: fingerprint(der),
       dnsNames,
       createdAt: now,
+      mode: input.mode,
     };
     await this.repository.createCertificate(record);
     await this.audit.record({
@@ -377,6 +402,8 @@ export class SandboxCertificateService {
       ...(body ? { body, fingerprintSha256: fingerprint(Buffer.from(body)) } : {}),
       dnsNames: [],
       createdAt: now,
+      // A registration certificate has no key; it is always the participant's to download.
+      mode: "takeaway",
     };
     await this.repository.createCertificate(record);
     await this.audit.record({
@@ -428,6 +455,16 @@ export class SandboxCertificateService {
     );
   }
 
+  /** The record as stored, for the hosted verifier: it needs the PEM chain and the WRPRC body. */
+  async record(tenantId: TenantId, id: string): Promise<SandboxCertificateRecord | undefined> {
+    return this.repository.certificate(tenantId, id);
+  }
+
+  /** The certificate view the portal shows: description, body and the sandbox's own check. */
+  async describeById(tenantId: TenantId, id: string) {
+    return this.view(tenantId, id);
+  }
+
   private describe(record: SandboxCertificateRecord) {
     const info =
       record.kind === "WRPAC"
@@ -450,6 +487,7 @@ export class SandboxCertificateService {
       ...(record.fingerprintSha256 ? { fingerprintSha256: record.fingerprintSha256 } : {}),
       dnsNames: record.dnsNames,
       createdAt: record.createdAt,
+      mode: record.mode,
       ...(record.revokedAt ? { revokedAt: record.revokedAt } : {}),
     };
   }

@@ -20,8 +20,8 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S1** | `sandbox/s0-investigation` | Specification, ADR 0014, ADR 0015, this plan | Approved 12 Nov 2026 |
 | **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR #42; real run pending |
 | **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR #43 |
-| **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
-| **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP |
+| **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR #44; real runs pending |
+| **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending; ADR 0016 awaits a decision* |
 | **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
 
 ## S2 — Foundations
@@ -152,6 +152,29 @@ The runs are in [`s4-run-sheet.md`](s4-run-sheet.md).
   to another participant's hosted verifier, with *Check Registration Certificates* in both positions.
 
 **Done when:** that closed loop is recorded.
+
+**State, 12 November 2026 — built, not yet run with a wallet.**
+
+Built:
+- the hosted PID issuer: a runtime engine tenant with the Wallet Provider list, signing certificates
+  PID-00..02 from the sandbox PID CA, and the provider WRPRC as `issuer_info`;
+- the PID credential type and an operator-form policy;
+- synthetic offers by link or QR, with values kept nowhere;
+- PID-03 revocation;
+- the portal pages;
+- ADR 0016, proposed.
+
+**No change to the PID list was needed.** Participants' signing certificates are issued under the
+sandbox PID CA, which the list already carries — what D2's "sandbox-issued first" buys. Brought-in
+anchors are v1.1.
+
+Found on the way:
+- `IssuanceService.get` returns `issuedCredentialId` only on the settling read. The sandbox looks it up
+  by transaction instead; a separate fix is offered for the platform API.
+- **Two S4 portal edits had never applied**: the hosted verifier section and the runs list. Fixed here,
+  with route-level page tests and an integration test that serves the real composition over HTTP.
+
+The runs are in [`s5-run-sheet.md`](s5-run-sheet.md).
 
 ## S6 — Deployment
 

@@ -45,6 +45,14 @@ const ADAPTER_PACKAGE = "packages/eudiplo-adapter";
  */
 const COMPOSITION_ROOT = "apps/platform-api/src/composition.ts";
 
+/**
+ * The sandbox's PKI issues protocol artefacts itself: a registration certificate (ETSI TS 119 475
+ * V1.2.1 Table 9) carries `credentials[].meta` in the DCQL vocabulary, as the wallet's over-asking
+ * check reads it. So that package may name those two meta keys — and nothing else of the protocol,
+ * and nothing of the engine. Sandbox S3, `docs/sandbox/specification.md` §7.2.
+ */
+const ARTEFACT_EXCEPTIONS = { "packages/sandbox-pki": ["vct_values", "doctype_value"] };
+
 const SCANNED_ROOTS = ["packages", "apps"];
 
 /** Documentation and comments may name the engine; code may not. */
@@ -81,8 +89,10 @@ for (const scanned of SCANNED_ROOTS) {
       }
     }
 
+    const allowed =
+      Object.entries(ARTEFACT_EXCEPTIONS).find(([pkg]) => rel.startsWith(pkg))?.[1] ?? [];
     for (const term of PROTOCOL_TERMS) {
-      if (code.includes(term)) {
+      if (!allowed.includes(term) && code.includes(term)) {
         violations.push(
           `${rel}: mentions protocol term '${term}' outside ${ADAPTER_PACKAGE}. ` +
             "Protocol structure is produced inside the adapter, never above the ports.",

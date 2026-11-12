@@ -1,7 +1,7 @@
 # ADR 0014 — The sandbox's trust domain: its own CAs, registrar and lists
 
-- **Status:** PROPOSED, 12 November 2026. The S0 decisions D1, D2 and D6 were accepted by the user; the
-  ADR as a whole awaits the S1 checkpoint.
+- **Status:** ACCEPTED, 12 November 2026. The S0 decisions D1, D2 and D6 were accepted by the user; the
+  ADR as a whole was approved with the S1 specification on 12 November 2026.
 - **Date:** 12 November 2026
 - **Context documents:** [`docs/sandbox/s0-findings.md`](../sandbox/s0-findings.md) §2, §6.2–§6.4;
   [`docs/sandbox/specification.md`](../sandbox/specification.md) §5, §7.

@@ -1,7 +1,7 @@
 # ADR 0015 — People in the sandbox: sign-up and sign-in by PID
 
-- **Status:** PROPOSED, 12 November 2026. Its points D3, D4 and D5 were accepted by the user at the S0
-  checkpoint; the ADR as a whole awaits the S1 checkpoint.
+- **Status:** ACCEPTED, 12 November 2026. Its points D3, D4 and D5 were accepted by the user at the S0
+  checkpoint; the ADR as a whole was approved with the S1 specification on 12 November 2026.
 - **Date:** 12 November 2026
 - **Context documents:** [`docs/sandbox/s0-findings.md`](../sandbox/s0-findings.md) §5 G-1/G-2, §6.1,
   §6.5, §6.6; [`docs/sandbox/specification.md`](../sandbox/specification.md).

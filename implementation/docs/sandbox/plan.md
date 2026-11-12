@@ -17,8 +17,8 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | Milestone | Branch | Delivers | Ends with |
 |---|---|---|---|
 | **S0** | `sandbox/s0-investigation` | Findings, D1–D8 | Accepted 12 Nov 2026 |
-| **S1** | `sandbox/s0-investigation` | Specification, ADR 0014, ADR 0015, this plan | **STOP** ← *now* |
-| **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR, STOP |
+| **S1** | `sandbox/s0-investigation` | Specification, ADR 0014, ADR 0015, this plan | Approved 12 Nov 2026 |
+| **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR, STOP ← *built; real run pending* |
 | **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR, STOP |
 | **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR, STOP |
 | **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP |
@@ -59,6 +59,16 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 **Done when:** a person signs up with a PID from the sandbox wallet, as a real run on the local stack
 (SAME_DEVICE through the test-session gateway); a second person is invited and signs in; isolation
 tests pass.
+
+**State, 12 November 2026 — built, not yet run with a wallet.** Everything above is implemented and
+tested (unit 531, integration 152). The readings closed Q-S1, Q-S2 and Q-S4; the user decided Q-S6
+(own DER encoder) and Q-S7 (`2.25.…`). Two corrections to the plan:
+- the real run uses an **existing** test wallet (W8/W9) and the development Access CA, because the
+  sandbox CA issues nothing before S3 and no sandbox wallet build exists yet;
+- it is **cross-device** from a laptop, because the portal is not exposed before S6.
+
+Both are in [`s2-run-sheet.md`](s2-run-sheet.md), which also lists what to record. ADR 0015 was
+amended on the way (Decision 3 and 4: the subject's basis and the typed display name).
 
 ## S3 — Certificate service
 

@@ -625,6 +625,15 @@ export class IssuanceService {
         record.authenticSourceKind,
       ),
     };
+    // Every read of an issued transaction names its credential, not only the read that settled it:
+    // a client that missed that one read must still be able to revoke what was issued.
+    if (record.state === "ISSUED") {
+      const issuedCredentialId = await this.issuance.findIssuedIdByTransaction(
+        tenantId,
+        record.id,
+      );
+      if (issuedCredentialId) return { ...base, issuedCredentialId };
+    }
 
     // Terminal, or not yet engaged with the engine: nothing to poll.
     if (!record.engineSessionRef || !record.engineTenantRef) return base;

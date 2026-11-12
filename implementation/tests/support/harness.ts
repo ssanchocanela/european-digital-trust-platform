@@ -21,6 +21,7 @@ import {
 } from "../../apps/platform-api/src/composition.js";
 import { loadConfig, type PlatformConfig } from "../../apps/platform-api/src/config.js";
 import { Logger, type LogSink } from "../../apps/platform-api/src/logging/logger.js";
+import { FakeIssuer } from "./fake-issuer.js";
 
 /**
  * Integration harness.
@@ -195,6 +196,8 @@ export class FakeVerifier implements EudiVerifierPort, EudiVerifierProvisioningP
 export interface Harness {
   readonly deps: Dependencies;
   readonly verifier: FakeVerifier;
+  /** Present when created with `fakeIssuer: true`. */
+  readonly issuer?: FakeIssuer;
   readonly clock: FixedClock;
   readonly logs: CapturedLog;
   readonly config: PlatformConfig;
@@ -211,6 +214,8 @@ export const ADMIN_KEY = `admin_${"a".repeat(40)}`;
 export const createHarness = async (options?: {
   readonly fetchImpl?: typeof fetch;
   readonly now?: Date;
+  /** Substitute the issuer port with `FakeIssuer` instead of the adapter over `fetchImpl`. */
+  readonly fakeIssuer?: boolean;
 }): Promise<Harness> => {
   const baseUrl = process.env.TEST_DATABASE_URL;
   if (!baseUrl) {
@@ -247,6 +252,7 @@ export const createHarness = async (options?: {
   const logs = capturingSink();
   const logger = new Logger("debug", logs.sink);
   const verifier = new FakeVerifier();
+  const issuer = options?.fakeIssuer ? new FakeIssuer() : undefined;
 
   const deps = buildDependencies({
     config,
@@ -255,6 +261,7 @@ export const createHarness = async (options?: {
     logger,
     verifier,
     provisioning: verifier,
+    ...(issuer ? { issuer, issuerProvisioning: issuer } : {}),
     ...(options?.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
   });
 
@@ -273,11 +280,13 @@ export const createHarness = async (options?: {
     );
     logs.lines.length = 0;
     verifier.reset();
+    issuer?.reset();
   };
 
   return {
     deps,
     verifier,
+    ...(issuer ? { issuer } : {}),
     clock,
     logs,
     config,

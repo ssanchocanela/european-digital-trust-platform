@@ -324,3 +324,30 @@ describe("certification requests", () => {
     expect(() => readCertificationRequest(Buffer.alloc(9000))).toThrow(/too large/);
   });
 });
+
+describe("serial numbers", () => {
+  it("formats a serial exactly as Node's X509Certificate does, whatever its first byte", async () => {
+    const { serialToHex, hexToSerial } = await import("@edtp/sandbox-pki");
+    const signer = newSigner();
+    const name = [{ type: OID.commonName, value: "x" }];
+    for (const first of [0x00, 0x01, 0x0a, 0x0f, 0x10, 0x7f]) {
+      const serial = Buffer.alloc(16, 0x11);
+      serial[0] = first;
+      const der = issueCertificate(
+        {
+          serial,
+          issuer: name,
+          subject: name,
+          notBefore: now,
+          notAfter: new Date(now.getTime() + day),
+          subjectPublicKey: signer.publicKey,
+          extensions: [],
+        },
+        signer,
+      );
+      const shown = new X509Certificate(der).serialNumber.toUpperCase();
+      expect(serialToHex(serial), `first byte ${first}`).toBe(shown);
+      expect(serialToHex(hexToSerial(shown))).toBe(shown);
+    }
+  });
+});

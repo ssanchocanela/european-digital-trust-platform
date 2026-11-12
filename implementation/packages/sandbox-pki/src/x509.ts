@@ -435,12 +435,15 @@ export function readKeyUsage(certificate: Buffer): KeyUsageName[] {
     .map(([name]) => name);
 }
 
-/** A serial number as Node's `X509Certificate.serialNumber` shows it: upper-case hex, no leading zeros. */
-export const serialToHex = (serial: Buffer): string =>
-  serial
-    .toString("hex")
-    .toUpperCase()
-    .replace(/^0+(?=.)/, "");
+/**
+ * A serial number as Node's `X509Certificate.serialNumber` shows it: upper-case hex of the DER
+ * integer's magnitude — leading zero *bytes* removed, never a leading zero nibble of a byte.
+ */
+export const serialToHex = (serial: Buffer): string => {
+  let start = 0;
+  while (start < serial.length - 1 && serial[start] === 0) start++;
+  return serial.subarray(start).toString("hex").toUpperCase();
+};
 
 export const hexToSerial = (hex: string): Buffer =>
   Buffer.from(hex.length % 2 ? `0${hex}` : hex, "hex");

@@ -15,6 +15,7 @@ import {
   nameOf,
   readStatusBit,
   type SandboxKeyStore,
+  serialToHex,
   signStatusListToken,
   TRUST_DOMAIN,
   validateWrpac,
@@ -130,10 +131,7 @@ describe("WRPAC variants", () => {
   for (const variant of WRPAC_VARIANTS) {
     it(`${variant} (${WRPAC_VARIANT_INFO[variant].title}) fails exactly ${WRPAC_VARIANT_INFO[variant].fails ?? "nothing"}`, async () => {
       const { der, serial } = await wrpac(variant);
-      const revoked =
-        variant === "AC-04"
-          ? new Set([serial.toString("hex").toUpperCase().replace(/^0+/, "")])
-          : new Set<string>();
+      const revoked = variant === "AC-04" ? new Set([serialToHex(serial)]) : new Set<string>();
       const results = validateWrpac(der, {
         trustedCa: cert("access-ca"),
         revokedSerials: revoked,

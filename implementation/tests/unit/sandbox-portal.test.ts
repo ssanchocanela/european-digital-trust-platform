@@ -334,3 +334,119 @@ describe("services and certificates (S3)", () => {
     ).toBe(404);
   });
 });
+
+describe("the hosted verifier and runs (S4)", () => {
+  const SERVICE = "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const USE = "abababab-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const RUN = "cdcdcdcd-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+
+  it("configures from one variant per intended use, read from the rc_<id> fields", async () => {
+    const { request, calls } = await serve((_m, path) =>
+      path.endsWith("/verifier")
+        ? { status: 200, body: { configured: true } }
+        : { status: 404, body: {} },
+    );
+    const res = await request(`/org/${ORG}/services/${SERVICE}/verifier`, {
+      method: "POST",
+      cookie,
+      body: new URLSearchParams({
+        accessVariant: "AC-02",
+        [`rc_${USE}`]: "RC-06",
+        rc_bad: "RC-00",
+      }).toString(),
+    });
+    expect(res.status).toBe(303);
+    expect(calls[0]?.body).toEqual({
+      accessVariant: "AC-02",
+      uses: [{ intendedUseId: USE, registrationVariant: "RC-06" }],
+    });
+  });
+
+  it("starts a cross-device run whose page polls the run report", async () => {
+    const { request } = await serve((_m, path) =>
+      path.endsWith("/runs")
+        ? { status: 201, body: { runId: RUN, walletUri: "openid4vp://?x" } }
+        : { status: 404, body: {} },
+    );
+    const html = await (
+      await request(`/org/${ORG}/services/${SERVICE}/runs`, {
+        method: "POST",
+        cookie,
+        body: `intendedUseId=${USE}&interaction=QR`,
+      })
+    ).text();
+    expect(html).toContain(`content="3;url=/org/${ORG}/runs/${RUN}"`);
+    expect(html).toContain("<svg");
+  });
+
+  it("asks for the wallet build and the Check Registration Certificates position, and says no value belongs in the note", async () => {
+    const { runPage } = await import("@edtp/sandbox-portal/pages.js");
+    const cert = {
+      id: RUN,
+      kind: "WRPRC",
+      variant: "RC-06",
+      variantTitle: "Not bound",
+      requirement: "EW-DM-44-020 (RPRC_17a)",
+      createdAt: "x",
+    };
+    const html = runPage(ORG, {
+      id: RUN,
+      createdAt: "2026-11-12",
+      interaction: "SAME_DEVICE",
+      outcome: { status: "AWAITING_WALLET" },
+      accessCertificate: { ...cert, kind: "WRPAC", variant: "AC-00" },
+      registrationCertificate: cert,
+      expected: {
+        access: { variant: "AC-00", requirement: "—" },
+        registration: {
+          variant: "RC-06",
+          requirement: "EW-DM-44-020 (RPRC_17a)",
+          registrationCheck: true,
+        },
+      },
+      observation: {},
+    });
+    expect(html).toContain('name="checkRegistrationCertificates"');
+    expect(html).toContain("No credential value belongs in the note");
+    expect(html).toContain("only with <strong>Check Registration Certificates</strong> on");
+    expect(html).toContain('http-equiv="refresh"');
+  });
+
+  it("sanitises an observation before sending it", async () => {
+    const { request, calls } = await serve(() => ({ status: 204, body: {} }));
+    await request(`/org/${ORG}/runs/${RUN}/observation`, {
+      method: "POST",
+      cookie,
+      body: new URLSearchParams({
+        walletBuild: "W",
+        checkRegistrationCertificates: "maybe",
+        observation: "made_up",
+        note: "  n  ",
+      }).toString(),
+    });
+    expect(calls[0]?.body).toEqual({
+      walletBuild: "W",
+      checkRegistrationCertificates: "unknown",
+      observation: "other",
+      note: "n",
+    });
+  });
+
+  it("offers no take-away-only variant to the hosted verifier", async () => {
+    const { verifierSection } = await import("@edtp/sandbox-portal/pages.js");
+    const html = verifierSection({
+      orgId: ORG,
+      serviceId: SERVICE,
+      intendedUses: [{ id: USE, intendedUseIdentifier: "S001-U01" }],
+      verifier: { configured: false },
+      wrpacVariants: [{ id: "AC-00", title: "Correct", requirement: "—" }],
+      wrprcVariants: [
+        { id: "RC-00", title: "Correct", requirement: "—" },
+        { id: "RC-11", title: "Wrong entitlement", requirement: "x", takeAwayOnly: true },
+      ],
+    });
+    expect(html).toContain('value="RC-00"');
+    expect(html).not.toContain('value="RC-11"');
+  });
+});

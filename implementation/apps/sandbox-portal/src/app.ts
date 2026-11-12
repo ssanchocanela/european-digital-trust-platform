@@ -14,14 +14,20 @@ import {
   invitationLanding,
   landing,
   message,
+  OBSERVATIONS,
   organisationPage,
   page,
   parseClaimLines,
   profileForm,
+  type RunReport,
+  runPage,
+  runsSection,
   type ServiceSummary,
   STYLE,
   servicePage,
   servicesSection,
+  type VerifierView,
+  verifierSection,
   waiting,
   walletStep,
 } from "./pages.js";
@@ -725,6 +731,93 @@ export function createApp(options: PortalOptions): express.Express {
       { session: token },
     );
     res.redirect(303, `/org/${req.params.id}/certificates/${req.params.cid}`);
+  });
+
+  // --- the hosted verifier and runs (S4) -------------------------------------------------------
+
+  app.post("/org/:id/services/:sid/verifier", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const uses = Object.entries(body)
+      .filter(([k]) => /^rc_[0-9a-f-]{36}$/.test(k))
+      .map(([k, v]) => ({ intendedUseId: k.slice(3), registrationVariant: String(v) }));
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/verifier`,
+      {
+        session: token,
+        body: { accessVariant: String(body.accessVariant ?? ""), uses },
+      },
+    );
+    if (result.status !== 200)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/services/${req.params.sid}`);
+  });
+
+  app.post("/org/:id/services/:sid/runs", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const interaction = req.body?.interaction === "QR" ? "QR" : "SAME_DEVICE";
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/runs`,
+      {
+        session: token,
+        body: { intendedUseId: String(req.body?.intendedUseId ?? ""), interaction },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.type("html").send(
+      walletStep(String(result.body.walletUri ?? ""), interaction, {
+        waitUrl: `/org/${req.params.id}/runs/${String(result.body.runId)}`,
+        about:
+          "Your wallet will be asked to present to this service's hosted verifier, with the certificates you configured.",
+      }),
+    );
+  });
+
+  app.get("/org/:id/runs/:rid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.rid)) return void res.status(404).end();
+    const run = await options.api.call(
+      "GET",
+      `organisations/${req.params.id}/runs/${req.params.rid}`,
+      { session: token },
+    );
+    if (run.status !== 200)
+      return void res.status(404).type("html").send(message("Not found", "No such run."));
+    res.type("html").send(runPage(req.params.id, run.body as unknown as RunReport));
+  });
+
+  app.post("/org/:id/runs/:rid/observation", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.rid)) return void res.status(404).end();
+    const b = req.body ?? {};
+    const observation = OBSERVATIONS.some(([k]) => k === b.observation)
+      ? String(b.observation)
+      : "other";
+    const note =
+      typeof b.note === "string" && b.note.trim() ? b.note.trim().slice(0, 500) : undefined;
+    await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/runs/${req.params.rid}/observation`,
+      {
+        session: token,
+        body: {
+          walletBuild: String(b.walletBuild ?? "").slice(0, 100),
+          checkRegistrationCertificates: ["on", "off", "unknown"].includes(
+            b.checkRegistrationCertificates,
+          )
+            ? b.checkRegistrationCertificates
+            : "unknown",
+          observation,
+          ...(note ? { note } : {}),
+        },
+      },
+    );
+    res.redirect(303, `/org/${req.params.id}/runs/${req.params.rid}`);
   });
 
   app.use((_req, res) => {

@@ -28,7 +28,8 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 | Milestone 2 — Issuance as a Service | `implementation/platform-v0-issuance` (from M1) | PR 2 ← *complete* |
 | Sandbox S0 — EUDI ecosystem sandbox, investigation, no product code | `sandbox/s0-investigation` | [`docs/sandbox/s0-findings.md`](docs/sandbox/s0-findings.md), D1–D8 accepted 12 Nov 2026 ← *complete* |
 | Sandbox S1 — specification | `sandbox/s0-investigation` | [`specification.md`](docs/sandbox/specification.md), ADR 0014, ADR 0015, [`plan.md`](docs/sandbox/plan.md) — approved 12 Nov 2026 ← *complete* |
-| Sandbox S2 — foundations: people, sign-in by PID, PKI, runtime engine tenants, portal | `sandbox/s2-foundations` | PR, **STOP**; real run per [`s2-run-sheet.md`](docs/sandbox/s2-run-sheet.md) ← *built, run pending* |
+| Sandbox S2 — foundations: people, sign-in by PID, PKI, runtime engine tenants, portal | `sandbox/s2-foundations` | PR #42; real run per [`s2-run-sheet.md`](docs/sandbox/s2-run-sheet.md) ← *built, run pending* |
+| Sandbox S3 — certificate service, defect catalogue, lists, register | `sandbox/s3-certificates` (from S2) | PR, **STOP** ← *built* |
 
 **The EUDI ecosystem sandbox** (decided 12 November 2026): same repository; v1 covers the Relying
 Party and PID Provider roles only. S0 investigation → S1 specification → milestones, each with a

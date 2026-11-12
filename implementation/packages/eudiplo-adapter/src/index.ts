@@ -4,4 +4,5 @@ export * from "./issuance-outcome-mapping.js";
 export * from "./issuer-adapter.js";
 export * from "./outcome-mapping.js";
 export * from "./schemas.js";
+export * from "./tenant-adapter.js";
 export * from "./verifier-adapter.js";

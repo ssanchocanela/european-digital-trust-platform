@@ -12,6 +12,26 @@ import { z } from "zod";
 const unsetIfEmpty = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((value) => (value === "" ? undefined : value), inner);
 
+/** A base64 secret key of exactly or at least `bytes` bytes. */
+const base64Key = (bytes: number, exact: boolean) =>
+  unsetIfEmpty(
+    z
+      .string()
+      .optional()
+      .transform((value, ctx) => {
+        if (value === undefined) return undefined;
+        const key = Buffer.from(value, "base64");
+        if (exact ? key.length !== bytes : key.length < bytes) {
+          ctx.addIssue({
+            code: "custom",
+            message: `must decode to ${exact ? "exactly" : "at least"} ${bytes} bytes`,
+          });
+          return z.NEVER;
+        }
+        return key;
+      }),
+  );
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65_535).default(3100),
@@ -40,6 +60,14 @@ const schema = z.object({
    * the tenant of the presenting token (ADR 0002 Decision 3).
    */
   ENGINE_TENANT_CREDENTIALS: z.string().min(1),
+  /**
+   * Engine tenants created at runtime (sandbox G-6). The root client can only manage tenants; it is
+   * used for `POST /api/tenant` and nothing else. The key seals each new tenant's client secret in
+   * the database (AES-256-GCM, base64, exactly 32 bytes). All three secrets: never logged.
+   */
+  ENGINE_ROOT_CLIENT_ID: unsetIfEmpty(z.string().min(1).optional()),
+  ENGINE_ROOT_CLIENT_SECRET: unsetIfEmpty(z.string().min(1).optional()),
+  ENGINE_CREDENTIALS_KEY: base64Key(32, true),
   /** Engine trust list of wallet providers. Unset: no wallet attestation at the token endpoint. */
   ENGINE_WALLET_PROVIDER_TRUST_LIST_ID: z.string().min(1).optional(),
   /**
@@ -147,20 +175,7 @@ const schema = z.object({
    * Master key for `PseudonymousSubject` derivations, base64, at least 32 bytes. A secret: on the
    * redaction deny-list, never logged. Unset: such derivations are unsatisfied (ADR 0015).
    */
-  PSEUDONYM_MASTER_KEY: unsetIfEmpty(
-    z
-      .string()
-      .optional()
-      .transform((value, ctx) => {
-        if (value === undefined) return undefined;
-        const key = Buffer.from(value, "base64");
-        if (key.length < 32) {
-          ctx.addIssue({ code: "custom", message: "must decode to at least 32 bytes" });
-          return z.NEVER;
-        }
-        return key;
-      }),
-  ),
+  PSEUDONYM_MASTER_KEY: base64Key(32, false),
   HOSTED_VERIFIER_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
   HOSTED_VERIFIER_POLICIES: z
     .string()
@@ -365,6 +380,17 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
     // Each public process holds its own secret, so one compromised page opens only its own policies.
     throw new Error(
       "Invalid environment configuration:\n  HOSTED_VERIFIER_SECRET must differ from the hosted form's secrets",
+    );
+  }
+  if (Boolean(d.ENGINE_ROOT_CLIENT_ID) !== Boolean(d.ENGINE_ROOT_CLIENT_SECRET)) {
+    throw new Error(
+      "Invalid environment configuration:\n  ENGINE_ROOT_CLIENT_ID and ENGINE_ROOT_CLIENT_SECRET go together",
+    );
+  }
+  if (d.ENGINE_ROOT_CLIENT_ID && !d.ENGINE_CREDENTIALS_KEY) {
+    // A tenant created at runtime has nowhere to keep its client without the sealing key.
+    throw new Error(
+      "Invalid environment configuration:\n  ENGINE_ROOT_CLIENT_ID needs ENGINE_CREDENTIALS_KEY",
     );
   }
   if (d.SANDBOX_PORTAL_SECRET) {

@@ -1027,3 +1027,14 @@ export const sandboxSignInAttempts = pgTable(
   },
   (t) => [uniqueIndex("sandbox_sign_in_attempts_presentation_key").on(t.presentationId)],
 );
+
+/**
+ * Engine tenant clients created at runtime (sandbox G-6). The secret is sealed with AES-256-GCM under
+ * a key held only in the environment; see `EngineCredentialRepository`.
+ */
+export const engineTenantCredentials = pgTable("engine_tenant_credentials", {
+  engineTenantRef: text("engine_tenant_ref").primaryKey(),
+  clientId: text("client_id").notNull(),
+  clientSecretSealed: text("client_secret_sealed").notNull(),
+  createdAt: ts("created_at").notNull(),
+});

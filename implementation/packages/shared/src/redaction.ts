@@ -107,6 +107,9 @@ const DENIED_SUBSTRINGS: readonly string[] = [
   "private_key",
   "privatejwk",
   "master_key",
+  "credentials_key",
+  "client_secret",
+  "clientsecret",
   "masterkey",
 ];
 

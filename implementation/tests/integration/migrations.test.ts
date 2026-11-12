@@ -104,6 +104,8 @@ describe("migrations", () => {
         "issuance_transactions",
         "issued_credentials",
         "trust_anchor_publications",
+        // Sandbox S2 — engine tenants created at runtime (G-6)
+        "engine_tenant_credentials",
         // Sandbox S2 — people (ADR 0015)
         "sandbox_invitations",
         "sandbox_memberships",

@@ -4,4 +4,6 @@
  * touches a sandbox private key.
  */
 export * as der from "./der.js";
+export * from "./keystore.js";
+export * from "./trust-domain.js";
 export * from "./x509.js";

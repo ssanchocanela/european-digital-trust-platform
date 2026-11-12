@@ -289,6 +289,9 @@ importers:
 
   apps/sandbox-portal:
     dependencies:
+      '@edtp/sandbox-pki':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-pki
       express:
         specifier: 5.1.0
         version: 5.1.0

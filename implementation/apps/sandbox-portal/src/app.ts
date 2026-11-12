@@ -1,15 +1,27 @@
+import {
+  WRPAC_VARIANT_INFO,
+  WRPAC_VARIANTS,
+  WRPRC_VARIANT_INFO,
+  WRPRC_VARIANTS,
+} from "@edtp/sandbox-pki";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import type { SandboxApi } from "./api.js";
 import {
+  type CertificateSummary,
+  certificatePage,
   dashboard,
   invitationLanding,
   landing,
   message,
   organisationPage,
   page,
+  parseClaimLines,
   profileForm,
+  type ServiceSummary,
   STYLE,
+  servicePage,
+  servicesSection,
   waiting,
   walletStep,
 } from "./pages.js";
@@ -102,7 +114,8 @@ export function createApp(options: PortalOptions): express.Express {
     res.setHeader("cache-control", "no-store");
     next();
   });
-  app.use(express.urlencoded({ extended: false, limit: "8kb" }));
+  // 32 kB: a certification request in PEM is the largest thing a form carries.
+  app.use(express.urlencoded({ extended: false, limit: "32kb" }));
 
   // Second lock against cross-site form posts (the first is SameSite=Lax).
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -380,6 +393,14 @@ export function createApp(options: PortalOptions): express.Express {
       role === "owner"
         ? await options.api.call("GET", `organisations/${id}/api-keys`, { session: token })
         : undefined;
+    // The certificate service is there only when the sandbox's PKI is configured.
+    const services = await options.api.call("GET", `organisations/${id}/services`, {
+      session: token,
+    });
+    const sections =
+      services.status === 200
+        ? servicesSection(id, services.body as unknown as ServiceSummary[])
+        : "";
     res.type("html").send(
       organisationPage(
         {
@@ -405,6 +426,7 @@ export function createApp(options: PortalOptions): express.Express {
             : {}),
         },
         shown,
+        sections,
       ),
     );
   };
@@ -506,6 +528,203 @@ export function createApp(options: PortalOptions): express.Express {
       return;
     }
     res.redirect(303, `/org/${req.params.id}`);
+  });
+
+  // --- services and certificates (S3) --------------------------------------------------------
+
+  const wrpacVariants = WRPAC_VARIANTS.map((v) => ({ id: v, ...WRPAC_VARIANT_INFO[v] }));
+
+  const renderService = async (
+    res: Response,
+    token: string,
+    org: string,
+    sid: string,
+    error?: string,
+  ) => {
+    const service = await options.api.call("GET", `organisations/${org}/services/${sid}`, {
+      session: token,
+    });
+    if (service.status !== 200) {
+      res.status(404).type("html").send(message("Not found", "No such service."));
+      return;
+    }
+    const role = String(service.body.role);
+    const certificates = await options.api.call(
+      "GET",
+      `organisations/${org}/certificates?service=${sid}`,
+      { session: token },
+    );
+    const wrprcVariants = WRPRC_VARIANTS.filter((v) => {
+      const a = WRPRC_VARIANT_INFO[v].appliesTo;
+      return a === "both" || a === role;
+    }).map((v) => ({ id: v, ...WRPRC_VARIANT_INFO[v] }));
+    res
+      .status(error ? 400 : 200)
+      .type("html")
+      .send(
+        servicePage({
+          orgId: org,
+          service: service.body as unknown as Parameters<typeof servicePage>[0]["service"],
+          certificates: (certificates.body as unknown as CertificateSummary[]) ?? [],
+          wrpacVariants,
+          wrprcVariants,
+          ...(error ? { error } : {}),
+        }),
+      );
+  };
+
+  const ids = (...values: (string | undefined)[]) =>
+    values.every((v) => uuid.safeParse(v).success);
+  const apiError = (body: Record<string, unknown>) =>
+    typeof body.message === "string" ? body.message.slice(0, 300) : "The request was refused.";
+
+  app.post("/org/:id/services", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id)) return void res.status(404).end();
+    const b = req.body ?? {};
+    const result = await options.api.call("POST", `organisations/${req.params.id}/services`, {
+      session: token,
+      body: {
+        role: b.role === "pid_provider" ? "pid_provider" : "service_provider",
+        tradeName: String(b.tradeName ?? ""),
+        description: [{ lang: "en", value: String(b.description ?? "") }],
+        supportUri: String(b.supportUri ?? ""),
+        privacyPolicyUri: String(b.privacyPolicyUri ?? ""),
+        infoUri: String(b.infoUri ?? ""),
+      },
+    });
+    if (result.status !== 201) {
+      res
+        .status(400)
+        .type("html")
+        .send(message("Refused", apiError(result.body)));
+      return;
+    }
+    res.redirect(
+      303,
+      `/org/${req.params.id}/services/${String(result.body.relyingPartyServiceId)}`,
+    );
+  });
+
+  app.get("/org/:id/services/:sid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    await renderService(res, token, req.params.id, req.params.sid);
+  });
+
+  app.post("/org/:id/services/:sid/intended-uses", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/intended-uses`,
+      {
+        session: token,
+        body: {
+          purpose: [{ lang: "en", value: String(req.body?.purpose ?? "") }],
+          credentials: [
+            {
+              format: "dc+sd-jwt",
+              types: ["urn:eudi:pid:1"],
+              claims: parseClaimLines(String(req.body?.claims ?? "")),
+            },
+          ],
+        },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/services/${req.params.sid}`);
+  });
+
+  app.post("/org/:id/services/:sid/access-certificates", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/access-certificates`,
+      {
+        session: token,
+        body: {
+          variant: String(req.body?.variant ?? ""),
+          csrPem: String(req.body?.csrPem ?? ""),
+          dnsNames: String(req.body?.dnsNames ?? "")
+            .split(/\s+/)
+            .filter(Boolean),
+        },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/certificates/${String(result.body.id)}`);
+  });
+
+  app.post("/org/:id/services/:sid/registration-certificates", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const intendedUseId =
+      typeof req.body?.intendedUseId === "string" && req.body.intendedUseId
+        ? req.body.intendedUseId
+        : undefined;
+    const result = await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/registration-certificates`,
+      {
+        session: token,
+        body: {
+          variant: String(req.body?.variant ?? ""),
+          ...(intendedUseId ? { intendedUseId } : {}),
+        },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/certificates/${String(result.body.id)}`);
+  });
+
+  app.get("/org/:id/certificates/:cid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.cid)) return void res.status(404).end();
+    const cert = await options.api.call(
+      "GET",
+      `organisations/${req.params.id}/certificates/${req.params.cid}`,
+      { session: token },
+    );
+    if (cert.status !== 200)
+      return void res
+        .status(404)
+        .type("html")
+        .send(message("Not found", "No such certificate."));
+    res
+      .type("html")
+      .send(certificatePage(req.params.id, cert.body as unknown as CertificateSummary));
+  });
+
+  app.get("/org/:id/certificates/:cid/download", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.cid)) return void res.status(404).end();
+    const cert = await options.api.call(
+      "GET",
+      `organisations/${req.params.id}/certificates/${req.params.cid}`,
+      { session: token },
+    );
+    const body = cert.body.body;
+    if (cert.status !== 200 || typeof body !== "string") return void res.status(404).end();
+    const isPem = cert.body.kind === "WRPAC";
+    const name = `${String(cert.body.kind).toLowerCase()}-${String(cert.body.variant)}-${req.params.cid.slice(0, 8)}.${isPem ? "pem" : "jwt"}`;
+    res.setHeader("content-disposition", `attachment; filename="${name}"`);
+    res.type(isPem ? "application/x-pem-file" : "application/jwt").send(body);
+  });
+
+  app.post("/org/:id/certificates/:cid/revoke", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.cid)) return void res.status(404).end();
+    await options.api.call(
+      "POST",
+      `organisations/${req.params.id}/certificates/${req.params.cid}/revoke`,
+      { session: token },
+    );
+    res.redirect(303, `/org/${req.params.id}/certificates/${req.params.cid}`);
   });
 
   app.use((_req, res) => {

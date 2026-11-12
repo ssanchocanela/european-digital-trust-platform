@@ -21,7 +21,8 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S2** | `sandbox/s2-foundations` | People, organisations, PKI foundations | PR #42; real run pending |
 | **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR #43 |
 | **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR #44; real runs pending |
-| **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending; ADR 0016 awaits a decision* |
+| **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
+| **S5b** | `sandbox/s5b-signed-metadata` | Signed issuer metadata for sandbox issuers ([ADR 0016](../adr/0016-sandbox-signed-issuer-metadata.md), option 2, decided) and a sandbox wallet profile without WD-2 | PR, STOP |
 | **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
 
 ## S2 — Foundations

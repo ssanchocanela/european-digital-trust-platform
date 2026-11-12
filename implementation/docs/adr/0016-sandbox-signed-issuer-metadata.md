@@ -1,6 +1,7 @@
 # ADR 0016 — Signed issuer metadata for the sandbox's hosted PID issuer
 
-- **Status:** PROPOSED, 12 November 2026. **The decision is the user's**, at the S5 checkpoint.
+- **Status:** ACCEPTED, 12 November 2026: the user chose **option 2**, signing the metadata in front of
+  the engine for sandbox issuers only. Not yet implemented.
 - **Date:** 12 November 2026
 - **Context documents:**
   - [`docs/issuer-trust-model.md`](../issuer-trust-model.md) — gate (a), G1 and G8;
@@ -61,5 +62,17 @@ Two consequences to state now, so they are not discovered later:
 
 ## Decision
 
-Pending. Until it is taken, option 3 holds, and nothing in the sandbox implies the issuance-side checks
-were exercised.
+**Option 2, decided by the user on 12 November 2026.**
+- A platform route serves the Credential Issuer metadata of **sandbox** engine tenants, signed with the
+  issuer's access certificate (from the sandbox Access CA), with `issuer_info` at the top level of the
+  signed payload.
+- The test gateway routes that one path for sandbox tenants to the platform.
+- A sandbox wallet profile without WD-2 follows, so the issuance-side defects (RC-11, RC-12, and the
+  `RPRC_22a/b` / `RPRC_23` checks) become testable on the hosted issuer.
+
+**Option 1, filing the drafted upstream issue, was not part of the answer.** Filing stays the user's
+decision, and option 2 is to be retired if an engine release ever signs its metadata.
+
+**Until option 2 is implemented, option 3 still holds in fact:** WD-2 stays in the sandbox build, and
+nothing implies the issuance-side checks were exercised. It is planned as its own milestone, S5b
+([`plan.md`](../sandbox/plan.md)).

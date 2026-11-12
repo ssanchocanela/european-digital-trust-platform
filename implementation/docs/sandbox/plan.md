@@ -22,7 +22,7 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S3** | `sandbox/s3-certificates` | Certificate service, defect catalogue, lists, register | PR #43 |
 | **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR #44; real runs pending |
 | **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
-| **S5b** | `sandbox/s5b-signed-metadata` | Signed issuer metadata for sandbox issuers ([ADR 0016](../adr/0016-sandbox-signed-issuer-metadata.md), option 2, decided) and a sandbox wallet profile without WD-2 | PR, STOP |
+| **S5b** | `sandbox/s5b-signed-metadata` | Signed issuer metadata for sandbox issuers ([ADR 0016](../adr/0016-sandbox-signed-issuer-metadata.md), option 2, decided) and a sandbox wallet profile without WD-2 | PR, STOP ← *built; runs per [`s5b-run-sheet.md`](s5b-run-sheet.md) pending* |
 | **S6** | `sandbox/s6-deployment` | The sandbox VM | PR, user-confirmed deployment, STOP |
 
 ## S2 — Foundations

@@ -71,6 +71,12 @@ Added **only when the flow under test needs them**, not pre-emptively:
 | `/issuers/{tenantId}/vci/deferred_credential` | Only if deferred issuance is tested |
 | `/issuers/{tenantId}/trust-list/{id}`, `/status-management/status-list-aggregation` | Only when publishing a list through the engine |
 
+**One engine path is served by the platform instead (sandbox S5b, ADR 0016).** With
+`GATEWAY_SANDBOX_SIGNED_METADATA=on`, `GET /.well-known/openid-credential-issuer/issuers/sbx-iss-*` —
+already on the engine allow-list — is forwarded to the platform's `/sandbox/public/issuer-metadata/…`,
+which signs the engine's metadata. No other path and no other issuer is redirected. The switch is off by
+default.
+
 ### 1b. The platform, on a separate tunnel host
 
 **One route** for same-device verification, and — since sandbox S4, 12 November 2026 — the sandbox's

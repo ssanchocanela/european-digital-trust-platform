@@ -1,7 +1,7 @@
 # ADR 0016 — Signed issuer metadata for the sandbox's hosted PID issuer
 
 - **Status:** ACCEPTED, 12 November 2026: the user chose **option 2**, signing the metadata in front of
-  the engine for sandbox issuers only. Not yet implemented.
+  the engine for sandbox issuers only. **Implemented in S5b, not yet run with a wallet.**
 - **Date:** 12 November 2026
 - **Context documents:**
   - [`docs/issuer-trust-model.md`](../issuer-trust-model.md) — gate (a), G1 and G8;
@@ -73,6 +73,37 @@ Two consequences to state now, so they are not discovered later:
 **Option 1, filing the drafted upstream issue, was not part of the answer.** Filing stays the user's
 decision, and option 2 is to be retired if an engine release ever signs its metadata.
 
-**Until option 2 is implemented, option 3 still holds in fact:** WD-2 stays in the sandbox build, and
-nothing implies the issuance-side checks were exercised. It is planned as its own milestone, S5b
-([`plan.md`](../sandbox/plan.md)).
+## Implementation (S5b, 12 November 2026)
+
+**The format is the pinned wallet's, read from its compiled OpenID4VCI library 0.13.1**
+(`DefaultCredentialIssuerMetadataResolver`, `OpenId4VCISpec`):
+- the wallet asks for the well-known document with `Accept: application/jwt`;
+- it processes a JWT with `typ` `openidvci-issuer-metadata+jwt`, requiring `sub` (exact: the
+  Credential Issuer identifier) and `iat`;
+- it takes the chain from `x5c`.
+
+The sandbox's JWT carries the engine's metadata unchanged as its claims, plus `sub`, `iss` and `iat`.
+
+| Piece | Where |
+|---|---|
+| The issuer's access certificate, any WRPAC variant, `dNSName` = the engine host; key in the sealed store, a fresh one per configuration | `SandboxIssuerService.configure`, migration 0017 |
+| The engine's metadata, read through the issuer port | `fetchCredentialIssuerMetadata` (adapter) |
+| Signing, and the route | `SandboxMetadataService`; `GET /sandbox/public/issuer-metadata/{ref}` |
+| Routing | the test gateway, `GATEWAY_SANDBOX_SIGNED_METADATA=on`: `GET /.well-known/openid-credential-issuer/issuers/sbx-iss-*` only |
+| The wallet | `build.sh --profile sandbox-strict`: the sandbox profile without WD-2 |
+
+**What changes for the catalogue:**
+- RC-11 and RC-12 are offered on the hosted issuer (the flag is now `issuanceSide`, not
+  `takeAwayOnly`);
+- the WRPAC variants can be put on an issuer, testing `ISSU_34` at issuance;
+- **with the strict build** the issuer registration checks (`RPRC_22a/b`, `RPRC_23`) run.
+
+**What does not change:**
+- the ordinary sandbox build keeps WD-2;
+- every result says which build it came from;
+- the strict build cannot take a PID from "PID (demo)", whose engine tenant is not a sandbox issuer
+  and whose metadata stays unsigned. The sign-in PID comes from the reference issuer instead.
+
+**Not yet verified:** that the pinned wallet accepts the signed metadata in practice. The format
+was read from the library's bytecode, and the signature, `typ`, `sub` and chain are tested here. The
+first wallet run is in [`s5b-run-sheet.md`](../sandbox/s5b-run-sheet.md).

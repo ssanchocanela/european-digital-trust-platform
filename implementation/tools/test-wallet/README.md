@@ -58,6 +58,14 @@ above. wd-2 switches off the issuer registration checks whatever *Check Registra
 (CLAUDE.md §6.21). So a sandbox run report always records the build, and the issuance-side WRPRC
 defects are take-away only (G-10).
 
+### The strict sandbox build (`--profile sandbox-strict`, S5b)
+
+The same without wd-2, so the wallet **requires signed issuer metadata** and runs its issuer
+registration checks. It is for the sandbox's hosted issuers, whose metadata the sandbox signs
+(ADR 0016, with the gateway's `GATEWAY_SANDBOX_SIGNED_METADATA=on`). It refuses any issuer that does not
+sign, "PID (demo)" included, so its sign-in PID comes from the reference issuer. Its own applicationId
+(`.sandboxstrict`) lets it sit beside the ordinary sandbox build.
+
 ## What this build is, and is not
 
 | | |

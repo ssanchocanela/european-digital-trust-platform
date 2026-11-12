@@ -1,0 +1,165 @@
+{
+  "LoTE": {
+    "ListAndSchemeInformation": {
+      "DistributionPoints": ["str"],
+      "ListIssueDateTime": "str",
+      "LoTESequenceNumber": "int",
+      "LoTEType": "str",
+      "LoTEVersionIdentifier": "int",
+      "NextUpdate": "str",
+      "PointersToOtherLoTE": [
+        {
+          "LoTELocation": "str",
+          "LoTEQualifiers": [
+            {
+              "LoTEType": "str",
+              "MimeType": "str",
+              "SchemeOperatorName": [
+                {
+                  "lang": "str",
+                  "value": "str"
+                }
+              ],
+              "SchemeTerritory": "str",
+              "SchemeTypeCommunityRules": [
+                {
+                  "lang": "str",
+                  "uriValue": "str"
+                }
+              ]
+            }
+          ],
+          "ServiceDigitalIdentities": [
+            {
+              "X509Certificates": [
+                {
+                  "val": "str"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "PolicyOrLegalNotice": [
+        {
+          "LoTEPolicy": {
+            "lang": "str",
+            "uriValue": "str"
+          }
+        }
+      ],
+      "SchemeInformationURI": [
+        {
+          "lang": "str",
+          "uriValue": "str"
+        }
+      ],
+      "SchemeName": [
+        {
+          "lang": "str",
+          "value": "str"
+        }
+      ],
+      "SchemeOperatorAddress": {
+        "SchemeOperatorElectronicAddress": [
+          {
+            "lang": "str",
+            "uriValue": "str"
+          }
+        ],
+        "SchemeOperatorPostalAddress": [
+          {
+            "Country": "str",
+            "Locality": "str",
+            "PostalCode": "str",
+            "StateOrProvince": "str",
+            "StreetAddress": "str",
+            "lang": "str"
+          }
+        ]
+      },
+      "SchemeOperatorName": [
+        {
+          "lang": "str",
+          "value": "str"
+        }
+      ],
+      "SchemeTerritory": "str",
+      "SchemeTypeCommunityRules": [
+        {
+          "lang": "str",
+          "uriValue": "str"
+        }
+      ],
+      "StatusDeterminationApproach": "str"
+    },
+    "TrustedEntitiesList": [
+      {
+        "TrustedEntityInformation": {
+          "TEAddress": {
+            "TEElectronicAddress": [
+              {
+                "lang": "str",
+                "uriValue": "str"
+              }
+            ],
+            "TEPostalAddress": [
+              {
+                "Country": "str",
+                "Locality": "str",
+                "PostalCode": "str",
+                "StateOrProvince": "str",
+                "StreetAddress": "str",
+                "lang": "str"
+              }
+            ]
+          },
+          "TEInformationURI": [
+            {
+              "lang": "str",
+              "uriValue": "str"
+            }
+          ],
+          "TEName": [
+            {
+              "lang": "str",
+              "value": "str"
+            }
+          ],
+          "TETradeName": [
+            {
+              "lang": "str",
+              "value": "str"
+            }
+          ]
+        },
+        "TrustedEntityServices": [
+          {
+            "ServiceInformation": {
+              "SchemeServiceDefinitionURI": [
+                {
+                  "lang": "str",
+                  "uriValue": "str"
+                }
+              ],
+              "ServiceDigitalIdentity": {
+                "X509Certificates": [
+                  {
+                    "val": "str"
+                  }
+                ]
+              },
+              "ServiceName": [
+                {
+                  "lang": "str",
+                  "value": "str"
+                }
+              ],
+              "ServiceTypeIdentifier": "str"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

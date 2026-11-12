@@ -6,6 +6,7 @@
 export * as der from "./der.js";
 export * from "./jws.js";
 export * from "./keystore.js";
+export * from "./lote.js";
 export * from "./status-list.js";
 export * from "./trust-domain.js";
 export * from "./validate.js";

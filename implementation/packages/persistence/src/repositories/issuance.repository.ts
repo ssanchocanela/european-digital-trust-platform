@@ -808,6 +808,28 @@ export class IssuanceRepository {
     return { id };
   }
 
+  /**
+   * The issued credential of an issuance transaction, by the transaction. `IssuanceService.get`
+   * returns `issuedCredentialId` only on the read that settles the transaction, so a caller that
+   * reads again later — the sandbox's revoke — finds it here.
+   */
+  async findIssuedIdByTransaction(
+    tenantId: TenantId,
+    issuanceTransactionId: string,
+  ): Promise<string | undefined> {
+    const [row] = await this.db
+      .select({ id: issuedCredentials.id })
+      .from(issuedCredentials)
+      .where(
+        and(
+          eq(issuedCredentials.tenantId, tenantId),
+          eq(issuedCredentials.issuanceTransactionId, issuanceTransactionId),
+        ),
+      )
+      .limit(1);
+    return row?.id;
+  }
+
   async findIssued(
     tenantId: TenantId,
     id: string,

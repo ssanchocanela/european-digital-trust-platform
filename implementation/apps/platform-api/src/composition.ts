@@ -24,6 +24,7 @@ import {
   PolicyRepository,
   RegistrationRepository,
   SandboxCertificateRepository,
+  SandboxIssuerRepository,
   SandboxRepository,
   SandboxVerifierRepository,
   TransactionRepository,
@@ -50,6 +51,7 @@ import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
+import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
 import { SandboxPublicationService } from "./modules/sandbox/publication.service.js";
 import { SandboxRegister } from "./modules/sandbox/register.js";
 import { SandboxService } from "./modules/sandbox/sandbox.service.js";
@@ -95,6 +97,7 @@ export interface Dependencies {
     readonly sandbox: SandboxRepository;
     readonly sandboxCertificates: SandboxCertificateRepository;
     readonly sandboxVerifiers: SandboxVerifierRepository;
+    readonly sandboxIssuers: SandboxIssuerRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -123,6 +126,8 @@ export interface Dependencies {
     readonly sandboxRegister?: SandboxRegister;
     /** Present only when the hosted verifier is configured (`SANDBOX_VERIFIER_DNS_NAME`, S4). */
     readonly sandboxVerifier?: SandboxVerifierService;
+    /** Present when the sandbox's PKI is configured (S5). */
+    readonly sandboxIssuer?: SandboxIssuerService;
     /** Present only when runtime engine tenants are configured (root client and sealing key). */
     readonly engineTenants?: EngineTenantService;
   };
@@ -167,6 +172,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     sandbox: new SandboxRepository(db),
     sandboxCertificates: new SandboxCertificateRepository(db),
     sandboxVerifiers: new SandboxVerifierRepository(db),
+    sandboxIssuers: new SandboxIssuerRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
 
@@ -424,10 +430,31 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
                   clock,
                 )
               : undefined;
+          const issuerService = new SandboxIssuerService(
+            {
+              ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
+                ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
+                : {}),
+            },
+            sandbox,
+            repositories.sandbox,
+            certificates,
+            repositories.sandboxCertificates,
+            repositories.sandboxIssuers,
+            repositories.issuance,
+            issuances,
+            issuerProvisioning,
+            provisioning,
+            engineTenants,
+            domain,
+            audit,
+            clock,
+          );
           return {
             domain,
             publications,
             verifier,
+            issuer: issuerService,
             register: new SandboxRegister(
               repositories.sandboxCertificates,
               domain,
@@ -475,6 +502,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             sandboxPublications: pki.publications,
             sandboxRegister: pki.register,
             ...(pki.verifier ? { sandboxVerifier: pki.verifier } : {}),
+            sandboxIssuer: pki.issuer,
           }
         : {}),
     },

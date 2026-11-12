@@ -109,6 +109,8 @@ describe("migrations", () => {
         // Sandbox S2 — people (ADR 0015)
         "sandbox_certificates",
         "sandbox_invitations",
+        "sandbox_issuances",
+        "sandbox_issuers",
         "sandbox_memberships",
         "sandbox_organisations",
         "sandbox_people",

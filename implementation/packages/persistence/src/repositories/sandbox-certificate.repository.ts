@@ -37,7 +37,7 @@ export interface SandboxCertificateRecord {
   readonly tenantId: TenantId;
   readonly relyingPartyServiceId: string;
   readonly intendedUseId?: string;
-  readonly kind: "WRPAC" | "WRPRC";
+  readonly kind: "WRPAC" | "WRPRC" | "PID_SIGNING";
   readonly variant: string;
   readonly issuerKey: string;
   readonly serialHex?: string;

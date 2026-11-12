@@ -199,6 +199,8 @@ export interface EudiVerifierProvisioningPort {
       readonly listId: string;
       readonly description: string;
       readonly issuers: readonly { readonly name: string; readonly certificatePem: string }[];
+      /** What the listed entities are. Attestation providers unless stated. */
+      readonly providerType?: "attestation-provider" | "wallet-provider";
     },
   ): Promise<void>;
 

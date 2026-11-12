@@ -1179,3 +1179,59 @@ export const sandboxRuns = pgTable(
     index("sandbox_runs_tenant_idx").on(t.tenantId),
   ],
 );
+
+// --- sandbox hosted PID issuer (S5) ---------------------------------------------------
+
+export const sandboxIssuers = pgTable(
+  "sandbox_issuers",
+  {
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .primaryKey()
+      .references(() => relyingPartyServices.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    engineTenantRef: text("engine_tenant_ref").notNull(),
+    attestationProviderId: uuid("attestation_provider_id").notNull(),
+    credentialTypeId: uuid("credential_type_id").notNull(),
+    issuancePolicyId: uuid("issuance_policy_id").notNull(),
+    signingCertificateId: uuid("signing_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    registrationCertificateId: uuid("registration_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    configuredAt: ts("configured_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("sandbox_issuers_engine_tenant_key").on(t.engineTenantRef),
+    index("sandbox_issuers_tenant_idx").on(t.tenantId),
+  ],
+);
+
+export const sandboxIssuances = pgTable(
+  "sandbox_issuances",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .notNull()
+      .references(() => relyingPartyServices.id, { onDelete: "cascade" }),
+    issuanceId: uuid("issuance_id").notNull(),
+    signingCertificateId: uuid("signing_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    registrationCertificateId: uuid("registration_certificate_id")
+      .notNull()
+      .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    createdAt: ts("created_at").notNull(),
+    revokedAt: ts("revoked_at"),
+  },
+  (t) => [
+    uniqueIndex("sandbox_issuances_issuance_key").on(t.issuanceId),
+    index("sandbox_issuances_tenant_idx").on(t.tenantId),
+  ],
+);

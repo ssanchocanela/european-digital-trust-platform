@@ -217,6 +217,7 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
       readonly listId: string;
       readonly description: string;
       readonly issuers: readonly { readonly name: string; readonly certificatePem: string }[];
+      readonly providerType?: "attestation-provider" | "wallet-provider";
     },
   ): Promise<void> {
     const body = {
@@ -224,7 +225,7 @@ export class EudiploVerifierAdapter implements EudiVerifierPort, EudiVerifierPro
       description: input.description,
       entities: input.issuers.map((i) => ({
         type: "external",
-        providerType: "attestation-provider",
+        providerType: input.providerType ?? "attestation-provider",
         issuerCertPem: i.certificatePem,
         revocationCertPem: i.certificatePem,
         info: { name: i.name, lang: "en", country: "EU" },

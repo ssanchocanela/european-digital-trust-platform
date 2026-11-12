@@ -20,6 +20,7 @@ import {
 } from "./http/listing.controllers.js";
 import { SandboxController } from "./http/sandbox.controllers.js";
 import { SandboxCertificatesController } from "./http/sandbox-certificates.controller.js";
+import { SandboxIssuerController } from "./http/sandbox-issuer.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
 import { SandboxVerifierController } from "./http/sandbox-verifier.controller.js";
 import {
@@ -46,6 +47,7 @@ import {
   REGISTERED_EVALUATORS,
   REGISTRATION_SERVICE,
   SANDBOX_CERTIFICATES,
+  SANDBOX_ISSUER,
   SANDBOX_PUBLIC,
   SANDBOX_SERVICE,
   SANDBOX_VERIFIER,
@@ -85,6 +87,7 @@ export class AppModule {
         SandboxPublicController,
         SandboxCertificatesController,
         SandboxVerifierController,
+        SandboxIssuerController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },
@@ -113,6 +116,7 @@ export class AppModule {
         { provide: SANDBOX_SERVICE, useValue: deps.services.sandbox },
         { provide: SANDBOX_CERTIFICATES, useValue: deps.services.sandboxCertificates },
         { provide: SANDBOX_VERIFIER, useValue: deps.services.sandboxVerifier },
+        { provide: SANDBOX_ISSUER, useValue: deps.services.sandboxIssuer },
         {
           provide: SANDBOX_PUBLIC,
           useValue:

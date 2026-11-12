@@ -6,6 +6,7 @@ import { createTrustDomain, FileKeyStore } from "@edtp/sandbox-pki";
 import { asId, newCorrelationId, PlatformError, type TenantId } from "@edtp/shared";
 import { EngineTenantService } from "../../apps/platform-api/src/modules/engine-tenants/engine-tenant.service.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
+import { SandboxIssuerService } from "../../apps/platform-api/src/modules/sandbox/issuer.service.js";
 import { SandboxPublicationService } from "../../apps/platform-api/src/modules/sandbox/publication.service.js";
 import { SandboxRegister } from "../../apps/platform-api/src/modules/sandbox/register.js";
 import { SandboxService } from "../../apps/platform-api/src/modules/sandbox/sandbox.service.js";
@@ -49,6 +50,9 @@ export async function wireSandbox(
   options: {
     pidSignInAnchors?: { name: string; certificate: Buffer }[];
     withoutEngineTenants?: boolean;
+    /** The Wallet Provider anchors a hosted issuer loads; and the list id that makes it require them. */
+    walletProviderAnchors?: { name: string; certificate: Buffer }[];
+    walletProviderTrustListId?: string;
   } = {},
 ) {
   const operator = await seedTenant(harness, {
@@ -108,6 +112,7 @@ export async function wireSandbox(
     store,
     new Map(issued.map((i) => [i.member.name, i.certificate])),
     options.pidSignInAnchors ?? [],
+    options.walletProviderAnchors ?? [],
   );
   const urls = sandboxUrls(PUBLIC_BASE);
   const publications = new SandboxPublicationService(
@@ -197,6 +202,29 @@ export async function wireSandbox(
     harness.clock,
   );
 
+  const issuer = harness.issuer
+    ? new SandboxIssuerService(
+        {
+          ...(options.walletProviderTrustListId
+            ? { walletProviderTrustListId: options.walletProviderTrustListId }
+            : {}),
+        },
+        sandbox,
+        harness.deps.repositories.sandbox,
+        certificates,
+        harness.deps.repositories.sandboxCertificates,
+        harness.deps.repositories.sandboxIssuers,
+        harness.deps.repositories.issuance,
+        harness.deps.services.issuances,
+        harness.issuer,
+        harness.verifier,
+        engineTenants,
+        domain,
+        harness.deps.services.audit,
+        harness.clock,
+      )
+    : undefined;
+
   return {
     sandbox,
     domain,
@@ -205,6 +233,7 @@ export async function wireSandbox(
     certificates,
     register,
     verifier,
+    issuer,
     createdEngineTenants,
     signUp,
     operatorTenantId: asId<"TenantId">(operator.tenantId),

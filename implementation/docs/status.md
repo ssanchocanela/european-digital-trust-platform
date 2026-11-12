@@ -23,11 +23,10 @@ Provider roles against certificates the sandbox issues, correct or defective. Wh
   phone. The signed issuer metadata (ADR 0016) is read from the wallet library's bytecode, and no
   wallet has accepted it yet.
 - **S6 built the sandbox VM, and deployed nothing.** It is [ADR 0017](adr/0017-sandbox-vm.md),
-  proposed, with [`infra/sandbox-vm/`](../infra/sandbox-vm/README.md). Every step there that touches
+  accepted 12 November 2026, with [`infra/sandbox-vm/`](../infra/sandbox-vm/README.md). Every step there that touches
   Hetzner, Cloudflare or GitHub needs a person, and every deployment needs the user's confirmation.
-- **The next action is the user's:**
-  - accept ADR 0017;
-  - then either the first run on the laptop (S2 run sheet) or the VM's steps 1–4.
+- **The next action is the user's:** either the first run on the laptop (S2 run sheet), or the VM's
+  steps 1–4, each confirmed first.
 
 ---
 

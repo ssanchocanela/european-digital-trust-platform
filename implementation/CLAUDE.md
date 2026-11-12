@@ -33,7 +33,7 @@ Three phases with human checkpoints. Do not skip a checkpoint.
 | Sandbox S4 — hosted verifier, run reports, sandbox wallet build | `sandbox/s4-relying-party` (from S3) | PR #44; runs per [`s4-run-sheet.md`](docs/sandbox/s4-run-sheet.md) |
 | Sandbox S5 — hosted PID issuer, synthetic issuance, PID revocation | `sandbox/s5-pid-provider` (from S4) | PR, **STOP**; runs per [`s5-run-sheet.md`](docs/sandbox/s5-run-sheet.md); [ADR 0016](docs/adr/0016-sandbox-signed-issuer-metadata.md) accepted (option 2) ← *built, runs pending* |
 | Sandbox S5b — signed issuer metadata for sandbox issuers, `--profile sandbox-strict` | `sandbox/s5b-signed-metadata` (from S5) | PR, **STOP**; runs per [`s5b-run-sheet.md`](docs/sandbox/s5b-run-sheet.md) ← *built, runs pending* |
-| Sandbox S6 — the sandbox VM: quotas, operator suspension, wallet page, `infra/sandbox-vm/`, `deploy-sandbox` | `sandbox/s6-deployment` (from S5b) | PR, user-confirmed deployment, **STOP**; [ADR 0017](docs/adr/0017-sandbox-vm.md) proposed ← *built, nothing deployed* |
+| Sandbox S6 — the sandbox VM: quotas, operator suspension, wallet page, `infra/sandbox-vm/`, `deploy-sandbox` | `sandbox/s6-deployment` (from S5b) | PR, user-confirmed deployment, **STOP**; [ADR 0017](docs/adr/0017-sandbox-vm.md) accepted 12 Nov 2026 ← *built, nothing deployed* |
 
 **The EUDI ecosystem sandbox** (decided 12 November 2026): same repository; v1 covers the Relying
 Party and PID Provider roles only. S0 investigation → S1 specification → milestones, each with a
@@ -329,10 +329,13 @@ Each of these contradicts a plausible assumption, including assumptions in the o
     [`docs/test-session-gateway.md`](docs/test-session-gateway.md), run its negative checks before any
     wallet interaction, and treat a `401` on an `/api/*` probe as a failure — it proves the endpoint
     is reachable. A tunnel **from a laptop** is hand-started, open only during a session, synthetic
-    data only. The **permanent demonstration environment** is the one exception
-    ([ADR 0010](docs/adr/0010-permanent-demonstration-environment.md), accepted 24 September 2026). It
-    runs its own tunnel from its VM, always on, with the same allow-list, plus edge rate limits,
-    scheduled negative checks and a nightly reset. **Every deployment to it is confirmed by the user
+    data only. Two permanent environments are the exceptions. The **demonstration environment**
+    ([ADR 0010](docs/adr/0010-permanent-demonstration-environment.md), accepted 24 September 2026) runs
+    its own tunnel from its VM, always on, with the same allow-list, plus edge rate limits, scheduled
+    negative checks and a nightly reset. The **sandbox VM**
+    ([ADR 0017](docs/adr/0017-sandbox-vm.md), accepted 12 November 2026) does the same with its own
+    tunnel, its portal behind Cloudflare Access, and nightly backups instead of a reset: its CA keys and
+    participants are state that must survive. **Every deployment to either is confirmed by the user
     first.**
 21. **Gate (a) is one mechanism, and G1 and G8 are one fix.** ETSI TS 119 472-3 V1.1.1 routes all of
     it through a single JWS: the metadata **shall** be signed (`ISS-MDATA-4.2.1-01`), the signing
@@ -485,7 +488,7 @@ migrations up from an empty database.
 | Conformance: the run that happened, and the one prepared | [`docs/conformance-results.md`](docs/conformance-results.md), [`docs/conformance-faithful-profile.md`](docs/conformance-faithful-profile.md) |
 | ARF/TS and implementation divergences | [`docs/interop-findings.md`](docs/interop-findings.md) |
 | Conflicts with the knowledge base | [`docs/knowledge-alignment.md`](docs/knowledge-alignment.md) |
-| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment**, **0011 the age verification demos on the demonstration VM**, **0012 cross-device from a hosted verifier page**, **0014 sandbox trust domain**, **0015 sandbox sign-in by PID**, **0016 sandbox signed issuer metadata (accepted, built in S5b)**, **0017 the sandbox VM (proposed, S6)**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
+| ADRs | [`docs/adr/`](docs/adr/) — 0001 technology, 0002 EUDIPLO + tenant mapping, 0003 modular monolith, 0004 ephemeral processing, 0005 policy + minimisation, **0009 cross-device mitigations**, **0010 permanent demonstration environment**, **0011 the age verification demos on the demonstration VM**, **0012 cross-device from a hosted verifier page**, **0014 sandbox trust domain**, **0015 sandbox sign-in by PID**, **0016 sandbox signed issuer metadata (accepted, built in S5b)**, **0017 the sandbox VM (accepted, S6)**. 0006 (hosted instance vs intermediary) stays reserved and is blocked on Q2; 0007–0008 are Milestone 2, so a new ADR takes the next free number from 0009 |
 
 Open questions are in `docs/phase-0-findings.md` §8. **Q1 and Q5 were resolved at the Phase 0
 checkpoint**: Q1 → **Path A** — enrol a real access certificate at the reference RP Registration

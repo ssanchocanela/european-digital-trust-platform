@@ -1,8 +1,8 @@
 # ADR 0017 — The sandbox VM
 
-- **Status:** PROPOSED, 12 November 2026. The four choices below were made by the user on 12 November
-  2026 (hostnames, who may sign up, reset, backups). Acceptance is the S6 checkpoint. **Nothing is
-  deployed:** every deployment is confirmed by the user first.
+- **Status:** ACCEPTED, 12 November 2026, at the S6 checkpoint. The four choices below were made by
+  the user the same day (hostnames, who may sign up, reset, backups). **Nothing is deployed yet:** every
+  deployment is confirmed by the user first.
 - **Date:** 12 November 2026
 - **Follows:** [ADR 0010](0010-permanent-demonstration-environment.md) — the permanent demonstration
   environment, whose pattern this carries over; and sandbox decision **D7**
@@ -157,7 +157,7 @@ Built in S6, before anything is exposed:
   prevented.
 - **Negative.** The CA keys live sealed on a VM without an HSM (SB1). The backups hold them sealed,
   and the key is kept apart.
-- **Changed on acceptance:**
+- **Changed on acceptance** (done 12 November 2026):
   - `CLAUDE.md` §6.20: the permanent demonstration environment is no longer the only always-on tunnel;
     the sandbox VM follows this ADR on the same terms;
   - `security-limitations.md` (SB5, SB6, SB14–SB16);

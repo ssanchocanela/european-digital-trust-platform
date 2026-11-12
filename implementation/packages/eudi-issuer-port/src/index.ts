@@ -251,5 +251,15 @@ export interface EudiIssuerProvisioningPort {
     engineTenantRef: string,
   ): Promise<ProviderAuthenticationEvidence>;
 
+  /**
+   * The Credential Issuer metadata the engine publishes for this engine tenant, as the JSON object it
+   * serves — for the sandbox, which signs it in front of the engine (ADR 0016) because the engine signs
+   * nothing. The object is returned whole and unchanged: a field the platform does not model must
+   * still reach the wallet.
+   */
+  fetchCredentialIssuerMetadata?(
+    engineTenantRef: string,
+  ): Promise<Readonly<Record<string, unknown>>>;
+
   healthy(): Promise<boolean>;
 }

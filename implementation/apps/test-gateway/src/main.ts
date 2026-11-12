@@ -3,6 +3,7 @@ import { clientKey, RateLimiter } from "@edtp/shared";
 import { z } from "zod";
 import { ENGINE_RULES, isAllowed, PLATFORM_RULES, type Rule } from "./allow-list.js";
 import { hostedFormGate } from "./hosted-form-gate.js";
+import { sandboxMetadataForward } from "./sandbox-metadata.js";
 
 /**
  * The filtering reverse proxy that sits between a public tunnel and the stack.
@@ -94,6 +95,14 @@ const schema = z.object({
    * 0, the default, is off.
    */
   GATEWAY_ATTESTATION_SKEW_DELAY_MS: z.coerce.number().int().min(0).max(10_000).default(0),
+  /**
+   * Sandbox S5b (ADR 0016): send sandbox issuers' metadata path to the platform, which signs it.
+   * Off by default; `on` only on a stack where the sandbox's hosted issuers run.
+   */
+  GATEWAY_SANDBOX_SIGNED_METADATA: z
+    .enum(["on", "off"])
+    .default("off")
+    .transform((v) => v === "on"),
   /**
    * Per-client limits, per minute (ADR 0010 §3); `0` disables one. The general limit counts every
    * request, refused ones included, so probing for paths is limited too. The other two cover what makes
@@ -267,7 +276,18 @@ const createProxy = (
       );
     }
 
-    const upstream = new URL(forwardUrl, target);
+    // A sandbox issuer's metadata goes to the platform, which signs it (ADR 0016). The allow-list has
+    // already passed it as an engine path; nothing else is redirected.
+    let upstreamTarget = target;
+    if (name === "engine" && config.GATEWAY_SANDBOX_SIGNED_METADATA) {
+      const sandboxPath = sandboxMetadataForward(method, pathname);
+      if (sandboxPath) {
+        upstreamTarget = config.GATEWAY_PLATFORM_TARGET;
+        forwardUrl = sandboxPath;
+        log("sandbox metadata to the platform", { target: name, path: pathname });
+      }
+    }
+    const upstream = new URL(forwardUrl, upstreamTarget);
     const headers: Record<string, string | string[]> = {};
     for (const [key, value] of Object.entries(request.headers)) {
       if (value !== undefined && !HOP_BY_HOP.has(key.toLowerCase())) {

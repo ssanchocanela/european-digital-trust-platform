@@ -111,6 +111,19 @@ export class FakeIssuer implements EudiIssuerPort, EudiIssuerProvisioningPort {
     };
   }
 
+  async fetchCredentialIssuerMetadata(
+    engineTenantRef: string,
+  ): Promise<Readonly<Record<string, unknown>>> {
+    return {
+      credential_issuer: `https://engine.test/issuers/${engineTenantRef}`,
+      credential_endpoint: `https://engine.test/issuers/${engineTenantRef}/vci/credential`,
+      credential_configurations_supported: {
+        pid: { format: "dc+sd-jwt", vct: "urn:eudi:pid:1" },
+      },
+      issuer_info: [{ format: "registration_cert", data: "eyJ.registration.cert" }],
+    };
+  }
+
   async healthy(): Promise<boolean> {
     return true;
   }

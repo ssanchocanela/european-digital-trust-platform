@@ -66,8 +66,11 @@ export interface WrprcVariantInfo {
   readonly walletCoreReason?: string;
   /** Whether a wallet looks at it only with *Check Registration Certificates* on. */
   readonly registrationCheck: boolean;
-  /** Issuance-side defects are offered as take-away certificates only (specification J8, G-10). */
-  readonly takeAwayOnly?: boolean;
+  /**
+   * Checked by a wallet only at issuance (`RPRC_22a/b`, `RPRC_23`, the entitlement). A hosted issuer
+   * exercises it only with its metadata signed (S5b, ADR 0016) and a wallet build without WD-2.
+   */
+  readonly issuanceSide?: boolean;
   /** For which kind of certificate the variant makes sense. */
   readonly appliesTo: "service_provider" | "pid_provider" | "both";
 }
@@ -176,7 +179,7 @@ export const WRPRC_VARIANT_INFO: Readonly<Record<WrprcVariant, WrprcVariantInfo>
     requirement: "No HLR — ARF §6.6.2.3 prose",
     walletCoreReason: "ENTITLEMENT_MISSING",
     registrationCheck: true,
-    takeAwayOnly: true,
+    issuanceSide: true,
     appliesTo: "pid_provider",
   },
   "RC-12": {
@@ -185,7 +188,7 @@ export const WRPRC_VARIANT_INFO: Readonly<Record<WrprcVariant, WrprcVariantInfo>
     fails: "provides_attestation",
     requirement: "AS-AP-44-007 (RPRC_23)",
     registrationCheck: true,
-    takeAwayOnly: true,
+    issuanceSide: true,
     appliesTo: "pid_provider",
   },
   "RC-13": {

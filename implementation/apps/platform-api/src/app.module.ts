@@ -127,6 +127,9 @@ export class AppModule {
                   publications: deps.services.sandboxPublications,
                   register: deps.services.sandboxRegister,
                   domain: deps.sandboxTrustDomain,
+                  ...(deps.services.sandboxMetadata
+                    ? { metadata: deps.services.sandboxMetadata }
+                    : {}),
                 }
               : undefined,
         },

@@ -54,6 +54,11 @@
 #                           that base, applicationId suffix .sandbox and app name "EDTP Sandbox
 #                           wallet". Refused together with --deviations or a --*-lote flag, so a
 #                           build is either the sandbox profile or something else, never half of it.
+#   --profile sandbox-strict  the same without wd-2: the wallet requires signed issuer metadata, so its
+#                           issuer registration checks run (sandbox S5b, ADR 0016). Suffix
+#                           .sandboxstrict, name "EDTP Sandbox wallet (strict)". It can take a PID only
+#                           from an issuer that signs its metadata: the sandbox's hosted issuers (with
+#                           GATEWAY_SANDBOX_SIGNED_METADATA on) and the reference issuer, not "PID (demo)".
 #   --sandbox-base <url>    the sandbox's public base, e.g. https://<host>/sandbox/public.
 #   --show-config           print the settings this invocation expands to, and stop: no clone, no
 #                           build. For checking a profile before spending twenty minutes on it.
@@ -117,7 +122,7 @@ while [ $# -gt 0 ]; do
     --profile) PROFILE="${2:-}"; shift 2 ;;
     --sandbox-base) SANDBOX_BASE="${2:-}"; shift 2 ;;
     --show-config) SHOW_CONFIG="yes"; shift ;;
-    -h|--help) sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,53p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
   esac
 done
@@ -131,11 +136,11 @@ step() { printf '\n==> %s\n' "$*"; }
 # every deviation it turns on is validated exactly as if it had been typed.
 case "$PROFILE" in
   "") ;;
-  sandbox)
-    [ "$DEVIATIONS" = "none" ] || die "--profile sandbox sets the deviations itself; drop --deviations."
+  sandbox|sandbox-strict)
+    [ "$DEVIATIONS" = "none" ] || die "--profile $PROFILE sets the deviations itself; drop --deviations."
     [ -z "$WRPAC_LOTE$PID_LOTE$WRPRC_LOTE$PUBEAA_LOTE" ] ||
-      die "--profile sandbox sets the list URLs itself; drop the --*-lote flags."
-    [ -n "$SANDBOX_BASE" ] || die "--profile sandbox requires --sandbox-base https://<host>/sandbox/public."
+      die "--profile $PROFILE sets the list URLs itself; drop the --*-lote flags."
+    [ -n "$SANDBOX_BASE" ] || die "--profile $PROFILE requires --sandbox-base https://<host>/sandbox/public."
     case "$SANDBOX_BASE" in
       https://*) ;;
       *) die "--sandbox-base must be https. A wallet will not fetch a trust list over cleartext." ;;
@@ -144,16 +149,23 @@ case "$PROFILE" in
     # wd-3, wd-4, wd-8: the sandbox's access-CA, PID and registration-certificate-provider lists.
     # wd-2 and wd-6: what issuance from the sandbox's hosted PID issuer needs (S5), as for W8/W9.
     # wd-7: release logs kept to warnings and errors.
-    DEVIATIONS="wd-2,wd-3,wd-4,wd-6,wd-7,wd-8"
     WRPAC_LOTE="$SANDBOX_BASE/lote/WRPACProviders.jwt"
     PID_LOTE="$SANDBOX_BASE/lote/PIDProviders.jwt"
     WRPRC_LOTE="$SANDBOX_BASE/lote/WRPRCProviders.jwt"
-    APP_ID_SUFFIX="${APP_ID_SUFFIX:-.sandbox}"
-    APP_NAME="${APP_NAME:-EDTP Sandbox wallet}"
+    if [ "$PROFILE" = "sandbox" ]; then
+      DEVIATIONS="wd-2,wd-3,wd-4,wd-6,wd-7,wd-8"
+      APP_ID_SUFFIX="${APP_ID_SUFFIX:-.sandbox}"
+      APP_NAME="${APP_NAME:-EDTP Sandbox wallet}"
+    else
+      # No wd-2: signed issuer metadata required, and with it the issuer registration checks.
+      DEVIATIONS="wd-3,wd-4,wd-6,wd-7,wd-8"
+      APP_ID_SUFFIX="${APP_ID_SUFFIX:-.sandboxstrict}"
+      APP_NAME="${APP_NAME:-EDTP Sandbox wallet (strict)}"
+    fi
     ;;
-  *) die "--profile takes one value: sandbox." ;;
+  *) die "--profile takes one of: sandbox, sandbox-strict." ;;
 esac
-[ -z "$SANDBOX_BASE" ] || [ "$PROFILE" = "sandbox" ] || die "--sandbox-base goes with --profile sandbox."
+[ -z "$SANDBOX_BASE" ] || [ -n "$PROFILE" ] || die "--sandbox-base goes with --profile sandbox or sandbox-strict."
 
 if [ "$SHOW_CONFIG" = "yes" ]; then
   printf 'deviations=%s\nwrpac_lote=%s\npid_lote=%s\nwrprc_lote=%s\npubeaa_lote=%s\napp_id_suffix=%s\napp_name=%s\nbuild_type=%s\n' \

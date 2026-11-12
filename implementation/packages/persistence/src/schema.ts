@@ -1201,6 +1201,14 @@ export const sandboxIssuers = pgTable(
     registrationCertificateId: uuid("registration_certificate_id")
       .notNull()
       .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
+    /** The access certificate that signs the issuer's metadata (S5b), and its key's name in the store. */
+    accessCertificateId: uuid("access_certificate_id").references(
+      () => sandboxCertificates.id,
+      {
+        onDelete: "restrict",
+      },
+    ),
+    accessKeyName: text("access_key_name"),
     configuredAt: ts("configured_at").notNull(),
     createdAt: ts("created_at").notNull(),
   },

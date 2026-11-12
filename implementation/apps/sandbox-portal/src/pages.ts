@@ -275,7 +275,7 @@ export interface VariantOption {
   readonly id: string;
   readonly title: string;
   readonly requirement: string;
-  readonly takeAwayOnly?: boolean;
+  readonly issuanceSide?: boolean;
 }
 
 export interface ServiceSummary {
@@ -315,7 +315,7 @@ export interface CertificateSummary {
   readonly revokedAt?: string;
   readonly intendedUseId?: string;
   readonly walletCoreReason?: string;
-  readonly takeAwayOnly?: boolean;
+  readonly issuanceSide?: boolean;
   readonly fingerprintSha256?: string;
   readonly notAfter?: string;
   readonly body?: string;
@@ -326,7 +326,7 @@ const options = (variants: readonly VariantOption[]) =>
   variants
     .map(
       (v) =>
-        `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.takeAwayOnly ? " (take-away only)" : ""}`)}</option>`,
+        `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.issuanceSide ? " (checked at issuance only)" : ""}`)}</option>`,
     )
     .join("");
 
@@ -432,7 +432,7 @@ ${
 <p class="muted">The sandbox's own check is not a wallet's verdict. What a wallet does with this certificate is
 what you record in a run report, together with the wallet build and the position of
 <em>Check Registration Certificates</em>.</p>
-${cert.takeAwayOnly ? "<p><strong>Take-away only.</strong> The hosted issuer cannot exercise this defect: the engine publishes no signed issuer metadata, so the sandbox wallet does not apply its issuer registration checks (G-10).</p>" : ""}
+${cert.issuanceSide ? "<p><strong>Checked at issuance only.</strong> A wallet looks at it before requesting a PID, and only when the issuer's metadata is signed and the wallet build does not carry WD-2: use the <code>sandbox-strict</code> wallet build. With the ordinary sandbox build it is not exercised.</p>" : ""}
 ${cert.body ? `<p><a class="button" href="/org/${org}/certificates/${id}/download">Download</a></p>` : "<p>RC-01 is the absence of a registration certificate: there is nothing to download.</p>"}
 ${cert.revokedAt ? "" : `<form method="post" action="/org/${org}/certificates/${id}/revoke"><button class="secondary">Revoke (final)</button></form>`}
 <p><a href="/org/${org}">Back to the organisation</a></p>`,
@@ -489,7 +489,7 @@ export function verifierSection(input: {
     : "<p>Not configured yet. The first configuration creates its engine tenant.</p>";
   const variantSelect = (name: string, variants: readonly VariantOption[]) =>
     `<select name="${escapeHtml(name)}">${variants
-      .filter((v) => !v.takeAwayOnly)
+      .filter((v) => !v.issuanceSide)
       .map(
         (v) =>
           `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}`)}</option>`,
@@ -646,15 +646,16 @@ export function issuerSection(input: {
   readonly issuer: IssuerView;
   readonly signingVariants: readonly VariantOption[];
   readonly wrprcVariants: readonly VariantOption[];
+  /** The access certificate variants: the certificate that signs the issuer's metadata (S5b). */
+  readonly accessVariants?: readonly VariantOption[];
 }): string {
   const org = escapeHtml(input.orgId);
   const svc = escapeHtml(input.serviceId);
   const select = (name: string, variants: readonly VariantOption[]) =>
     `<select name="${escapeHtml(name)}">${variants
-      .filter((v) => !v.takeAwayOnly)
       .map(
         (v) =>
-          `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}`)}</option>`,
+          `<option value="${escapeHtml(v.id)}">${escapeHtml(`${v.id} — ${v.title}${v.issuanceSide ? " (checked at issuance only)" : ""}`)}</option>`,
       )
       .join("")}</select>`;
   const i = input.issuer;
@@ -685,11 +686,13 @@ ${issuances ? `<h3>Issued</h3><table><tr><th>Offered</th><th></th></tr>${issuanc
     : "";
   return `<h2>Hosted PID issuer</h2>
 <p class="muted">An issuer the sandbox runs for this service, signing PIDs with a certificate the sandbox PID
-CA issues — correct or defective. The issuance-side registration checks are <strong>not</strong>
-exercised: the engine signs no issuer metadata, and the sandbox wallet build switches those checks off
-(G-10). The defects that would test them are offered as take-away certificates only.</p>
+CA issues — correct or defective. The sandbox signs this issuer's metadata with its access certificate
+(ADR 0016), so a wallet can authenticate it before asking for a PID. The issuance-side registration checks
+are exercised only by the <code>sandbox-strict</code> wallet build: the ordinary sandbox build carries WD-2,
+which switches them off.</p>
 ${current}
 <form method="post" action="/org/${org}/services/${svc}/issuer">
+${input.accessVariants ? `<label>Access certificate variant (signs the metadata) ${select("accessVariant", input.accessVariants)}</label>` : ""}
 <label>Signing certificate variant ${select("signingVariant", input.signingVariants)}</label>
 <label>Registration certificate variant ${select("registrationVariant", input.wrprcVariants)}</label>
 <button>${i.configured ? "Reconfigure" : "Configure"} the hosted issuer</button></form>

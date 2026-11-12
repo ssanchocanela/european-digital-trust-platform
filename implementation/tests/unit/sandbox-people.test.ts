@@ -1,4 +1,3 @@
-import { asId, type TenantId } from "@edtp/shared";
 import {
   checkInvitation,
   checkRemoval,
@@ -14,6 +13,7 @@ import {
   SESSION_IDLE_MS,
   sharedTrustSources,
 } from "@edtp/sandbox-domain";
+import { asId, type TenantId } from "@edtp/shared";
 import { describe, expect, it } from "vitest";
 
 const tenant = asId<"TenantId">("00000000-0000-4000-8000-000000000001") as TenantId;
@@ -85,9 +85,15 @@ describe("invitations", () => {
   };
 
   it("is valid for 72 hours and single use", () => {
-    expect(checkInvitation(invitation, new Date(at.getTime() + INVITATION_TTL_MS - 1))).toBeUndefined();
-    expect(checkInvitation(invitation, new Date(at.getTime() + INVITATION_TTL_MS))).toBe("expired");
-    expect(checkInvitation({ ...invitation, acceptedAt: at, acceptedBy: person(2) }, at)).toBe("used");
+    expect(
+      checkInvitation(invitation, new Date(at.getTime() + INVITATION_TTL_MS - 1)),
+    ).toBeUndefined();
+    expect(checkInvitation(invitation, new Date(at.getTime() + INVITATION_TTL_MS))).toBe(
+      "expired",
+    );
+    expect(checkInvitation({ ...invitation, acceptedAt: at, acceptedBy: person(2) }, at)).toBe(
+      "used",
+    );
   });
 });
 
@@ -101,7 +107,9 @@ describe("sessions (ADR 0015 Decision 5)", () => {
 
   it("ends after 8 hours however active", () => {
     const late = new Date(at.getTime() + SESSION_ABSOLUTE_MS);
-    expect(isSessionLive({ ...session, lastSeenAt: new Date(late.getTime() - 1000) }, late)).toBe(false);
+    expect(
+      isSessionLive({ ...session, lastSeenAt: new Date(late.getTime() - 1000) }, late),
+    ).toBe(false);
   });
 
   it("ends at sign-out", () => {

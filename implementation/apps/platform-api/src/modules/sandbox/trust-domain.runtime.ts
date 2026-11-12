@@ -103,6 +103,14 @@ export class SandboxTrustDomain {
     return this.store.signer(name);
   }
 
+  /**
+   * A new key in the sandbox's sealed store, for a hosted issuer's metadata-signing access certificate
+   * (S5b). Never replaced: each configuration makes a fresh one.
+   */
+  createKey(name: string): Promise<Signer> {
+    return this.store.create(name);
+  }
+
   /** The chain for a signing leaf, leaf first, root last: the whole chain, as a WRPRC carries it. */
   chainOf(signingKey: string): Buffer[] {
     const member = TRUST_DOMAIN.find((m) => m.name === signingKey);

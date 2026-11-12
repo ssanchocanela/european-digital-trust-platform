@@ -52,6 +52,7 @@ import { PresentationService } from "./modules/presentations/presentation.servic
 import { RegistrationService } from "./modules/registration/registration.service.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
 import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
+import { SandboxMetadataService } from "./modules/sandbox/metadata.service.js";
 import { SandboxPublicationService } from "./modules/sandbox/publication.service.js";
 import { SandboxRegister } from "./modules/sandbox/register.js";
 import { SandboxService } from "./modules/sandbox/sandbox.service.js";
@@ -128,6 +129,8 @@ export interface Dependencies {
     readonly sandboxVerifier?: SandboxVerifierService;
     /** Present when the sandbox's PKI is configured (S5). */
     readonly sandboxIssuer?: SandboxIssuerService;
+    /** Signed metadata for sandbox issuers (S5b, ADR 0016). */
+    readonly sandboxMetadata?: SandboxMetadataService;
     /** Present only when runtime engine tenants are configured (root client and sealing key). */
     readonly engineTenants?: EngineTenantService;
   };
@@ -435,6 +438,9 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
               ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
                 ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
                 : {}),
+              ...(config.SANDBOX_VERIFIER_DNS_NAME
+                ? { metadataDnsName: config.SANDBOX_VERIFIER_DNS_NAME }
+                : {}),
             },
             sandbox,
             repositories.sandbox,
@@ -450,11 +456,19 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             audit,
             clock,
           );
+          const metadata = new SandboxMetadataService(
+            repositories.sandboxIssuers,
+            repositories.sandboxCertificates,
+            issuerProvisioning,
+            domain,
+            clock,
+          );
           return {
             domain,
             publications,
             verifier,
             issuer: issuerService,
+            metadata,
             register: new SandboxRegister(
               repositories.sandboxCertificates,
               domain,
@@ -503,6 +517,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             sandboxRegister: pki.register,
             ...(pki.verifier ? { sandboxVerifier: pki.verifier } : {}),
             sandboxIssuer: pki.issuer,
+            sandboxMetadata: pki.metadata,
           }
         : {}),
     },

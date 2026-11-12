@@ -278,11 +278,11 @@ describe("services and certificates (S3)", () => {
       variantTitle: "<b>x</b>",
       requirement: "AS-AP-44-007 (RPRC_23)",
       createdAt: "2026-11-12",
-      takeAwayOnly: true,
+      issuanceSide: true,
       selfTest: { fails: ["provides_attestation"], asDesigned: true },
     });
     expect(html).toContain("not a wallet's verdict");
-    expect(html).toContain("Take-away only");
+    expect(html).toContain("Checked at issuance only");
     expect(html).toContain("— as designed");
     expect(html).not.toContain("<b>x</b>");
   });
@@ -433,7 +433,7 @@ describe("the hosted verifier and runs (S4)", () => {
     });
   });
 
-  it("offers no take-away-only variant to the hosted verifier", async () => {
+  it("offers no issuance-side variant to the hosted verifier", async () => {
     const { verifierSection } = await import("@edtp/sandbox-portal/pages.js");
     const html = verifierSection({
       orgId: ORG,
@@ -443,7 +443,7 @@ describe("the hosted verifier and runs (S4)", () => {
       wrpacVariants: [{ id: "AC-00", title: "Correct", requirement: "—" }],
       wrprcVariants: [
         { id: "RC-00", title: "Correct", requirement: "—" },
-        { id: "RC-11", title: "Wrong entitlement", requirement: "x", takeAwayOnly: true },
+        { id: "RC-11", title: "Wrong entitlement", requirement: "x", issuanceSide: true },
       ],
     });
     expect(html).toContain('value="RC-00"');
@@ -490,7 +490,7 @@ describe("the hosted PID issuer (S5)", () => {
     expect(html).toContain(`content="3;url=/org/${ORG}/issuances/${ISS}"`);
   });
 
-  it("says the issuance-side registration checks are not exercised, and insists on synthetic data", async () => {
+  it("says which wallet build exercises the issuance-side checks, offers them, and insists on synthetic data", async () => {
     const { issuerSection } = await import("@edtp/sandbox-portal/pages.js");
     const html = issuerSection({
       orgId: ORG,
@@ -508,12 +508,13 @@ describe("the hosted PID issuer (S5)", () => {
       signingVariants: [{ id: "PID-00", title: "Correct", requirement: "—" }],
       wrprcVariants: [
         { id: "RC-00", title: "Correct", requirement: "—" },
-        { id: "RC-12", title: "Not registered", requirement: "x", takeAwayOnly: true },
+        { id: "RC-12", title: "Not registered", requirement: "x", issuanceSide: true },
       ],
     });
-    expect(html).toContain("<strong>not</strong>\nexercised");
+    expect(html).toContain("<code>sandbox-strict</code> wallet build");
     expect(html).toContain("Synthetic data only");
-    expect(html).not.toContain('value="RC-12"');
+    expect(html).toContain('value="RC-12"');
+    expect(html).toContain("(checked at issuance only)");
   });
 
   it("offers revocation only for a revocable PID, and refreshes until settled", async () => {

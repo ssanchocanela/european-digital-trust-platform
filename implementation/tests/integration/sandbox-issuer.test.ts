@@ -119,9 +119,9 @@ describe("configuring the hosted issuer", () => {
     expect(offer.offerUri).toMatch(/^openid-credential-offer:/);
   });
 
-  it("refuses take-away-only and Relying Party variants, a Relying Party service, and a missing Wallet Provider list", async () => {
+  it("refuses Relying Party variants, a Relying Party service, and a missing Wallet Provider list", async () => {
     const serviceId = await pidProvider();
-    for (const variant of ["RC-11", "RC-12", "RC-08"] as const) {
+    for (const variant of ["RC-08", "RC-01"] as const) {
       expect(
         await errorCode(
           issuer().configure(owner.context, owner.organisationId, serviceId, {

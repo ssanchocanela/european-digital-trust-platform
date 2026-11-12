@@ -481,7 +481,7 @@ export class SandboxCertificateService {
       ...("walletCoreReason" in info && info.walletCoreReason
         ? { walletCoreReason: info.walletCoreReason }
         : {}),
-      ...("takeAwayOnly" in info && info.takeAwayOnly ? { takeAwayOnly: true } : {}),
+      ...("issuanceSide" in info && info.issuanceSide ? { issuanceSide: true } : {}),
       ...(record.notBefore ? { notBefore: record.notBefore } : {}),
       ...(record.notAfter ? { notAfter: record.notAfter } : {}),
       ...(record.fingerprintSha256 ? { fingerprintSha256: record.fingerprintSha256 } : {}),

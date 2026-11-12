@@ -51,4 +51,24 @@ describe("build.sh --profile sandbox", () => {
     expect(run("--sandbox-base", "https://sbx.test").status).not.toBe(0);
     expect(run("--profile", "other").status).not.toBe(0);
   });
+
+  it("has a strict profile without wd-2, with its own identity", () => {
+    const out = execFileSync(
+      "bash",
+      [
+        script,
+        "--profile",
+        "sandbox-strict",
+        "--sandbox-base",
+        "https://sbx.test/sandbox/public",
+        "--show-config",
+      ],
+      {
+        encoding: "utf8",
+      },
+    );
+    expect(out).toContain("deviations=wd-3,wd-4,wd-6,wd-7,wd-8");
+    expect(out).not.toContain("wd-2");
+    expect(out).toContain("app_id_suffix=.sandboxstrict");
+  });
 });

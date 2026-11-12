@@ -13,6 +13,8 @@ export interface SandboxIssuerRecord {
   readonly issuancePolicyId: string;
   readonly signingCertificateId: string;
   readonly registrationCertificateId: string;
+  readonly accessCertificateId?: string;
+  readonly accessKeyName?: string;
   readonly configuredAt: Date;
 }
 
@@ -36,6 +38,8 @@ const toIssuer = (r: typeof sandboxIssuers.$inferSelect): SandboxIssuerRecord =>
   issuancePolicyId: r.issuancePolicyId,
   signingCertificateId: r.signingCertificateId,
   registrationCertificateId: r.registrationCertificateId,
+  ...(r.accessCertificateId ? { accessCertificateId: r.accessCertificateId } : {}),
+  ...(r.accessKeyName ? { accessKeyName: r.accessKeyName } : {}),
   configuredAt: r.configuredAt,
 });
 
@@ -72,19 +76,42 @@ export class SandboxIssuerRepository {
   async createIssuer(
     record: SandboxIssuerRecord & { readonly createdAt: Date },
   ): Promise<void> {
-    await this.db.insert(sandboxIssuers).values(record);
+    await this.db.insert(sandboxIssuers).values({
+      ...record,
+      accessCertificateId: record.accessCertificateId ?? null,
+      accessKeyName: record.accessKeyName ?? null,
+    });
+  }
+
+  /** The issuer an engine tenant serves, across organisations: for the public metadata route. */
+  async issuerByEngineTenant(
+    engineTenantRef: string,
+  ): Promise<SandboxIssuerRecord | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(sandboxIssuers)
+      .where(eq(sandboxIssuers.engineTenantRef, engineTenantRef));
+    return row ? toIssuer(row) : undefined;
   }
 
   async setCertificates(
     tenantId: TenantId,
     serviceId: string,
-    input: { signingCertificateId: string; registrationCertificateId: string; at: Date },
+    input: {
+      signingCertificateId: string;
+      registrationCertificateId: string;
+      accessCertificateId: string;
+      accessKeyName: string;
+      at: Date;
+    },
   ): Promise<void> {
     await this.db
       .update(sandboxIssuers)
       .set({
         signingCertificateId: input.signingCertificateId,
         registrationCertificateId: input.registrationCertificateId,
+        accessCertificateId: input.accessCertificateId,
+        accessKeyName: input.accessKeyName,
         configuredAt: input.at,
       })
       .where(

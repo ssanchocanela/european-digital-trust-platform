@@ -81,6 +81,15 @@ describe("the composed sandbox", () => {
 
   it("refuses unknown public names and the portal API without its secret", async () => {
     expect((await fetch(`${base}/sandbox/public/lote/EAAProviders.jwt`)).status).toBe(404);
+    // The signed-metadata route is served (S5b), and refuses an engine tenant no sandbox issuer has.
+    const metadata = await fetch(
+      `${base}/sandbox/public/issuer-metadata/sbx-iss-000000000000`,
+      {
+        headers: { accept: "application/jwt" },
+      },
+    );
+    expect(metadata.status).toBe(404);
+    expect(harness.deps.services.sandboxMetadata).toBeDefined();
     expect((await fetch(`${base}/sandbox/public/ca/keys.cer`)).status).toBe(404);
     expect((await fetch(`${base}/sandbox/v1/me`)).status).toBe(401);
     const wrong = await fetch(`${base}/sandbox/v1/me`, {

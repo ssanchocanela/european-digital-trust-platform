@@ -25,6 +25,7 @@ import {
   serialToHex,
   toPem,
   WRPRC_VARIANT_INFO,
+  type WrpacVariant,
   type WrprcVariant,
 } from "@edtp/sandbox-pki";
 import { type Clock, newUuid, PlatformError, type TenantId } from "@edtp/shared";
@@ -53,6 +54,11 @@ import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
 export interface IssuerSettings {
   /** The id under which the issuer adapter expects the Wallet Provider list, if it requires one. */
   readonly walletProviderTrustListId?: string;
+  /**
+   * The engine's public host: the `dNSName` of each hosted issuer's access certificate, which signs
+   * its metadata (S5b). The same host the hosted verifier's certificates name.
+   */
+  readonly metadataDnsName?: string;
 }
 
 /** PID Rulebook, as pinned in CLAUDE.md §2. */
@@ -269,6 +275,8 @@ export class SandboxIssuerService {
     input: {
       readonly signingVariant: PidSigningVariant;
       readonly registrationVariant: WrprcVariant;
+      /** The access certificate that signs the metadata (S5b). AC-00 unless stated. */
+      readonly accessVariant?: WrpacVariant;
     },
   ) {
     const { tenantId, service, organisation, platform } = await this.providerOf(
@@ -277,10 +285,16 @@ export class SandboxIssuerService {
       serviceId,
     );
     const rcInfo = WRPRC_VARIANT_INFO[input.registrationVariant];
-    if (rcInfo.appliesTo === "service_provider" || rcInfo.takeAwayOnly) {
+    if (rcInfo.appliesTo === "service_provider") {
       throw PlatformError.conflict(
         "sandbox_variant_not_applicable",
-        `${input.registrationVariant} is not offered on the hosted issuer${rcInfo.takeAwayOnly ? " (take-away only, G-10)" : ""}.`,
+        `${input.registrationVariant} applies to a Relying Party, not to a PID Provider.`,
+      );
+    }
+    if (!this.settings.metadataDnsName) {
+      throw PlatformError.conflict(
+        "sandbox_issuer_metadata_unavailable",
+        "Hosted issuers need the engine's public host (SANDBOX_VERIFIER_DNS_NAME) for their access certificate.",
       );
     }
     const subject = {
@@ -328,6 +342,23 @@ export class SandboxIssuerService {
     );
     const jwt = typeof wrprc.body === "string" ? wrprc.body : undefined;
 
+    // The access certificate that signs this issuer's metadata (ADR 0016): from the sandbox Access CA,
+    // its key generated in the sandbox's sealed store, where it stays — the metadata is signed per
+    // request, so the key cannot be handed to the engine and forgotten.
+    const accessKeyName = `ia-${newUuid().replace(/-/g, "").slice(0, 20)}`;
+    const accessKey = await this.domain.createKey(accessKeyName);
+    const access = await this.certificates.issueAccessCertificateFor(
+      context,
+      orgId,
+      serviceId,
+      {
+        variant: input.accessVariant ?? "AC-00",
+        publicKey: accessKey.publicKey,
+        dnsNames: [this.settings.metadataDnsName],
+        mode: "hosted",
+      },
+    );
+
     let providerId = existing?.attestationProviderId;
     if (!providerId) {
       const created = await this.issuance.createAttestationProvider({
@@ -366,6 +397,8 @@ export class SandboxIssuerService {
         issuancePolicyId,
         signingCertificateId: signing.id,
         registrationCertificateId: wrprc.id,
+        accessCertificateId: access.id,
+        accessKeyName,
         configuredAt: now,
         createdAt: now,
       });
@@ -373,6 +406,8 @@ export class SandboxIssuerService {
       await this.repository.setCertificates(tenantId, serviceId, {
         signingCertificateId: signing.id,
         registrationCertificateId: wrprc.id,
+        accessCertificateId: access.id,
+        accessKeyName,
         at: now,
       });
     }

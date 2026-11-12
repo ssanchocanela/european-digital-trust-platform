@@ -7,6 +7,7 @@ import { asId, newCorrelationId, PlatformError, type TenantId } from "@edtp/shar
 import { EngineTenantService } from "../../apps/platform-api/src/modules/engine-tenants/engine-tenant.service.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
 import { SandboxIssuerService } from "../../apps/platform-api/src/modules/sandbox/issuer.service.js";
+import { SandboxMetadataService } from "../../apps/platform-api/src/modules/sandbox/metadata.service.js";
 import { SandboxPublicationService } from "../../apps/platform-api/src/modules/sandbox/publication.service.js";
 import { SandboxRegister } from "../../apps/platform-api/src/modules/sandbox/register.js";
 import { SandboxService } from "../../apps/platform-api/src/modules/sandbox/sandbox.service.js";
@@ -208,6 +209,7 @@ export async function wireSandbox(
           ...(options.walletProviderTrustListId
             ? { walletProviderTrustListId: options.walletProviderTrustListId }
             : {}),
+          metadataDnsName: VERIFIER_DNS,
         },
         sandbox,
         harness.deps.repositories.sandbox,
@@ -225,6 +227,16 @@ export async function wireSandbox(
       )
     : undefined;
 
+  const metadata = harness.issuer
+    ? new SandboxMetadataService(
+        harness.deps.repositories.sandboxIssuers,
+        harness.deps.repositories.sandboxCertificates,
+        harness.issuer,
+        domain,
+        harness.clock,
+      )
+    : undefined;
+
   return {
     sandbox,
     domain,
@@ -234,6 +246,7 @@ export async function wireSandbox(
     register,
     verifier,
     issuer,
+    metadata,
     createdEngineTenants,
     signUp,
     operatorTenantId: asId<"TenantId">(operator.tenantId),

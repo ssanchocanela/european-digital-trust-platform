@@ -168,6 +168,13 @@ const derivation = z.discriminatedUnion("name", [
     .strict(),
   z
     .object({
+      name: z.literal("PseudonymousSubject"),
+      sourcePaths: z.array(claimPath).min(1).max(8),
+      outputClaim: z.string().min(1).max(100),
+    })
+    .strict(),
+  z
+    .object({
       name: z.literal("ClaimInSet"),
       sourcePath: claimPath,
       allowedValues: z.array(z.string()).min(1).max(200),

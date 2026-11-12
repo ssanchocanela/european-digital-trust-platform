@@ -211,6 +211,8 @@ export const ADMIN_KEY = `admin_${"a".repeat(40)}`;
 export const createHarness = async (options?: {
   readonly fetchImpl?: typeof fetch;
   readonly now?: Date;
+  /** Extra environment, e.g. the sandbox's settings. */
+  readonly env?: Readonly<Record<string, string>>;
 }): Promise<Harness> => {
   const baseUrl = process.env.TEST_DATABASE_URL;
   if (!baseUrl) {
@@ -238,6 +240,7 @@ export const createHarness = async (options?: {
     ENGINE_TENANT_CREDENTIALS: "engine-tenant-a=client-a:secret-a",
     PLATFORM_PUBLIC_URL: "https://platform.test",
     LOG_LEVEL: "debug",
+    ...options?.env,
   });
 
   const handle = createDatabase({ connectionString });
@@ -267,7 +270,9 @@ export const createHarness = async (options?: {
          presentation_transaction_transitions, presentation_transactions,
          presentation_policy_versions, presentation_policies,
          access_certificates, registration_certificates, relying_party_instances,
-         intended_uses, relying_party_services, relying_parties, organisations,
+         intended_uses, relying_party_services, relying_parties,
+         sandbox_sign_in_attempts, sandbox_sessions, sandbox_invitations, sandbox_memberships,
+         sandbox_people, sandbox_organisations, organisations,
          api_keys, tenants
        RESTART IDENTITY CASCADE`,
     );

@@ -104,8 +104,32 @@ describe("migrations", () => {
         "issuance_transactions",
         "issued_credentials",
         "trust_anchor_publications",
+        // Sandbox S2 — engine tenants created at runtime (G-6)
+        "engine_tenant_credentials",
+        // Sandbox S2 — people (ADR 0015)
+        "sandbox_invitations",
+        "sandbox_memberships",
+        "sandbox_organisations",
+        "sandbox_people",
+        "sandbox_sessions",
+        "sandbox_sign_in_attempts",
       ].sort(),
     );
+  });
+
+  it("keeps the sandbox's people tables free of anything that could hold a PID value", async () => {
+    const { rows } = await pool.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name LIKE 'sandbox_%'`,
+    );
+    // ADR 0015 Decision 4: a person is a pseudonymous subject and a typed display name. A column
+    // named after a PID attribute would be the first step to keeping one.
+    const pidLike = /given|family|birth|nationality|address|document|portrait|personal_admin|issuing_/;
+    const suspicious = rows.filter((r) => pidLike.test(r.column_name));
+    expect(suspicious, "sandbox tables must hold no PID values").toEqual([]);
+    // Tokens are stored as hashes only.
+    const tokenColumns = rows.filter((r) => /token|binding/.test(r.column_name)).map((r) => r.column_name);
+    expect(tokenColumns.every((c) => c.endsWith("_hash"))).toBe(true);
   });
 
   it("keeps issued_credentials free of anything that could hold an attribute value", async () => {

@@ -112,6 +112,21 @@ storage.
 
 ---
 
+## 9. The EUDI ecosystem sandbox (S2)
+
+Shortcuts of the sandbox foundations, `docs/sandbox/`. All `TEST` only; the platform refuses to start
+the sandbox in any other trust environment.
+
+| # | Limitation | What would close it |
+|---|---|---|
+| SB1 | **The sandbox CA keys are files, sealed with AES-256-GCM under `SANDBOX_KEYSTORE_KEY`**, on a host without an HSM (`packages/sandbox-pki`, `FileKeyStore`). Whoever holds the host and the key can issue any sandbox certificate. A leak compromises only the sandbox trust domain, which only sandbox wallet builds trust (ADR 0014) | An HSM or KMS behind the existing `SandboxKeyStore` port |
+| SB2 | **The platform holds the engine's root client** when runtime engine tenants are on (`ENGINE_ROOT_CLIENT_ID`). Root can create tenants and nothing else (A9), but a compromised platform could create engine tenants at will. New tenants' clients are sealed in the database under `ENGINE_CREDENTIALS_KEY`, bound to their reference | A separate provisioning process holding the root client |
+| SB3 | **A person is identified by name, birth date and PID Provider only** (ADR 0015 Decision 4). Two people sharing all five values from one provider are one account; a corrected name locks a person out until an owner re-invites them. Acceptable with synthetic PIDs | A stable identifier from the PID, if the Rulebook offers one fit for the purpose, and an operator merge procedure |
+| SB4 | **Organisations are self-declared** (ADR 0015 Decision 6): no check that the organisation exists or that the person may act for it. Every page and certificate says "not verified", and no certificate carries a declared registration number | An attestation of representation, verified at sign-up |
+| SB5 | **Every sign-in start creates an engine presentation session**, and the start route is public through the portal. Nothing yet limits how often it can be called | An edge rate limit per client address before the sandbox is exposed (S6), and a per-address limit in the portal |
+| SB6 | **The sandbox operator role is not implemented** (specification §4, J9): no suspension, no approval of brought-in anchors. Until it is, a participant is removed by an operator in the database | The operator routes, in S3/S5 |
+| SB7 | **Cross-site form posts are refused by `Origin` / `Sec-Fetch-Site` and `SameSite=Lax`**, not by a per-form token. A browser that sends neither header is refused rather than trusted | A synchroniser token, if a supported browser turns out to omit both |
+
 ## What V0 does get right
 
 Worth stating, so the list above is read as scope rather than as neglect:

@@ -246,6 +246,9 @@ importers:
       '@edtp/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence
+      '@edtp/sandbox-domain':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-domain
       '@edtp/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -273,6 +276,22 @@ importers:
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@types/express':
+        specifier: 5.0.3
+        version: 5.0.3
+
+  apps/sandbox-portal:
+    dependencies:
+      express:
+        specifier: 5.1.0
+        version: 5.1.0
+      qrcode-generator:
+        specifier: 2.0.4
+        version: 2.0.4
       zod:
         specifier: 3.25.76
         version: 3.25.76
@@ -356,6 +375,9 @@ importers:
       '@edtp/domain':
         specifier: workspace:*
         version: link:../domain
+      '@edtp/sandbox-domain':
+        specifier: workspace:*
+        version: link:../sandbox-domain
       '@edtp/shared':
         specifier: workspace:*
         version: link:../shared
@@ -378,6 +400,14 @@ importers:
       zod:
         specifier: 3.25.76
         version: 3.25.76
+
+  packages/sandbox-domain:
+    dependencies:
+      '@edtp/shared':
+        specifier: workspace:*
+        version: link:../shared
+
+  packages/sandbox-pki: {}
 
   packages/shared: {}
 

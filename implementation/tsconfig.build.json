@@ -26,6 +26,12 @@
       "path": "./packages/registration-client"
     },
     {
+      "path": "./packages/sandbox-pki"
+    },
+    {
+      "path": "./packages/sandbox-domain"
+    },
+    {
       "path": "./apps/platform-api"
     },
     {
@@ -48,6 +54,9 @@
     },
     {
       "path": "./apps/demo-onboarding"
+    },
+    {
+      "path": "./apps/sandbox-portal"
     }
   ]
 }

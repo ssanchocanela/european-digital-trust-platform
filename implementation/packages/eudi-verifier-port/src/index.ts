@@ -186,3 +186,19 @@ export interface EudiVerifierProvisioningPort {
 
   healthy(): Promise<boolean>;
 }
+
+/**
+ * Creating an engine tenant at runtime (sandbox G-6). One engine tenant serves one Relying Party
+ * Instance or one Attestation Provider (ADR 0002 Decision 3); the sandbox creates them on demand
+ * instead of an operator editing the environment.
+ *
+ * The tenant is created with every role it will ever need, because roles cannot be widened
+ * afterwards (`docs/interop-findings.md` A16). The returned secret is handed straight to the
+ * platform's encrypted credential store and never logged.
+ */
+export interface EngineTenantPort {
+  createEngineTenant(input: {
+    readonly engineTenantRef: string;
+    readonly name: string;
+  }): Promise<{ readonly clientId: string; readonly clientSecret: string }>;
+}

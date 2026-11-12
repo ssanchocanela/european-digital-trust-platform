@@ -1,9 +1,15 @@
 import type { AuthenticSourceConnector, EligibilityEvaluator } from "@edtp/domain";
 import type { EudiIssuerPort, EudiIssuerProvisioningPort } from "@edtp/eudi-issuer-port";
-import type { EudiVerifierPort, EudiVerifierProvisioningPort } from "@edtp/eudi-verifier-port";
+import type {
+  EngineTenantPort,
+  EudiVerifierPort,
+  EudiVerifierProvisioningPort,
+} from "@edtp/eudi-verifier-port";
 import {
+  ENGINE_ROOT_REF,
   EngineClient,
   EudiploIssuerAdapter,
+  EudiploTenantAdapter,
   EudiploVerifierAdapter,
 } from "@edtp/eudiplo-adapter";
 import {
@@ -12,19 +18,22 @@ import {
   createDatabase,
   type Database,
   type DatabaseHandle,
+  EngineCredentialRepository,
   IssuanceRepository,
   ListingRepository,
   PolicyRepository,
   RegistrationRepository,
+  SandboxRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
   WebhookEndpointRepository,
 } from "@edtp/persistence";
-import { type Clock, systemClock } from "@edtp/shared";
+import { asId, type Clock, systemClock } from "@edtp/shared";
 import type { PlatformConfig } from "./config.js";
 import { BackgroundJobs } from "./jobs/background.jobs.js";
 import { Logger } from "./logging/logger.js";
 import { AuditService } from "./modules/audit/audit.service.js";
+import { EngineTenantService } from "./modules/engine-tenants/engine-tenant.service.js";
 import {
   AlwaysEligibleEvaluator,
   FixtureAuthenticSourceConnector,
@@ -38,6 +47,7 @@ import { WalletInitiatedClaims } from "./modules/issuances/wallet-initiated-clai
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
+import { SandboxService } from "./modules/sandbox/sandbox.service.js";
 import { WebhookService } from "./webhook/webhook.service.js";
 
 /**
@@ -50,6 +60,12 @@ import { WebhookService } from "./webhook/webhook.service.js";
  * The only container-aware part is the HTTP layer, which is given the already-built
  * services as values.
  */
+/**
+ * The session retention asserted on a runtime engine tenant at creation. Each presentation sets its
+ * own again when it starts; this keeps a fresh tenant minimal before its first use (CLAUDE.md §5).
+ */
+const ENGINE_TENANT_SESSION_TTL_SECONDS = 120;
+
 export interface Dependencies {
   readonly config: PlatformConfig;
   readonly logger: Logger;
@@ -65,6 +81,7 @@ export interface Dependencies {
     readonly issuance: IssuanceRepository;
     readonly webhookEndpoints: WebhookEndpointRepository;
     readonly listing: ListingRepository;
+    readonly sandbox: SandboxRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -85,6 +102,10 @@ export interface Dependencies {
     readonly presentations: PresentationService;
     readonly webhooks: WebhookService;
     readonly issuances: IssuanceService;
+    /** Present only when the sandbox is configured (`SANDBOX_PORTAL_SECRET`). */
+    readonly sandbox?: SandboxService;
+    /** Present only when runtime engine tenants are configured (root client and sealing key). */
+    readonly engineTenants?: EngineTenantService;
   };
   readonly jobs: BackgroundJobs;
   /** Where a browser goes after presenting, for presentations the hosted form started. */
@@ -102,6 +123,8 @@ export interface BuildOptions {
   /** Substituted by the integration suite so issuance runs with no engine. */
   readonly issuer?: EudiIssuerPort & Partial<EudiIssuerProvisioningPort>;
   readonly issuerProvisioning?: EudiIssuerProvisioningPort;
+  /** Substituted by the integration suite so runtime engine tenants need no engine. */
+  readonly engineTenants?: EngineTenantPort;
   readonly fetchImpl?: typeof fetch;
 }
 
@@ -119,8 +142,13 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     deliveries: new WebhookDeliveryRepository(db),
     issuance: new IssuanceRepository(db),
     listing: new ListingRepository(db),
+    sandbox: new SandboxRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
+
+  const engineCredentials = config.ENGINE_CREDENTIALS_KEY
+    ? new EngineCredentialRepository(db, config.ENGINE_CREDENTIALS_KEY)
+    : undefined;
 
   // One adapter instance serves every engine tenant: it is stateless, and the client
   // resolves per-tenant credentials on demand (ADR 0002 Decision 3).
@@ -132,15 +160,31 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
           clock,
           requestTimeoutMs: config.ENGINE_REQUEST_TIMEOUT_MS,
           credentials: {
+            // The environment first, as before; then the root client, for tenant creation only;
+            // then the tenants created at runtime (sandbox G-6).
             resolve: async (engineTenantRef: string) => {
-              const credentials = config.engineCredentials.get(engineTenantRef);
-              if (!credentials) {
-                throw new Error(
-                  `No engine credentials are configured for engine tenant '${engineTenantRef}'. ` +
-                    "Add an entry to ENGINE_TENANT_CREDENTIALS.",
-                );
+              const configured = config.engineCredentials.get(engineTenantRef);
+              if (configured) return { engineTenantRef, ...configured };
+              if (
+                engineTenantRef === ENGINE_ROOT_REF &&
+                config.ENGINE_ROOT_CLIENT_ID &&
+                config.ENGINE_ROOT_CLIENT_SECRET
+              ) {
+                return {
+                  engineTenantRef,
+                  clientId: config.ENGINE_ROOT_CLIENT_ID,
+                  clientSecret: config.ENGINE_ROOT_CLIENT_SECRET,
+                };
               }
-              return { engineTenantRef, ...credentials };
+              const stored =
+                engineTenantRef !== ENGINE_ROOT_REF
+                  ? await engineCredentials?.find(engineTenantRef)
+                  : undefined;
+              if (stored) return { engineTenantRef, ...stored };
+              throw new Error(
+                `No engine credentials are configured for engine tenant '${engineTenantRef}'. ` +
+                  "Add an entry to ENGINE_TENANT_CREDENTIALS.",
+              );
             },
           },
           ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
@@ -237,6 +281,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     clock,
     logger,
     config.PLATFORM_PUBLIC_URL,
+    config.PSEUDONYM_MASTER_KEY,
   );
 
   const issuances = new IssuanceService(
@@ -256,6 +301,46 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
       ? new WalletInitiatedClaims(() => clock.now())
       : undefined,
   );
+
+  const hostedFormReturns = new HostedFormReturns(() => clock.now());
+  const engineTenantPort =
+    options.engineTenants ??
+    (engineClient && config.ENGINE_ROOT_CLIENT_ID
+      ? new EudiploTenantAdapter(engineClient)
+      : undefined);
+  const engineTenants =
+    engineTenantPort && engineCredentials
+      ? new EngineTenantService(
+          engineTenantPort,
+          engineCredentials,
+          provisioning,
+          clock,
+          logger,
+          ENGINE_TENANT_SESSION_TTL_SECONDS,
+        )
+      : undefined;
+  const sandbox =
+    config.SANDBOX_PORTAL_SECRET &&
+    config.SANDBOX_OPERATOR_TENANT_ID &&
+    config.SANDBOX_SIGN_IN_POLICY_ID &&
+    config.SANDBOX_PORTAL_PUBLIC_URL
+      ? new SandboxService(
+          {
+            operatorTenantId: asId<"TenantId">(config.SANDBOX_OPERATOR_TENANT_ID),
+            signInPolicyId: config.SANDBOX_SIGN_IN_POLICY_ID,
+            participantTrustSources: config.SANDBOX_PARTICIPANT_TRUST_SOURCES,
+            portalPublicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
+          },
+          repositories.sandbox,
+          repositories.policies,
+          repositories.apiKeys,
+          presentations,
+          hostedFormReturns,
+          audit,
+          clock,
+          logger,
+        )
+      : undefined;
 
   const jobs = new BackgroundJobs(
     presentations,
@@ -277,9 +362,18 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     issuer,
     issuerProvisioning,
     registry: { connectors, evaluators },
-    services: { audit, registration, policies, presentations, webhooks, issuances },
+    services: {
+      audit,
+      registration,
+      policies,
+      presentations,
+      webhooks,
+      issuances,
+      ...(sandbox ? { sandbox } : {}),
+      ...(engineTenants ? { engineTenants } : {}),
+    },
     jobs,
-    hostedFormReturns: new HostedFormReturns(() => clock.now()),
+    hostedFormReturns,
   };
 };
 

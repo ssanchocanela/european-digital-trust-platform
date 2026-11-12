@@ -42,3 +42,4 @@ export const WEBHOOK_ENDPOINT_REPOSITORY = Symbol("WebhookEndpointRepository");
 export const FEATURE_PID_DURING_ISSUANCE = Symbol("FeaturePidDuringIssuance");
 
 export const HOSTED_FORM_RETURNS = Symbol("HostedFormReturns");
+export const SANDBOX_SERVICE = Symbol("SANDBOX_SERVICE");

@@ -28,11 +28,11 @@ linked rather than repeated.
   - **Step 10, half done, as the user decided:**
     - the scheduled checks run every 15 minutes and alert to the operator's ntfy topic. The first run
       passed;
-    - **the nightly backup is installed but not enabled, and Hetzner's daily server backup is switched
-      off** (same day, the user's decision). Both come back once the sandbox is in use and the user
-      says so. Until then **the sandbox has no backup at all**: losing the VM loses the trust domain,
-      which then has to be recreated. That is a departure from ADR 0017 §4, accepted for the period
-      before the sandbox has participants.
+    - **Hetzner's daily server backup is on** (7 kept, window 22:00–02:00 UTC). It was switched off and
+      back on the same day, at the user's word.
+    - **the nightly dump is installed but not enabled**, until the user says. Until then the only
+      backup is Hetzner's whole-server image. It is crash-consistent for the databases, not a dump.
+      The CA keys inside it are sealed, and `SANDBOX_KEYSTORE_KEY` is kept outside the VM.
   - No participant and no wallet run yet.
 - **Two dates to keep:**
   - the TEST PID list that sign-in trusts has `NextUpdate` **22 December 2026**;

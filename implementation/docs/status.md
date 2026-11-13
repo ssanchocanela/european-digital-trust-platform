@@ -8,7 +8,7 @@ linked rather than repeated.
 
 ---
 
-## 13 November 2026 — **the sandbox VM deployed (steps 1–9); timers and wallet runs pending**
+## 13 November 2026 — **the sandbox VM deployed; nightly backup off until the user says, no wallet run yet**
 
 - **#44–#48 are merged.** The ADR 0017 acceptance and a README fix were pushed after #48 merged, so they
   reach `main` on `sandbox/s6-vm-setup`.
@@ -25,8 +25,11 @@ linked rather than repeated.
   - the negative checks pass, 24 of 24, on loopback and from outside;
   - the sandbox's WRPAC, WRPRC and PID lists, its CPS and its register answer publicly, and re-sign
     themselves before `NextUpdate`.
-  - **Step 10 is not done:** the timers for the scheduled checks and the nightly backups. Until then
-    nothing watches the exposure and nothing is dumped. Hetzner's own daily backup does run.
+  - **Step 10, half done, as the user decided:**
+    - the scheduled checks run every 15 minutes and alert to the operator's ntfy topic. The first run
+      passed;
+    - **the nightly backup is installed but not enabled.** The user enables it once the sandbox is in
+      use. Until then nothing is dumped. Hetzner's daily server backup is on.
   - No participant and no wallet run yet.
 - **Two dates to keep:**
   - the TEST PID list that sign-in trusts has `NextUpdate` **22 December 2026**;

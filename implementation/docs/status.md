@@ -8,7 +8,7 @@ linked rather than repeated.
 
 ---
 
-## 13 November 2026 — **the sandbox VM set up to step 8; nothing deployed**
+## 13 November 2026 — **the sandbox VM deployed (steps 1–9); timers and wallet runs pending**
 
 - **#44–#48 are merged.** The ADR 0017 acceptance and a README fix were pushed after #48 merged, so they
   reach `main` on `sandbox/s6-vm-setup`.
@@ -19,8 +19,15 @@ linked rather than repeated.
   - `.env` holds secrets generated on the VM, and the image is `60a064a1d9e1`;
   - the trust domain has its keys sealed;
   - the sign-in verifier is provisioned with a sandbox access certificate, and its policy is published.
-- **No container runs.** Step 9 starts the stack, which is the deployment, and it waits for the user's
-  confirmation.
+- **Step 9, deployed the same day, with the user's confirmation:**
+  - the full stack runs on image `60a064a1d9e1`;
+  - the engine's schema sync is off;
+  - the negative checks pass, 24 of 24, on loopback and from outside;
+  - the sandbox's WRPAC, WRPRC and PID lists, its CPS and its register answer publicly, and re-sign
+    themselves before `NextUpdate`.
+  - **Step 10 is not done:** the timers for the scheduled checks and the nightly backups. Until then
+    nothing watches the exposure and nothing is dumped. Hetzner's own daily backup does run.
+  - No participant and no wallet run yet.
 - **Two dates to keep:**
   - the TEST PID list that sign-in trusts has `NextUpdate` **22 December 2026**;
   - the operator's access certificate expires **11 February 2027**.

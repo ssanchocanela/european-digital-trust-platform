@@ -13,7 +13,7 @@ linked rather than repeated.
 - **#44–#48 are merged.** The ADR 0017 acceptance and a README fix were pushed after #48 merged, so they
   reach `main` on `sandbox/s6-vm-setup`.
 - **Steps 1–8 of [`infra/sandbox-vm/`](../infra/sandbox-vm/README.md) are done:**
-  - `edtp-sandbox` is on Hetzner, with daily backups;
+  - `edtp-sandbox` is on Hetzner;
   - the tunnel and its four hostnames are in place, behind the two Access applications;
   - SSH comes through the tunnel only, and the firewall has no inbound rule;
   - `.env` holds secrets generated on the VM, and the image is `60a064a1d9e1`;
@@ -28,8 +28,11 @@ linked rather than repeated.
   - **Step 10, half done, as the user decided:**
     - the scheduled checks run every 15 minutes and alert to the operator's ntfy topic. The first run
       passed;
-    - **the nightly backup is installed but not enabled.** The user enables it once the sandbox is in
-      use. Until then nothing is dumped. Hetzner's daily server backup is on.
+    - **the nightly backup is installed but not enabled, and Hetzner's daily server backup is switched
+      off** (same day, the user's decision). Both come back once the sandbox is in use and the user
+      says so. Until then **the sandbox has no backup at all**: losing the VM loses the trust domain,
+      which then has to be recreated. That is a departure from ADR 0017 §4, accepted for the period
+      before the sandbox has participants.
   - No participant and no wallet run yet.
 - **Two dates to keep:**
   - the TEST PID list that sign-in trusts has `NextUpdate` **22 December 2026**;

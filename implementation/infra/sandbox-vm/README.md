@@ -11,7 +11,9 @@ demonstration VM ([`../demo-vm/`](../demo-vm/README.md), ADR 0010).
 | Inbound | **none**, once bootstrapped. Everything, SSH included, comes through the VM's own tunnel `edtp-sandbox` |
 | Hostnames | `sandbox.murcata.es` (portal, behind Access), `sandbox-engine.murcata.es`, `sandbox-platform.murcata.es` (both through the gateway), `sandbox-ssh.murcata.es` (Access, operator only) |
 
-**State: nothing below has been done.** Each step that touches the VM, Cloudflare or GitHub is done by
+**State, 13 November 2026: steps 1–8 done** — the server, the tunnel and its DNS, both Access
+applications, SSH through the tunnel with the public port closed, the checkout, `.env`, the trust
+domain and the sign-in verifier. **Nothing is deployed:** no container runs. Each step that touches the VM, Cloudflare or GitHub is done by
 a person, or by Claude only once the user has confirmed it. **Every deployment is confirmed by the
 user first.**
 
@@ -35,7 +37,7 @@ from `~/edtp/implementation`:
 
 ```bash
 tools() { docker run --rm -i --network host -v "$PWD:/w" -w /w -e PLATFORM_TENANT_API_KEY -e TENANT_ID \
-  -e PKCS12_PASSWORD node:22.23.2-alpine sh -c 'apk add -q bash openssl jq curl >/dev/null && "$@"' sh "$@"; }
+  -e P12_PASSWORD node:22.23.2-alpine sh -c 'apk add -q bash openssl jq curl >/dev/null && "$@"' sh "$@"; }
 ```
 
 The PKI commands run from the platform image, whose `packages/sandbox-pki/dist/cli.js` needs no
@@ -100,6 +102,8 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
    cp infra/sandbox-vm/sandbox.env.example .env && infra/sandbox-vm/generate-secrets.sh >> .env && chmod 600 .env
    ```
    - Set `EDTP_IMAGE` to the tag the user has confirmed.
+   - `ENGINE_CLIENT_ID=root` is in the template: `create-engine-tenant.sh` reads it, and it is not a
+     secret (the engine's root client id).
    - **Copy `SANDBOX_KEYSTORE_KEY` into the operator's password manager now.** It is in no backup.
 
 7. **The trust domain**, fresh: the first deployment is not a migration of the laptop's.
@@ -108,15 +112,18 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
      export SANDBOX_KEYSTORE_KEY="$(sed -n 's/^SANDBOX_KEYSTORE_KEY=//p' .env)"; mkdir -p work; pki init
      ```
    - Place the **sign-in anchors** in `/var/lib/edtp-sandbox/pki/pid-sign-in-anchors/*.pem`:
-     - the seven reference PID Provider anchors;
-     - the development PID CA, for "PID (demo)".
+     - the seven reference PID Provider anchors, from the notified development `PIDProviders` list;
+     - the development PID CA's **certificate** (`~/.edtp/dev-pid-ca/ca.crt`), for "PID (demo)". Never
+       its key.
    - Place the **Wallet Provider anchors** in `wallet-provider-anchors/*.pem`, as in the S4 and S5 run
      sheets.
 
 8. **The sign-in verifier** (ADR 0015). It is the operator's own Relying Party Instance; it must exist
    before the sandbox can start.
-   1. Start the engine:
-      `docker compose -f infra/sandbox-vm/docker-compose.sandbox.yml --env-file .env up -d eudiplo`.
+   1. Start the engine. Compose checks every required variable even for one service, and
+      `ENGINE_TENANT_CREDENTIALS` cannot exist before the tenant does, so give it a placeholder **in the
+      shell only**:
+      `ENGINE_TENANT_CREDENTIALS=not-yet docker compose -f infra/sandbox-vm/docker-compose.sandbox.yml --env-file .env up -d eudiplo`.
       Then create the engine tenant: `./scripts/create-engine-tenant.sh sbx-operator "EDTP Sandbox sign-in"`.
    2. **Start the platform once without the sandbox**, which cannot start before its operator exists:
       ```bash
@@ -125,8 +132,11 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
         -e SANDBOX_PUBLIC_BASE_URL= -e SANDBOX_PARTICIPANT_TRUST_SOURCES= platform-api
       ```
    3. Create the operator's tenant with the admin key: `POST /v1/tenants` with
-      `{"name":"EDTP Sandbox operator"}`. Keep its key in a shell variable, never in a file:
-      `read -rs PLATFORM_TENANT_API_KEY; export PLATFORM_TENANT_API_KEY`. Then:
+      `{"name":"EDTP Sandbox operator"}`. **The key is shown once and only its hash is kept; there is
+      no rotation.** Write it to `work/operator-tenant.key` (mode 600) and copy it into the operator's
+      password manager before going on; it is shredded with `work/` in 8.7. Not `/dev/shm`: logind
+      removes a user's files there when the last SSH session closes (`RemoveIPC=yes`), which lost the
+      first key. A shell variable does not outlive one SSH session either. Then:
       `tools node scripts/register-sandbox-operator.mjs relying-party`.
    4. **The access certificate, from the sandbox Access CA.** A sandbox wallet build trusts no other.
       - Make a key and a request in `work/` with `tools openssl …`.
@@ -138,10 +148,21 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
    5. Load the sign-in PID list on the tenant:
       `tools node scripts/load-issuer-trust-list.mjs --tenant sbx-operator --lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt --signer-sha256 <pin> --id edtp-test-pid-providers`.
       Then put `<that URL>=edtp-test-pid-providers` in `ENGINE_ISSUER_TRUST_LISTS`.
+      - **The pin** is `XZYljt8vK9Ldji4UpKuwskcdW-sXijPos1OT5Tl1SCw`, the SHA-256 of
+        `~/.edtp/dev-access-ca/lote-signer.crt`. Check it against that file on the laptop, not only
+        against the list.
+      - **The engine needs a `trustList` key** to re-sign the copy it holds. By default the script
+        imports the laptop's list signer key from `~/.edtp/dev-access-ca`. **Do not bring that key to
+        the VM**: it signs the published TEST lists. Make a fresh self-signed P-256 key and certificate
+        in `work/engine-list-key/lote-signer.{key,crt}` and pass `--ca-dir /w/work/engine-list-key`, as
+        the sandbox does for its runtime tenants ("EDTP Sandbox engine list key").
+      - **The list's `NextUpdate` is 22 December 2026.** Republish it and re-run this command before
+        then, or sign-in fails closed.
    6. Create the policy:
       `tools node scripts/register-sandbox-operator.mjs policy <serviceId> <that URL> https://sandbox-platform.murcata.es/sandbox/public/lote/PIDProviders.jwt`.
       Put the two printed lines in `.env`.
-   7. `docker stop sbx-bootstrap`, then shred `work/`: it held the key.
+   7. `docker stop sbx-bootstrap`, then shred `work/`: it held the keys. The operator's access
+      certificate is valid for 90 days (the first one, until 11 February 2027): reissue it by 4.
 
 9. **The stack**, once the user has confirmed the deployment:
    - start it: `docker compose -f infra/sandbox-vm/docker-compose.sandbox.yml --env-file .env up -d`;

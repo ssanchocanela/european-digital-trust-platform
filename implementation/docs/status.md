@@ -8,6 +8,33 @@ linked rather than repeated.
 
 ---
 
+## 13 November 2026 — **the sandbox VM set up to step 8; nothing deployed**
+
+- **#44–#48 are merged.** The ADR 0017 acceptance and a README fix were pushed after #48 merged, so they
+  reach `main` on `sandbox/s6-vm-setup`.
+- **Steps 1–8 of [`infra/sandbox-vm/`](../infra/sandbox-vm/README.md) are done:**
+  - `edtp-sandbox` is on Hetzner, with daily backups;
+  - the tunnel and its four hostnames are in place, behind the two Access applications;
+  - SSH comes through the tunnel only, and the firewall has no inbound rule;
+  - `.env` holds secrets generated on the VM, and the image is `60a064a1d9e1`;
+  - the trust domain has its keys sealed;
+  - the sign-in verifier is provisioned with a sandbox access certificate, and its policy is published.
+- **No container runs.** Step 9 starts the stack, which is the deployment, and it waits for the user's
+  confirmation.
+- **Two dates to keep:**
+  - the TEST PID list that sign-in trusts has `NextUpdate` **22 December 2026**;
+  - the operator's access certificate expires **11 February 2027**.
+- **Six gaps found by doing it** are now in the README:
+  - `ENGINE_CLIENT_ID` was missing from the template;
+  - the compose variable check meant a placeholder was needed before the tenant existed;
+  - `/dev/shm` lost the one-time tenant key;
+  - a wrong environment variable name in `tools()`;
+  - the trust-list loader would have carried the laptop's list signer key to the VM. A fresh,
+    engine-only key was used instead;
+  - the two expiry dates above.
+
+---
+
 ## 12 November 2026 — **the EUDI ecosystem sandbox: S0–S6 built, nothing deployed, no wallet run yet**
 
 The sandbox (`docs/sandbox/`) lets organisations sign up with a PID and play the Relying Party and PID

@@ -58,10 +58,15 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
 
 2. **The tunnel** (a person, with the Cloudflare credential):
    - create the tunnel: `cloudflared tunnel create edtp-sandbox`;
-   - route the four hostnames: `cloudflared tunnel route dns edtp-sandbox <host>`;
+   - route the four hostnames **by the tunnel's id, with the laptop's own config out of the way**:
+     `cloudflared --config <an empty file> tunnel route dns --overwrite-dns <tunnel id> <host>`. A
+     `tunnel:` line in `~/.cloudflared/config.yml` silently wins over the name on the command line,
+     and the routes land on that other tunnel (it happened on the first set-up: check the
+     `tunnelID=` each line prints);
    - copy the credential to `/etc/cloudflared/` on the VM, root-only;
    - install `files/cloudflared-config.yml` as `/etc/cloudflared/config.yml`, with `__TUNNEL_ID__`
-     replaced and **without the portal rule** for now;
+     replaced and **without the portal rule and the SSH rule** for now: each is added only once its
+     Access application is seen protecting the hostname;
    - install `../demo-vm/files/cloudflared.service` and start it.
 
 3. **Access applications** (a person, in Cloudflare Zero Trust):
@@ -72,9 +77,9 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
      - one-time PIN;
      - a policy listing the invited participants' e-mail addresses (ADR 0017 §2).
 
-   **Check it from outside, logged out.** `curl -sI https://sandbox.murcata.es/` must redirect to
-   `*.cloudflareaccess.com`. Only then add the portal rule to the tunnel's config and reload. Until
-   then, do not go on.
+   **Check it from outside, logged out.** `curl -sI https://sandbox.murcata.es/` and
+   `curl -sI https://sandbox-ssh.murcata.es/` must each redirect to `*.cloudflareaccess.com`. Only
+   then add the two rules to the tunnel's config and reload. Until then, do not go on.
 
 4. **SSH through the tunnel.** Write `~/.edtp/sandbox-vm/ssh_config` (the demonstration VM's, with this
    VM's names). Then run

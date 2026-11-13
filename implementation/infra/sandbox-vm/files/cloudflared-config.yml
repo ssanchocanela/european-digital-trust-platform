@@ -8,9 +8,10 @@
 #   (CLAUDE.md §6.20, docs/test-session-gateway.md §1b).
 # - The portal (3300) is behind the Cloudflare Access application "EDTP sandbox portal", whose policy
 #   admits the invited participants' e-mail addresses. It is added here only after Access is seen
-#   protecting the hostname (README step 6). The portal refuses any request without Access's
+#   protecting the hostname (README step 3). The portal refuses any request without Access's
 #   identity header as well.
-# - SSH is behind the Access application "EDTP sandbox SSH", the operator only.
+# - SSH is behind the Access application "EDTP sandbox SSH", the operator only, and is likewise added
+#   only after Access is seen protecting its hostname.
 tunnel: __TUNNEL_ID__
 credentials-file: /etc/cloudflared/__TUNNEL_ID__.json
 ingress:

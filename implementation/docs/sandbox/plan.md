@@ -23,7 +23,7 @@ the result recorded honestly (CLAUDE.md §8), never simulated.
 | **S4** | `sandbox/s4-relying-party` | The RP role end to end, with a wallet | PR #44; real runs pending |
 | **S5** | `sandbox/s5-pid-provider` | The PID Provider role end to end, with a wallet | PR, STOP ← *built; real runs pending* |
 | **S5b** | `sandbox/s5b-signed-metadata` | Signed issuer metadata for sandbox issuers ([ADR 0016](../adr/0016-sandbox-signed-issuer-metadata.md), option 2, decided) and a sandbox wallet profile without WD-2 | PR, STOP ← *built; runs per [`s5b-run-sheet.md`](s5b-run-sheet.md) pending* |
-| **S6** | `sandbox/s6-deployment` | The sandbox VM ([ADR 0017](../adr/0017-sandbox-vm.md), proposed) | PR, user-confirmed deployment, STOP ← *built; nothing deployed* |
+| **S6** | `sandbox/s6-deployment` | The sandbox VM ([ADR 0017](../adr/0017-sandbox-vm.md), accepted 12 Nov 2026) | PR, user-confirmed deployment, STOP ← *built; nothing deployed* |
 
 ## S2 — Foundations
 
@@ -193,7 +193,7 @@ The runs are in [`s5-run-sheet.md`](s5-run-sheet.md).
 - no scheduled reset;
 - Hetzner's server backups plus nightly dumps on the VM.
 
-**Built** ([ADR 0017](../adr/0017-sandbox-vm.md), proposed):
+**Built** ([ADR 0017](../adr/0017-sandbox-vm.md), accepted 12 November 2026):
 - **Quotas per organisation**, checked before any side effect, and the hosted verifier and issuer
   refusing a suspended organisation. Found missing on the way: the specification asked for both, and
   only the certificate service checked suspension.

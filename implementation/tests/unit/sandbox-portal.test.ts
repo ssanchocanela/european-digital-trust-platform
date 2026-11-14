@@ -10,7 +10,7 @@ import {
 import { escapeHtml, landing, organisationPage } from "@edtp/sandbox-portal/pages.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-/** The sandbox portal against a scripted platform API (ADR 0015). */
+/** The sandbox portal against a scripted platform API (ADR 0015, ADR 0018). */
 const ATTEMPT = "11111111-2222-4333-8444-555555555555";
 const ORG = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const BINDING = "b".repeat(43);
@@ -19,11 +19,17 @@ const SESSION = "s".repeat(43);
 type Script = (
   method: string,
   path: string,
-  options: { session?: string; body?: unknown },
+  options: { session?: string; assertion?: string; body?: unknown },
 ) => ApiResult;
 
 function fakeApi(script: Script) {
-  const calls: { method: string; path: string; session?: string; body?: unknown }[] = [];
+  const calls: {
+    method: string;
+    path: string;
+    session?: string;
+    assertion?: string;
+    body?: unknown;
+  }[] = [];
   const api: SandboxApi = {
     async call(method, path, options = {}) {
       calls.push({ method, path, ...options });
@@ -36,9 +42,9 @@ function fakeApi(script: Script) {
 let close: (() => void) | undefined;
 afterEach(() => close?.());
 
-async function serve(script: Script) {
+async function serve(script: Script, options: { requireAccess?: boolean } = {}) {
   const { api, calls } = fakeApi(script);
-  const app = createApp({ publicUrl: "https://portal.test", api });
+  const app = createApp({ publicUrl: "https://portal.test", api, ...options });
   const server = app.listen(0);
   close = () => server.close();
   await new Promise((r) => server.once("listening", r));
@@ -61,18 +67,6 @@ async function serve(script: Script) {
   return { request, calls };
 }
 
-const started: Script = (_m, path) =>
-  path === "sign-in-attempts"
-    ? {
-        status: 201,
-        body: {
-          attemptId: ATTEMPT,
-          bindingToken: BINDING,
-          walletUri: "openid4vp://?request_uri=x",
-        },
-      }
-    : { status: 404, body: {} };
-
 describe("pages", () => {
   it("escapes everything it is given", () => {
     expect(escapeHtml(`<script>"x"&'y'</script>`)).toBe(
@@ -89,8 +83,9 @@ describe("pages", () => {
     expect(html).toContain("&lt;img src=x");
   });
 
-  it("states the modified wallet, synthetic data and the unverified organisation, and claims no conformance", () => {
+  it("states the modified wallet, synthetic data, the unverified organisation and that no PID is needed, and claims no conformance", () => {
     const html = landing();
+    expect(html).toContain("do <strong>not</strong> need a PID");
     expect(html).toContain("modified");
     expect(html).toContain("synthetic data");
     expect(html).toContain("not verified");
@@ -106,126 +101,255 @@ describe("cookies and bindings", () => {
       a: "1",
       [BINDING_COOKIE]: "x.y",
     });
-    expect(readBinding(`${ATTEMPT}.sign_up.${BINDING}`)).toEqual({
+    expect(readBinding(`${ATTEMPT}.present_pid.${BINDING}`)).toEqual({
       attemptId: ATTEMPT,
-      purpose: "sign_up",
+      purpose: "present_pid",
       token: BINDING,
     });
+    expect(readBinding(`${ATTEMPT}.sign_up.${BINDING}`)).toBeUndefined();
     expect(readBinding(`${ATTEMPT}.admin.${BINDING}`)).toBeUndefined();
   });
 });
 
-describe("the portal", () => {
+const ASSERTION = "header.payload.signature";
+const INVITE = "i".repeat(43);
+
+const entering =
+  (outcome: "needs_profile" | "signed_in"): Script =>
+  (_m, path) => {
+    if (path === "access/enter")
+      return {
+        status: 200,
+        body: outcome === "signed_in" ? { outcome, sessionToken: SESSION } : { outcome },
+      };
+    if (path === "access/profile") return { status: 201, body: { sessionToken: SESSION } };
+    return { status: 404, body: {} };
+  };
+
+const pidStarted: Script = (_m, path) =>
+  path === "pid-presentations"
+    ? {
+        status: 201,
+        body: {
+          attemptId: ATTEMPT,
+          bindingToken: BINDING,
+          walletUri: "openid4vp://?request_uri=x",
+        },
+      }
+    : { status: 404, body: {} };
+
+describe("the portal: entering by the Access identity (ADR 0018)", () => {
   it("sends a strict CSP and no-store on every page", async () => {
-    const { request } = await serve(started);
+    const { request } = await serve(entering("needs_profile"));
     const res = await request("/");
     expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(res.headers.get("content-security-policy")).not.toContain("script-src");
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
-  it("starts a sign-up: a __Host- binding cookie and a wallet link", async () => {
-    const { request, calls } = await serve(started);
-    const res = await request("/sign-up/start", {
-      method: "POST",
-      body: "interaction=SAME_DEVICE",
+  it("forwards Access's assertion on every call, and nothing that identifies the person itself", async () => {
+    const { request, calls } = await serve(entering("needs_profile"));
+    await request("/", {
+      headers: {
+        "cf-access-jwt-assertion": ASSERTION,
+        "cf-access-authenticated-user-email": "someone@else.test",
+      },
     });
-    expect(res.status).toBe(200);
-    const setCookie = res.headers.get("set-cookie") ?? "";
-    expect(setCookie).toContain(`${BINDING_COOKIE}=${ATTEMPT}.sign_up.${BINDING}`);
-    expect(setCookie).toMatch(/Secure; HttpOnly; SameSite=Lax/);
-    expect(await res.text()).toContain('href="openid4vp://?request_uri=x"');
-    expect(calls[0]?.body).toEqual({ purpose: "sign_up", interactionType: "SAME_DEVICE" });
+    expect(calls).toEqual([{ method: "POST", path: "access/enter", assertion: ASSERTION }]);
   });
 
-  it("shows a QR code that polls, for a cross-device sign-in", async () => {
-    const { request } = await serve(started);
-    const html = await (
-      await request("/sign-in/start", { method: "POST", body: "interaction=QR" })
-    ).text();
-    expect(html).toContain("<svg");
-    expect(html).toContain('content="3;url=/sign-in/wait"');
+  it("behind Access, refuses a request without the assertion — the e-mail header alone is not enough", async () => {
+    const { request, calls } = await serve(entering("signed_in"), { requireAccess: true });
+    expect((await request("/")).status).toBe(403);
+    expect(
+      (await request("/", { headers: { "cf-access-authenticated-user-email": "a@b.test" } }))
+        .status,
+    ).toBe(403);
+    expect(calls).toHaveLength(0);
+    expect(
+      (await request("/", { headers: { "cf-access-jwt-assertion": ASSERTION } })).status,
+    ).toBe(303);
+  });
+
+  it("signs a known address straight in", async () => {
+    const { request } = await serve(entering("signed_in"));
+    const res = await request("/");
+    expect(res.status).toBe(303);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.startsWith(`${SESSION_COOKIE}=${SESSION};`))).toBe(true);
+    expect(cookies.join()).toMatch(/Secure; HttpOnly; SameSite=Lax/);
+  });
+
+  it("says so when Access did not identify the person", async () => {
+    const { request } = await serve(() => ({ status: 401, body: {} }));
+    expect((await request("/")).status).toBe(401);
+  });
+
+  it("asks a new address for a profile, and sends the organisation they declare", async () => {
+    const { request, calls } = await serve(entering("needs_profile"));
+    const form = await (await request("/")).text();
+    expect(form).toContain("Create your account");
+    expect(form).toContain("SB:&lt;country&gt;-&lt;number&gt;");
+    const res = await request("/profile", {
+      method: "POST",
+      body: "displayName=Ana&legalName=Banco+Ejemplo+S.A.&tradeName=Banco+Ejemplo&country=es",
+    });
+    expect(res.status).toBe(303);
+    expect(calls.at(-1)).toMatchObject({
+      path: "access/profile",
+      body: {
+        displayName: "Ana",
+        organisation: {
+          legalName: "Banco Ejemplo S.A.",
+          tradeName: "Banco Ejemplo",
+          country: "ES",
+          isPublicSectorBody: false,
+        },
+      },
+    });
   });
 
   it("refuses a form posted from another origin", async () => {
-    const { request, calls } = await serve(started);
-    const res = await request("/sign-up/start", {
+    const { request, calls } = await serve(entering("needs_profile"));
+    const res = await request("/profile", {
       method: "POST",
-      body: "",
+      body: "displayName=Ana",
       headers: { origin: "https://evil.test" },
     });
     expect(res.status).toBe(403);
     expect(calls).toHaveLength(0);
   });
+});
 
-  it("does not complete a sign-in for a browser without the binding, or for another attempt", async () => {
-    const { request, calls } = await serve(started);
-    expect((await request(`/sign-in/return?attempt=${ATTEMPT}`)).status).toBe(400);
+describe("the portal: invitations by address (ADR 0018 Decision 4)", () => {
+  it("refuses a malformed invitation link without calling the platform", async () => {
+    const { request, calls } = await serve(entering("needs_profile"));
+    expect((await request("/invite/short")).status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("says when an invitation was sent to another address", async () => {
+    const { request } = await serve((_m, path) =>
+      path === "invitations/lookup"
+        ? { status: 403, body: { code: "invitation_for_another_address" } }
+        : { status: 404, body: {} },
+    );
+    const res = await request(`/invite/${INVITE}`);
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("sent to another e-mail address");
+  });
+
+  it("asks a new address for a name only, and joins them with the token in a body, never a path", async () => {
+    const { request, calls } = await serve((_m, path) =>
+      path === "invitations/lookup"
+        ? { status: 200, body: { role: "member" } }
+        : entering("needs_profile")(_m, path, {}),
+    );
+    const form = await (await request(`/invite/${INVITE}`)).text();
+    expect(form).toContain("Join the organisation");
+    expect(form).not.toContain("legalName");
+    expect(calls[0]).toMatchObject({
+      path: "invitations/lookup",
+      body: { invitationToken: INVITE },
+    });
+    await request("/profile", {
+      method: "POST",
+      body: `displayName=Bruno&invitationToken=${INVITE}`,
+    });
+    expect(calls.at(-1)).toMatchObject({
+      path: "access/profile",
+      body: { displayName: "Bruno", invitationToken: INVITE },
+    });
+    expect(calls.every((c) => !c.path.includes(INVITE))).toBe(true);
+  });
+
+  it("lets a signed-in person accept", async () => {
+    const { request, calls } = await serve((_m, path) => {
+      if (path === "invitations/lookup") return { status: 200, body: { role: "owner" } };
+      if (path === "me") return { status: 200, body: { person: { displayName: "Ana" } } };
+      if (path === "invitations/accept") return { status: 204, body: {} };
+      return { status: 404, body: {} };
+    });
+    const cookie = `${SESSION_COOKIE}=${SESSION}`;
+    const page = await (await request(`/invite/${INVITE}`, { cookie })).text();
+    expect(page).toContain(`action="/invite/${INVITE}/accept"`);
+    const res = await request(`/invite/${INVITE}/accept`, { method: "POST", cookie, body: "" });
+    expect(res.status).toBe(303);
+    expect(calls.at(-1)).toMatchObject({
+      path: "invitations/accept",
+      session: SESSION,
+      body: { invitationToken: INVITE },
+    });
+  });
+});
+
+describe("the portal: presenting a PID, optionally (ADR 0018 Decision 3)", () => {
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+
+  it("starts a presentation: a __Host- binding cookie and a wallet link", async () => {
+    const { request, calls } = await serve(pidStarted);
+    const res = await request("/pid/start", {
+      method: "POST",
+      cookie,
+      body: "interaction=SAME_DEVICE",
+    });
+    expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${BINDING_COOKIE}=${ATTEMPT}.present_pid.${BINDING}`);
+    expect(setCookie).toMatch(/Secure; HttpOnly; SameSite=Lax/);
+    expect(await res.text()).toContain('href="openid4vp://?request_uri=x"');
+    expect(calls[0]).toMatchObject({
+      path: "pid-presentations",
+      session: SESSION,
+      body: { interactionType: "SAME_DEVICE" },
+    });
+  });
+
+  it("shows a QR code that polls, for a cross-device presentation", async () => {
+    const { request } = await serve(pidStarted);
+    const html = await (
+      await request("/pid/start", { method: "POST", cookie, body: "interaction=QR" })
+    ).text();
+    expect(html).toContain("<svg");
+    expect(html).toContain('content="3;url=/pid/wait"');
+  });
+
+  it("does not complete for a browser without the binding, or for another attempt", async () => {
+    const { request, calls } = await serve(pidStarted);
+    expect((await request(`/pid/return?attempt=${ATTEMPT}`, { cookie })).status).toBe(400);
     const other = "99999999-2222-4333-8444-555555555555";
-    const res = await request(`/sign-in/return?attempt=${other}`, {
-      cookie: `${BINDING_COOKIE}=${ATTEMPT}.sign_in.${BINDING}`,
+    const res = await request(`/pid/return?attempt=${other}`, {
+      cookie: `${cookie}; ${BINDING_COOKIE}=${ATTEMPT}.present_pid.${BINDING}`,
     });
     expect(res.status).toBe(400);
     expect(calls).toHaveLength(0);
   });
 
-  it("signs in: the session cookie replaces the binding, and the binding token went only to the platform", async () => {
+  it("clears the binding once presented, and the binding token went only to the platform", async () => {
     const { request, calls } = await serve((_m, path) =>
       path.endsWith("/complete")
-        ? { status: 200, body: { outcome: "signed_in", sessionToken: SESSION } }
+        ? { status: 200, body: { outcome: "pid_presented" } }
         : { status: 404, body: {} },
     );
-    const res = await request(`/sign-in/return?attempt=${ATTEMPT}`, {
-      cookie: `${BINDING_COOKIE}=${ATTEMPT}.sign_in.${BINDING}`,
+    const res = await request(`/pid/return?attempt=${ATTEMPT}`, {
+      cookie: `${cookie}; ${BINDING_COOKIE}=${ATTEMPT}.present_pid.${BINDING}`,
     });
-    expect(res.status).toBe(303);
-    const cookies = res.headers.getSetCookie();
-    expect(cookies.some((c) => c.startsWith(`${SESSION_COOKIE}=${SESSION};`))).toBe(true);
-    expect(cookies.some((c) => c.startsWith(`${BINDING_COOKIE}=;`))).toBe(true);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("PID presented");
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(`${BINDING_COOKIE}=;`))).toBe(
+      true,
+    );
     expect(calls[0]).toMatchObject({
-      path: `sign-in-attempts/${ATTEMPT}/complete`,
+      path: `pid-presentations/${ATTEMPT}/complete`,
+      session: SESSION,
       body: { bindingToken: BINDING },
     });
   });
+});
 
-  it("asks a new person for a profile, and sends the organisation they declare", async () => {
-    const { request, calls } = await serve((_m, path) =>
-      path.endsWith("/complete")
-        ? { status: 200, body: { outcome: "needs_profile" } }
-        : path.endsWith("/profile")
-          ? { status: 201, body: { sessionToken: SESSION } }
-          : { status: 404, body: {} },
-    );
-    const cookie = `${BINDING_COOKIE}=${ATTEMPT}.sign_up.${BINDING}`;
-    const form = await (await request("/sign-in/wait", { cookie })).text();
-    expect(form).toContain("Create your account");
-    expect(form).toContain("SB:&lt;country&gt;-&lt;number&gt;");
-    const res = await request("/sign-in/profile", {
-      method: "POST",
-      cookie,
-      body: "displayName=Ana&legalName=Banco+Ejemplo+S.A.&tradeName=Banco+Ejemplo&country=es",
-    });
-    expect(res.status).toBe(303);
-    expect(calls.at(-1)?.body).toEqual({
-      bindingToken: BINDING,
-      displayName: "Ana",
-      organisation: {
-        legalName: "Banco Ejemplo S.A.",
-        tradeName: "Banco Ejemplo",
-        country: "ES",
-        isPublicSectorBody: false,
-      },
-    });
-  });
-
-  it("refuses a malformed invitation link without calling the platform", async () => {
-    const { request, calls } = await serve(started);
-    expect((await request("/invite/short")).status).toBe(404);
-    expect(calls).toHaveLength(0);
-  });
-
-  it("shows an invitation link and an API key once, and never the session token", async () => {
-    const { request } = await serve((method, path) => {
+describe("the portal: an organisation", () => {
+  it("shows an invitation link for an address and an API key once, and never the session token", async () => {
+    const { request, calls } = await serve((method, path) => {
       if (path === `organisations/${ORG}`)
         return {
           status: 200,
@@ -241,7 +365,7 @@ describe("the portal", () => {
       if (path.endsWith("/api-keys"))
         return { status: 201, body: { id: ORG, key: "edtp_thekey", label: "ci" } };
       if (path.endsWith("/invitations"))
-        return { status: 201, body: { invitationToken: "i".repeat(43) } };
+        return { status: 201, body: { invitationToken: INVITE, email: "bruno@example.test" } };
       return { status: 404, body: {} };
     });
     const cookie = `${SESSION_COOKIE}=${SESSION}`;
@@ -251,9 +375,18 @@ describe("the portal", () => {
     expect(keyPage).toContain("edtp_thekey");
     expect(keyPage).toContain("Shown once");
     const invitePage = await (
-      await request(`/org/${ORG}/invitations`, { method: "POST", cookie, body: "role=member" })
+      await request(`/org/${ORG}/invitations`, {
+        method: "POST",
+        cookie,
+        body: "role=member&email=bruno%40example.test",
+      })
     ).text();
-    expect(invitePage).toContain(`https://portal.test/invite/${"i".repeat(43)}`);
+    expect(invitePage).toContain(`https://portal.test/invite/${INVITE}`);
+    expect(invitePage).toContain("bruno@example.test");
+    expect(calls.find((c) => c.path.endsWith("/invitations"))?.body).toEqual({
+      role: "member",
+      email: "bruno@example.test",
+    });
     expect(keyPage + invitePage).not.toContain(SESSION);
   });
 });

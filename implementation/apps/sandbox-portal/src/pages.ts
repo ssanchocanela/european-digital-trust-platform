@@ -58,27 +58,22 @@ ${options.signedIn ? `<form method="post" action="/sign-out"><button class="seco
 }
 
 export function landing(): string {
-  return page(
-    "Welcome",
-    `<h1>EUDI ecosystem sandbox</h1>
+  return `<h1>EUDI ecosystem sandbox</h1>
 <p>Play a role of the EUDI Wallet ecosystem — a <strong>Relying Party</strong> or a <strong>PID Provider</strong> —
 against real protocol flows, with access and registration certificates issued by this sandbox's own test
 authorities, correct or deliberately defective.</p>
 <h2>Before you start</h2>
 <ul>
+<li>You are signed in with the e-mail address Cloudflare Access verified. The sandbox keeps that address and
+the name you type below.</li>
+<li>You do <strong>not</strong> need a PID to use the sandbox. You may present one later, to try the flow.</li>
 <li>The sandbox is a separate <strong>test</strong> trust domain. Its certificates and trust lists are trusted
 only by the <strong>EDTP sandbox wallet build</strong>, a modified build of the EUDI Reference Implementation
-wallet. An official wallet will refuse them, by design.</li>
-<li>You sign up and sign in by presenting a <strong>PID</strong> from your wallet. Only a PID from the reference
-PID Providers or from "PID (demo)" is accepted for that.</li>
-<li>The sandbox keeps a pseudonymous identifier and the name you type — nothing else from your PID.</li>
+wallet. An official wallet will refuse them, by design. You need that build only to run tests with a wallet.</li>
 <li>Your organisation is <strong>self-declared and not verified</strong>.</li>
 <li>Use synthetic data only.</li>
 </ul>
-<p><a href="/wallet">Get the sandbox wallet build</a></p>
-<form method="post" action="/sign-up/start">${interactionChoice()}<button>Sign up with your PID</button></form>
-<form method="post" action="/sign-in/start">${interactionChoice()}<button class="secondary">Sign in with your PID</button></form>`,
-  );
+<p><a href="/wallet">Get the sandbox wallet build</a></p>`;
 }
 
 function interactionChoice(): string {
@@ -142,27 +137,28 @@ export function message(title: string, text: string, status = "info"): string {
   );
 }
 
-export function profileForm(purpose: "sign_up" | "accept_invitation", error?: string): string {
-  const organisation =
-    purpose === "sign_up"
-      ? `<h2>Your organisation</h2><p class="muted">Self-declared. The sandbox does not verify it, and no
+export function profileForm(
+  options: { readonly invitationToken?: string; readonly error?: string } = {},
+): string {
+  const joining = Boolean(options.invitationToken);
+  const organisation = joining
+    ? `<input type="hidden" name="invitationToken" value="${escapeHtml(options.invitationToken)}">`
+    : `<h2>Your organisation</h2><p class="muted">Self-declared. The sandbox does not verify it, and no
 certificate will carry a registration number you type: certificates carry a sandbox identifier
 <code>SB:&lt;country&gt;-&lt;number&gt;</code>.</p>
 <label for="legalName">Legal name</label><input id="legalName" name="legalName" required maxlength="200">
 <label for="tradeName">Trade name</label><input id="tradeName" name="tradeName" required maxlength="200">
 <label for="country">Country (ISO 3166-1 alpha-2)</label><input id="country" name="country" required pattern="[A-Z]{2}" maxlength="2">
 <label for="declaredEuid">EUID, if it has one (optional, declared only)</label><input id="declaredEuid" name="declaredEuid" maxlength="100">
-<label><input type="checkbox" name="isPublicSectorBody" value="yes"> It is a public sector body</label>`
-      : "";
+<label><input type="checkbox" name="isPublicSectorBody" value="yes"> It is a public sector body</label>`;
   return page(
-    "Your profile",
-    `<h1>${purpose === "sign_up" ? "Create your account" : "Join the organisation"}</h1>
-${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
-<p>Your PID was verified. The sandbox kept only a pseudonymous identifier derived from it.</p>
-<form method="post" action="/sign-in/profile">
+    "Welcome",
+    `${landing()}
+<h1>${joining ? "Join the organisation" : "Create your account"}</h1>
+${options.error ? `<p role="alert"><strong>${escapeHtml(options.error)}</strong></p>` : ""}
+<form method="post" action="/profile">
 <label for="displayName">Your name, as others in the sandbox will see it</label>
 <input id="displayName" name="displayName" required maxlength="80">
-<p class="muted">Typed by you, not taken from your PID.</p>
 ${organisation}
 <button>Continue</button></form>`,
   );
@@ -176,6 +172,7 @@ export interface DashboardOrganisation {
 export function dashboard(
   displayName: string,
   organisations: readonly DashboardOrganisation[],
+  options: { readonly pidPresented?: boolean } = {},
 ): string {
   const rows = organisations
     .map(
@@ -183,12 +180,19 @@ export function dashboard(
         `<tr><td><a href="/org/${escapeHtml(o.id)}">${escapeHtml(o.id)}</a></td><td>${escapeHtml(o.role)}</td></tr>`,
     )
     .join("");
+  const pid = options.pidPresented
+    ? `<p>You have presented a PID. The sandbox kept only a pseudonymous identifier derived from it.</p>`
+    : `<p class="muted">Optional. Present a PID from the sandbox wallet build to try the flow a Relying Party
+sees. It is not needed for anything else. Only a PID from the reference PID Providers or from "PID (demo)" is
+accepted, and the sandbox keeps only a pseudonymous identifier derived from it.</p>
+<form method="post" action="/pid/start">${interactionChoice()}<button class="secondary">Present a PID</button></form>`;
   return page(
     "Your organisations",
     `<h1>Hello, ${escapeHtml(displayName)}</h1>
 <h2>Your organisations</h2>
 ${organisations.length ? `<table><tr><th>Organisation</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
-<p class="muted">Relying Party and PID Provider tools arrive in the next sandbox milestones.</p>`,
+<h2>Your PID</h2>
+${pid}`,
     { signedIn: true },
   );
 }
@@ -199,7 +203,12 @@ export interface OrganisationView {
   readonly localIdentifier: string;
   readonly country: string;
   readonly declaredEuid?: string;
-  readonly members: readonly { personId: string; displayName: string; role: string }[];
+  readonly members: readonly {
+    personId: string;
+    displayName: string;
+    email?: string;
+    role: string;
+  }[];
   readonly apiKeys?: readonly {
     id: string;
     keyPrefix: string;
@@ -218,7 +227,7 @@ export function organisationPage(
   const members = view.members
     .map(
       (m) =>
-        `<tr><td>${escapeHtml(m.displayName)}</td><td>${escapeHtml(m.role)}</td><td>${
+        `<tr><td>${escapeHtml(m.displayName)}</td><td>${escapeHtml(m.email ?? "")}</td><td>${escapeHtml(m.role)}</td><td>${
           owner
             ? `<form method="post" action="/org/${id}/members/${escapeHtml(m.personId)}/remove"><button class="secondary">Remove</button></form>`
             : ""
@@ -245,12 +254,15 @@ export function organisationPage(
     }.</p>
 ${shown ? `<h2>${escapeHtml(shown.label)}</h2><p>Shown once. Copy it now: the sandbox keeps only a hash.</p><code class="secret">${escapeHtml(shown.value)}</code>` : ""}
 ${sections}
-<h2>Members</h2><table><tr><th>Name</th><th>Role</th><th></th></tr>${members}</table>
+<h2>Members</h2><table><tr><th>Name</th><th>E-mail</th><th>Role</th><th></th></tr>${members}</table>
 ${
   owner
-    ? `<form method="post" action="/org/${id}/invitations"><label>Invite someone as
-<select name="role"><option value="member">member</option><option value="owner">owner</option></select></label>
+    ? `<form method="post" action="/org/${id}/invitations">
+<label for="inviteEmail">Invite by e-mail address</label><input id="inviteEmail" name="email" type="email" required maxlength="254">
+<label>as <select name="role"><option value="member">member</option><option value="owner">owner</option></select></label>
 <button>Create invitation link</button></form>
+<p class="muted">The sandbox sends no e-mail: pass the link on yourself. Only that address can accept it, and
+the sandbox operator must also have admitted it through Cloudflare Access.</p>
 <h2>API keys</h2><p class="muted">For automating your tests against the platform API as this organisation.</p>
 ${keys ? `<table><tr><th>Label</th><th>Prefix</th><th></th></tr>${keys}</table>` : "<p>None.</p>"}
 <form method="post" action="/org/${id}/api-keys"><label for="label">Label</label><input id="label" name="label" required maxlength="100"><button>Create API key</button></form>`
@@ -261,12 +273,11 @@ ${keys ? `<table><tr><th>Label</th><th>Prefix</th><th></th></tr>${keys}</table>`
   );
 }
 
-export function invitationLanding(token: string): string {
+export function invitationLanding(token: string, role: string): string {
   return page(
     "Invitation",
-    `<h1>You have been invited</h1><p>Present your PID to join the organisation. If you are new to the sandbox,
-you will be asked for your name.</p>
-<form method="post" action="/invite/${escapeHtml(token)}/start">${interactionChoice()}<button>Join with your PID</button></form>`,
+    `<h1>You have been invited</h1><p>You are invited to join an organisation as <strong>${escapeHtml(role)}</strong>.</p>
+<form method="post" action="/invite/${escapeHtml(token)}/accept"><button>Join the organisation</button></form>`,
   );
 }
 

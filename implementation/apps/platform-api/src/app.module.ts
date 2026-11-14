@@ -19,6 +19,7 @@ import {
   TransactionListingController,
 } from "./http/listing.controllers.js";
 import { SandboxController } from "./http/sandbox.controllers.js";
+import { SandboxAccessGuard } from "./http/sandbox-access.guard.js";
 import { SandboxCertificatesController } from "./http/sandbox-certificates.controller.js";
 import { SandboxIssuerController } from "./http/sandbox-issuer.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
@@ -154,6 +155,7 @@ export class AppModule {
           useValue: deps.config.FEATURE_PID_DURING_ISSUANCE,
         },
         ApiKeyGuard,
+        SandboxAccessGuard,
         PlatformErrorFilter,
       ],
     };

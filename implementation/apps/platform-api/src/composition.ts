@@ -50,6 +50,10 @@ import { WalletInitiatedClaims } from "./modules/issuances/wallet-initiated-clai
 import { PolicyService } from "./modules/policies/policy.service.js";
 import { PresentationService } from "./modules/presentations/presentation.service.js";
 import { RegistrationService } from "./modules/registration/registration.service.js";
+import {
+  CloudflareAccessVerifier,
+  DevelopmentAccessIdentity,
+} from "./modules/sandbox/access-identity.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
 import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "./modules/sandbox/metadata.service.js";
@@ -382,6 +386,15 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
           audit,
           clock,
           logger,
+          // ADR 0018: the config guarantees exactly one of the two.
+          config.SANDBOX_ACCESS_TEAM_DOMAIN && config.SANDBOX_ACCESS_AUDIENCE
+            ? new CloudflareAccessVerifier(
+                config.SANDBOX_ACCESS_TEAM_DOMAIN,
+                config.SANDBOX_ACCESS_AUDIENCE,
+                clock,
+                logger,
+              )
+            : new DevelopmentAccessIdentity(config.SANDBOX_ACCESS_DEV_IDENTITY ?? ""),
         )
       : undefined;
 

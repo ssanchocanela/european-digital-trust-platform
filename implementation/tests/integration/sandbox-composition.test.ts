@@ -39,6 +39,9 @@ beforeAll(async () => {
       SANDBOX_KEYSTORE_KEY: Buffer.alloc(32, 9).toString("base64"),
       SANDBOX_PUBLIC_BASE_URL: "https://sandbox.test/sandbox/public",
       SANDBOX_VERIFIER_DNS_NAME: "engine.sandbox.test",
+      // A laptop without Access: one fixed address (ADR 0018 Decision 7). The real check is
+      // tested on its own, against signed assertions.
+      SANDBOX_ACCESS_DEV_IDENTITY: "dev@example.test",
     },
   });
   app = await createHttpApp(harness.deps, { quiet: true });
@@ -112,5 +115,60 @@ describe("the composed sandbox", () => {
       });
       expect(res.status, path).toBe(401);
     }
+  });
+});
+
+describe("the composed sandbox: who is at the portal (ADR 0018)", () => {
+  const call = (
+    path: string,
+    init: { method?: string; session?: string; body?: unknown } = {},
+  ) =>
+    fetch(`${base}/sandbox/v1/${path}`, {
+      method: init.method ?? "GET",
+      headers: {
+        "x-edtp-sandbox-portal-secret": SECRET,
+        "content-type": "application/json",
+        ...(init.session ? { "x-edtp-sandbox-session": init.session } : {}),
+      },
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    });
+
+  it("enters, creates a profile, and honours the session only for the same address", async () => {
+    const entered = await (await call("access/enter", { method: "POST" })).json();
+    expect(entered).toEqual({ outcome: "needs_profile" });
+    const created = await call("access/profile", {
+      method: "POST",
+      body: { displayName: "Dev" },
+    });
+    expect(created.status).toBe(201);
+    const { sessionToken } = (await created.json()) as { sessionToken: string };
+    const me = await call("me", { session: sessionToken });
+    expect(me.status).toBe(200);
+    expect(((await me.json()) as { person: { email: string } }).person.email).toBe(
+      "dev@example.test",
+    );
+
+    // A session of someone else: the guard ends it, whatever route it is presented to.
+    const repo = harness.deps.repositories.sandbox;
+    const otherId = "00000000-0000-4000-8000-0000000000cc";
+    const now = new Date();
+    await repo.createPerson({
+      id: otherId as never,
+      email: "other@example.test",
+      displayName: "Other",
+      createdAt: now,
+      lastSignInAt: now,
+    });
+    const otherSession = "o".repeat(43);
+    await repo.createSession(otherSession, otherId as never, now);
+    expect((await call("me", { session: otherSession })).status).toBe(401);
+    expect(
+      (
+        await call("organisations/00000000-0000-4000-8000-0000000000aa/runs", {
+          session: otherSession,
+        })
+      ).status,
+    ).toBe(401);
+    expect((await repo.findSession(otherSession))?.endedAt).toBeDefined();
   });
 });

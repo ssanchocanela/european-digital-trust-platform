@@ -162,6 +162,24 @@ const schema = z.object({
   SANDBOX_SIGN_IN_POLICY_ID: unsetIfEmpty(z.string().uuid().optional()),
   SANDBOX_PORTAL_PUBLIC_URL: unsetIfEmpty(z.string().url().optional()),
   /**
+   * Who is at the portal (ADR 0018): the Cloudflare Access team domain whose keys sign the assertion
+   * (`<team>.cloudflareaccess.com`) and the portal application's audience tag. Neither is a secret.
+   * Or, on a laptop without Access only, one fixed development address instead — never both.
+   */
+  SANDBOX_ACCESS_TEAM_DOMAIN: unsetIfEmpty(
+    z
+      .string()
+      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, "must be a host name, without a scheme")
+      .optional(),
+  ),
+  SANDBOX_ACCESS_AUDIENCE: unsetIfEmpty(
+    z
+      .string()
+      .regex(/^[0-9a-f]{32,128}$/)
+      .optional(),
+  ),
+  SANDBOX_ACCESS_DEV_IDENTITY: unsetIfEmpty(z.string().email().optional()),
+  /**
    * The sandbox's PKI (S3, ADR 0014): the trust domain created by `sandbox-pki init` — `keys/` sealed
    * under `SANDBOX_KEYSTORE_KEY`, `certs/`, and optional `pid-sign-in-anchors/` — and the public base
    * address its certificates and lists name. All three or none; without them, no certificate is
@@ -448,6 +466,23 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): PlatformConfig
       ];
       throw new Error(
         `Invalid environment configuration:\n  the sandbox needs ${names.join(", ")}`,
+      );
+    }
+    const access = Boolean(d.SANDBOX_ACCESS_TEAM_DOMAIN) || Boolean(d.SANDBOX_ACCESS_AUDIENCE);
+    if (Boolean(d.SANDBOX_ACCESS_TEAM_DOMAIN) !== Boolean(d.SANDBOX_ACCESS_AUDIENCE)) {
+      throw new Error(
+        "Invalid environment configuration:\n  SANDBOX_ACCESS_TEAM_DOMAIN and SANDBOX_ACCESS_AUDIENCE go together",
+      );
+    }
+    if (access && d.SANDBOX_ACCESS_DEV_IDENTITY) {
+      // ADR 0018 Decision 7: the development identity never runs beside the real check.
+      throw new Error(
+        "Invalid environment configuration:\n  SANDBOX_ACCESS_DEV_IDENTITY cannot be set together with the Access settings",
+      );
+    }
+    if (!access && !d.SANDBOX_ACCESS_DEV_IDENTITY) {
+      throw new Error(
+        "Invalid environment configuration:\n  the sandbox needs SANDBOX_ACCESS_TEAM_DOMAIN and SANDBOX_ACCESS_AUDIENCE (or, on a laptop without Access, SANDBOX_ACCESS_DEV_IDENTITY)",
       );
     }
     const others = [

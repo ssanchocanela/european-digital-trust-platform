@@ -3,8 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EngineCredentialRepository } from "@edtp/persistence";
 import { createTrustDomain, FileKeyStore } from "@edtp/sandbox-pki";
-import { asId, newCorrelationId, PlatformError, type TenantId } from "@edtp/shared";
+import { asId, PlatformError, type TenantId } from "@edtp/shared";
 import { EngineTenantService } from "../../apps/platform-api/src/modules/engine-tenants/engine-tenant.service.js";
+import type {
+  AccessIdentity,
+  AccessIdentityVerifier,
+} from "../../apps/platform-api/src/modules/sandbox/access-identity.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
 import { SandboxIssuerService } from "../../apps/platform-api/src/modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "../../apps/platform-api/src/modules/sandbox/metadata.service.js";
@@ -45,6 +49,19 @@ export async function errorCode(promise: Promise<unknown>): Promise<string> {
 }
 
 export const VERIFIER_DNS = "engine.sandbox.test";
+
+/**
+ * A stand-in for Cloudflare Access in tests that drive the service directly: the "assertion" is the
+ * address itself. The real verifier, with signatures, is tested on its own (sandbox-access-identity).
+ */
+export const testAccess: AccessIdentityVerifier = {
+  async verify(assertion: string | undefined): Promise<AccessIdentity> {
+    if (!assertion?.includes("@")) throw PlatformError.unauthenticated();
+    return { email: assertion.toLowerCase() };
+  },
+};
+
+export const identity = (email: string): AccessIdentity => ({ email: email.toLowerCase() });
 
 export async function wireSandbox(
   harness: Harness,
@@ -102,6 +119,7 @@ export async function wireSandbox(
     harness.deps.services.audit,
     harness.clock,
     harness.deps.logger,
+    testAccess,
   );
 
   const store = new FileKeyStore(mkdtempSync(join(tmpdir(), "sbx-it-")), Buffer.alloc(32, 8));
@@ -141,17 +159,15 @@ export async function wireSandbox(
     harness.clock,
   );
 
-  async function signUp(disclosed: Record<string, unknown>, name: string, country = "ES") {
-    const attempt = await sandbox.startSignIn({
-      purpose: "sign_up",
-      interactionType: "SAME_DEVICE",
-      correlationId: newCorrelationId(),
-    });
-    harness.verifier.settleLastVerified(disclosed);
-    await sandbox.completeSignIn(attempt.attemptId, attempt.bindingToken, newCorrelationId());
-    const done = await sandbox.completeProfile({
-      attemptId: attempt.attemptId,
-      bindingToken: attempt.bindingToken,
+  let people = 0;
+  /**
+   * A new person, entered by their Access identity, who creates an organisation (ADR 0018). The first
+   * argument is kept for the callers written when sign-up was a PID presentation; it is not used.
+   */
+  async function signUp(_unused: unknown, name: string, country = "ES") {
+    people += 1;
+    const email = `${name.toLowerCase().replace(/[^a-z0-9]+/g, ".")}.${people}@example.test`;
+    const done = await sandbox.createProfile(identity(email), {
       displayName: name,
       organisation: {
         legalName: `${name} S.A.`,
@@ -161,7 +177,12 @@ export async function wireSandbox(
       },
     });
     const context = await sandbox.authenticate(done.sessionToken);
-    return { context, organisationId: done.organisation?.tenantId as TenantId };
+    return {
+      context,
+      email,
+      sessionToken: done.sessionToken,
+      organisationId: done.organisation?.tenantId as TenantId,
+    };
   }
 
   const createdEngineTenants: string[] = [];

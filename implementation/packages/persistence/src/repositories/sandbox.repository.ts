@@ -53,6 +53,8 @@ export interface SignInAttempt {
   readonly id: SignInAttemptId;
   readonly purpose: SignInPurpose;
   readonly invitationId?: InvitationId;
+  /** The signed-in person presenting a PID (ADR 0018 Decision 3). */
+  readonly personId?: PersonId;
   readonly presentationId: string;
   readonly subject?: string;
   readonly createdAt: Date;
@@ -65,7 +67,10 @@ export const SANDBOX_IDENTIFIER_SCHEME_URI = "urn:edtp:sandbox:identifier";
 
 const toPerson = (row: typeof sandboxPeople.$inferSelect): Person => ({
   id: asId<"SandboxPersonId">(row.id),
-  subject: row.subject,
+  // A person from before ADR 0018 has no address: "" matches no normalised address, so they cannot
+  // sign in, as ADR 0018 Decision 8 says.
+  email: row.email ?? "",
+  ...(row.subject ? { subject: row.subject } : {}),
   displayName: row.displayName,
   createdAt: row.createdAt,
   lastSignInAt: row.lastSignInAt,
@@ -96,13 +101,42 @@ export class SandboxRepository {
     return row ? toPerson(row) : undefined;
   }
 
+  /** By the normalised address Access verified (ADR 0018). */
+  async findPersonByEmail(email: string): Promise<Person | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(sandboxPeople)
+      .where(eq(sandboxPeople.email, email));
+    return row ? toPerson(row) : undefined;
+  }
+
   async findPerson(id: PersonId): Promise<Person | undefined> {
     const [row] = await this.db.select().from(sandboxPeople).where(eq(sandboxPeople.id, id));
     return row ? toPerson(row) : undefined;
   }
 
   async createPerson(person: Person): Promise<void> {
-    await this.db.insert(sandboxPeople).values(person);
+    await this.db.insert(sandboxPeople).values({
+      id: person.id,
+      email: person.email,
+      subject: person.subject ?? null,
+      displayName: person.displayName,
+      createdAt: person.createdAt,
+      lastSignInAt: person.lastSignInAt,
+    });
+  }
+
+  /**
+   * Record the subject of the PID a person chose to present (ADR 0018 Decision 3). Once: a person
+   * who already has one keeps it. Returns false when nothing was set.
+   */
+  async recordSubject(id: PersonId, subject: string): Promise<boolean> {
+    const rows = await this.db
+      .update(sandboxPeople)
+      .set({ subject })
+      .where(and(eq(sandboxPeople.id, id), isNull(sandboxPeople.subject)))
+      .returning({ id: sandboxPeople.id });
+    return rows.length === 1;
   }
 
   async recordSignIn(id: PersonId, at: Date): Promise<void> {
@@ -230,9 +264,15 @@ export class SandboxRepository {
     }));
   }
 
-  async membersOf(tenantId: TenantId): Promise<(Membership & { displayName: string })[]> {
+  async membersOf(
+    tenantId: TenantId,
+  ): Promise<(Membership & { displayName: string; email: string })[]> {
     const rows = await this.db
-      .select({ m: sandboxMemberships, displayName: sandboxPeople.displayName })
+      .select({
+        m: sandboxMemberships,
+        displayName: sandboxPeople.displayName,
+        email: sandboxPeople.email,
+      })
       .from(sandboxMemberships)
       .innerJoin(sandboxPeople, eq(sandboxPeople.id, sandboxMemberships.personId))
       .where(eq(sandboxMemberships.tenantId, tenantId));
@@ -242,6 +282,7 @@ export class SandboxRepository {
       role: r.m.role as Role,
       createdAt: r.m.createdAt,
       displayName: r.displayName,
+      email: r.email ?? "",
     }));
   }
 
@@ -264,6 +305,7 @@ export class SandboxRepository {
       tenantId: invitation.tenantId,
       tokenHash: hashSandboxToken(token),
       role: invitation.role,
+      email: invitation.email ?? null,
       createdBy: invitation.createdBy,
       createdAt: invitation.createdAt,
       expiresAt: invitation.expiresAt,
@@ -280,6 +322,7 @@ export class SandboxRepository {
       id: asId<"SandboxInvitationId">(row.id),
       tenantId: asId<"TenantId">(row.tenantId),
       role: row.role as Role,
+      ...(row.email ? { email: row.email } : {}),
       createdBy: asId<"SandboxPersonId">(row.createdBy),
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
@@ -363,6 +406,7 @@ export class SandboxRepository {
       bindingHash: hashSandboxToken(bindingToken),
       purpose: attempt.purpose,
       invitationId: attempt.invitationId ?? null,
+      personId: attempt.personId ?? null,
       presentationId: attempt.presentationId,
       createdAt: attempt.createdAt,
       expiresAt: attempt.expiresAt,
@@ -390,32 +434,13 @@ export class SandboxRepository {
       ...(row.invitationId
         ? { invitationId: asId<"SandboxInvitationId">(row.invitationId) }
         : {}),
+      ...(row.personId ? { personId: asId<"SandboxPersonId">(row.personId) } : {}),
       presentationId: row.presentationId,
       ...(row.subject ? { subject: row.subject } : {}),
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       ...(row.completedAt ? { completedAt: row.completedAt } : {}),
     };
-  }
-
-  /**
-   * Hold the subject of a verified person who is not yet known, until the profile step. Only on an
-   * open attempt, and only once.
-   */
-  async holdSubject(id: SignInAttemptId, subject: string, at: Date): Promise<boolean> {
-    const rows = await this.db
-      .update(sandboxSignInAttempts)
-      .set({ subject })
-      .where(
-        and(
-          eq(sandboxSignInAttempts.id, id),
-          isNull(sandboxSignInAttempts.completedAt),
-          isNull(sandboxSignInAttempts.subject),
-          gt(sandboxSignInAttempts.expiresAt, at),
-        ),
-      )
-      .returning({ id: sandboxSignInAttempts.id });
-    return rows.length === 1;
   }
 
   /** Complete once, atomically. Returns false if it was already completed or has expired. */

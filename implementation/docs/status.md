@@ -8,6 +8,21 @@ linked rather than repeated.
 
 ---
 
+## 14 November 2026 — **sign-in by PID to become optional: ADR 0018 proposed**
+
+- **The user decided that signing in with a PID must not be mandatory.** The sandbox opens before any
+  official PID exists. Only the modified sandbox wallet build can sign in at all, because the sign-in
+  verifier's access certificate comes from the sandbox Access CA.
+- [ADR 0018](adr/0018-sandbox-sign-in-by-access-identity.md) proposes:
+  - the account is the e-mail address Cloudflare Access verified. The platform validates Access's
+    signed assertion and never trusts the plain header;
+  - a PID presentation is optional and gates nothing in v1;
+  - invitations name an address.
+- **Nothing is built until it is accepted.** The deployed sandbox still requires a PID to sign in, and
+  has no participants.
+
+---
+
 ## 13 November 2026 — **the sandbox VM set up to step 8; nothing deployed**
 
 - **#44–#48 are merged.** The ADR 0017 acceptance and a README fix were pushed after #48 merged, so they

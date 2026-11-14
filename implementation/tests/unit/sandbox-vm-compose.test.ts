@@ -82,6 +82,13 @@ describe("the sandbox VM's compose file", () => {
       "TEST",
     );
   });
+
+  it("identifies people by Cloudflare Access, and never by a development identity (ADR 0018)", () => {
+    const platform = environment(service(sandbox, "platform-api"));
+    expect(platform.SANDBOX_ACCESS_TEAM_DOMAIN).toMatch(/^\$\{SANDBOX_ACCESS_TEAM_DOMAIN:\?/);
+    expect(platform.SANDBOX_ACCESS_AUDIENCE).toMatch(/^\$\{SANDBOX_ACCESS_AUDIENCE:\?/);
+    expect(sandbox).not.toContain("SANDBOX_ACCESS_DEV_IDENTITY");
+  });
 });
 
 describe("the sandbox VM's tunnel", () => {

@@ -160,4 +160,9 @@ export const NEGATIVE_PROBES: readonly {
   { target: "platform", path: "/openapi", why: "the API's own description" },
   { target: "platform", path: "/sandbox/v1/me", why: "the sandbox portal's API" },
   { target: "platform", path: "/sandbox/v1/sign-in-attempts", why: "the sandbox portal's API" },
+  {
+    target: "platform",
+    path: "/sandbox/v1/access/enter",
+    why: "the sandbox portal's API: entering by an Access identity",
+  },
 ];

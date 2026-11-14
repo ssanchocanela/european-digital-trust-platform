@@ -129,6 +129,10 @@ services:
       SANDBOX_OPERATOR_TENANT_ID: ${SANDBOX_OPERATOR_TENANT_ID:-}
       SANDBOX_SIGN_IN_POLICY_ID: ${SANDBOX_SIGN_IN_POLICY_ID:-}
       SANDBOX_PORTAL_PUBLIC_URL: ${SANDBOX_PORTAL_PUBLIC_URL:?set SANDBOX_PORTAL_PUBLIC_URL to https://sandbox.murcata.es}
+      # Who is at the portal (ADR 0018): the Access team and the portal application's audience tag.
+      # There is no development identity here, and the compose test keeps it that way.
+      SANDBOX_ACCESS_TEAM_DOMAIN: ${SANDBOX_ACCESS_TEAM_DOMAIN:?set SANDBOX_ACCESS_TEAM_DOMAIN to <team>.cloudflareaccess.com}
+      SANDBOX_ACCESS_AUDIENCE: ${SANDBOX_ACCESS_AUDIENCE:?set SANDBOX_ACCESS_AUDIENCE to the portal application's audience tag}
       SANDBOX_PARTICIPANT_TRUST_SOURCES: ${SANDBOX_PARTICIPANT_TRUST_SOURCES:?}
       SANDBOX_PKI_DIR: /pki
       SANDBOX_KEYSTORE_KEY: ${SANDBOX_KEYSTORE_KEY:?set SANDBOX_KEYSTORE_KEY in .env}

@@ -8,18 +8,27 @@ linked rather than repeated.
 
 ---
 
-## 14 November 2026 — **sign-in by PID to become optional: ADR 0018 proposed**
+## 14 November 2026 — **sign-in by PID made optional: ADR 0018 accepted and built, not deployed**
 
-- **The user decided that signing in with a PID must not be mandatory.** The sandbox opens before any
-  official PID exists. Only the modified sandbox wallet build can sign in at all, because the sign-in
-  verifier's access certificate comes from the sandbox Access CA.
-- [ADR 0018](adr/0018-sandbox-sign-in-by-access-identity.md) proposes:
-  - the account is the e-mail address Cloudflare Access verified. The platform validates Access's
-    signed assertion and never trusts the plain header;
-  - a PID presentation is optional and gates nothing in v1;
-  - invitations name an address.
-- **Nothing is built until it is accepted.** The deployed sandbox still requires a PID to sign in, and
-  has no participants.
+- **The user decided that signing in with a PID must not be mandatory.** Two reasons:
+  - the sandbox opens before any official PID exists;
+  - only the modified sandbox wallet build can present to the sign-in verifier, because its access
+    certificate comes from the sandbox Access CA.
+- [ADR 0018](adr/0018-sandbox-sign-in-by-access-identity.md) was accepted the same day and built in
+  PR #50:
+  - **the person is the e-mail address Cloudflare Access verified.** The platform validates Access's
+    signed assertion itself and never trusts the plain header;
+  - **a session holds only together with an assertion for the same address**, through one guard over
+    every `/sandbox/v1/` route;
+  - **presenting a PID is an optional action** that gates nothing in v1;
+  - **invitations name an address**, and only that address can accept them;
+  - migration `0018`, and `email` on the redaction deny-list.
+- **Not deployed.** The VM still runs image `60a064a1d9e1` with the ADR 0015 sign-in. Deploying needs:
+  - two values in the VM's `.env`, `SANDBOX_ACCESS_TEAM_DOMAIN` and `SANDBOX_ACCESS_AUDIENCE`;
+  - an image built from `main` once #50 merges;
+  - the user's confirmation.
+- **Brought onto `main` in #50:** four 13 November commits (deployment, timers, backups) that were
+  pushed after #49 had merged.
 
 ---
 

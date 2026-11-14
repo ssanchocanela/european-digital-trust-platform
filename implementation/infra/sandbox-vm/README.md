@@ -104,6 +104,9 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
    - Set `EDTP_IMAGE` to the tag the user has confirmed.
    - `ENGINE_CLIENT_ID=root` is in the template: `create-engine-tenant.sh` reads it, and it is not a
      secret (the engine's root client id).
+   - `SANDBOX_ACCESS_TEAM_DOMAIN` and `SANDBOX_ACCESS_AUDIENCE` (ADR 0018): the Zero Trust team domain,
+     and the "EDTP sandbox portal" application's AUD tag (Access → Applications → the application →
+     Overview). Neither is a secret. Without them the platform refuses to start the sandbox.
    - **Copy `SANDBOX_KEYSTORE_KEY` into the operator's password manager now.** It is in no backup.
 
 7. **The trust domain**, fresh: the first deployment is not a migration of the laptop's.

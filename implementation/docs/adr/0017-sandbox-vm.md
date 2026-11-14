@@ -59,15 +59,17 @@ one deployment away from the demonstrations' hostnames.
 
 - **The whole portal is behind an Access application** whose policy lists the invited participants'
   e-mail addresses. The operator keeps that list. The portal also refuses any request without Access's
-  identity header (`SANDBOX_PORTAL_REQUIRE_ACCESS`), as the demonstration portal does for `/operador`.
+  signed assertion (`SANDBOX_PORTAL_REQUIRE_ACCESS`). Since ADR 0018 the platform validates that
+  assertion and takes the person's identity from it.
 - **What a wallet calls stays public, as it must.** The engine's wallet-facing paths and the
   sandbox's public reads cannot sit behind a login: a wallet does not authenticate to a trust list.
-- **Opening sign-up to anyone with a PID** is a later decision, taken once the quotas and rate limits
-  have been in use.
-- **Sign-in still needs a PID.** Access decides who may *reach* the portal. The PID decides who
-  someone *is* in it, as ADR 0015 decides. Neither replaces the other.
-- **Same-device sign-in on a phone** passes Access in the phone's browser first. The run sheets say
-  so.
+- **Opening sign-up beyond invited participants** is a later decision, taken once the quotas and rate
+  limits have been in use.
+- ~~**Sign-in still needs a PID.**~~ *Amended by [ADR 0018](0018-sandbox-sign-in-by-access-identity.md),
+  14 November 2026:* Access decides who may reach the portal **and** who someone is in it, by their
+  verified e-mail address. Presenting a PID is optional.
+- **A same-device PID presentation on a phone** passes Access in the phone's browser first. The run
+  sheets say so.
 
 ### 3. Abuse controls before exposure
 

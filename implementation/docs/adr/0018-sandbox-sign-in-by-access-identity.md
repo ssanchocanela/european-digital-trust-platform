@@ -1,7 +1,8 @@
 # ADR 0018 — Sandbox sign-in by the Access identity; the PID becomes optional
 
-- **Status:** PROPOSED, 14 November 2026. Drafted at the user's request, after the first deployment.
-  The user decided the direction: signing in with a PID must not be mandatory.
+- **Status:** ACCEPTED, 14 November 2026, by the user, the day it was drafted, and built the same day
+  (PR #50). The user decided the direction: signing in with a PID must not be mandatory. **Not deployed
+  yet:** the sandbox VM still runs the ADR 0015 sign-in until the user confirms a deployment.
 - **Date:** 14 November 2026
 - **Amends:**
   - [ADR 0015](0015-sandbox-sign-in-by-pid.md): Decisions 1, 4, 5 and 7 change; Decisions 2 and 3 keep
@@ -64,6 +65,8 @@ ADR 0015 made a PID presentation the only way into the sandbox. Deploying the sa
 - **A session is valid only together with an assertion for the same address.** If the assertion is
   missing, invalid, or names another address, the session is ended. So removing someone from the
   Access policy, or Access's own session ending, takes effect at once.
+- **Built as one guard** (`SandboxAccessGuard`) over every `/sandbox/v1/` route that carries a session
+  and the portal's secret, so a route added later cannot forget it.
 - **First visit:** a valid assertion for an unknown address creates the person, after they type a
   display name. Sign-up then continues as J1 does today: declaring the organisation.
 
@@ -87,6 +90,8 @@ ADR 0015 made a PID presentation the only way into the sandbox. Deploying the sa
 
 - An owner invites a member by **e-mail address**. The invitation keeps the single-use link and the
   72 hours.
+- The portal sends the token to the platform in a request body, never in a path a request log could
+  keep.
 - **It can be accepted only by the person whose verified address it names.** A forwarded link is
   useless to anyone else.
 - **The sandbox sends no e-mail.** The owner passes the link on.
@@ -97,7 +102,8 @@ ADR 0015 made a PID presentation the only way into the sandbox. Deploying the sa
 
 - Stored once, in the person's record. It is deleted with the account.
 - **Never in a log, an audit record or a run report.** Audit records name the person by id. `email`
-  joins the log redaction deny-list, and a test proves it.
+  and `assertion` join the log redaction deny-list. An integration test proves that no address
+  reaches a log or an audit record.
 - **Never shown to members of another organisation.** Within an organisation, members see each
   other's display names and addresses.
 - The portal's help text says what is kept: the address, the typed display name, and, if a PID was
@@ -114,9 +120,10 @@ ADR 0015 made a PID presentation the only way into the sandbox. Deploying the sa
 - The laptop runs the sandbox without Access.
 - **For that case only,** `SANDBOX_ACCESS_DEV_IDENTITY=<address>` lets the platform accept that one
   address without an assertion.
-- **The platform refuses to start** if it is set together with `SANDBOX_PORTAL_REQUIRE_ACCESS=true`,
-  or together with the Access settings. The sandbox VM's compose file cannot set it, and the compose
-  drift test checks that.
+- **The platform refuses to start** if it is set together with the Access settings. The platform
+  cannot see the portal's `SANDBOX_PORTAL_REQUIRE_ACCESS`, so this is the check it can make.
+- **The sandbox VM's compose file requires the Access settings and never names the development
+  identity.** The compose drift test checks both.
 - Integration tests sign assertions with a key pair they generate, served as a local key set. No test
   disables the signature check.
 
@@ -163,14 +170,14 @@ ADR 0015 made a PID presentation the only way into the sandbox. Deploying the sa
   - the sign-in verifier, its policy and its fixed anchor set;
   - the quotas and the operator's suspension;
   - every rule that no PID value reaches the database or a log.
-- **To change on acceptance:**
+- **Changed on acceptance** (done 14 November 2026):
   - ADR 0015's status line (amended by this ADR), and ADR 0017 §2;
   - the specification's §3 roles table, J1 and J2;
   - the portal's first screen and help text;
   - `security-limitations.md` SB15, which says Access only decides who reaches the portal;
   - `infra/sandbox-vm/` (two settings in `.env`, the compose file and its test);
   - the sandbox plan and `status.md`.
-- **The code it needs:**
+- **The code it needed**, built in PR #50:
   - assertion validation and key caching in the platform;
   - the people migration;
   - sessions bound to the assertion;

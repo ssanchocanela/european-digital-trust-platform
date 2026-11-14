@@ -55,7 +55,8 @@ export const SIGN_IN_SUBJECT_CLAIM = "subject";
 
 export type EnterOutcome =
   | { readonly outcome: "signed_in"; readonly sessionToken: string }
-  | { readonly outcome: "needs_profile" };
+  /** The address Access verified, so the person sees whom they are about to create. */
+  | { readonly outcome: "needs_profile"; readonly email: string };
 
 export type PidPresentationOutcome =
   | { readonly outcome: "pending" }
@@ -102,7 +103,7 @@ export class SandboxService {
    */
   async enter(identity: AccessIdentity): Promise<EnterOutcome> {
     const person = await this.repository.findPersonByEmail(identity.email);
-    if (!person) return { outcome: "needs_profile" };
+    if (!person) return { outcome: "needs_profile", email: identity.email };
     return {
       outcome: "signed_in",
       sessionToken: await this.openSession(person.id, this.clock.now()),

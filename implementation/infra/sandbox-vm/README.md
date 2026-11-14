@@ -6,7 +6,7 @@ demonstration VM ([`../demo-vm/`](../demo-vm/README.md), ADR 0010).
 | | |
 |---|---|
 | Provider | Hetzner Cloud |
-| Server | `edtp-sandbox`, `cx23` (2 vCPU, 4 GB), `fsn1`, Ubuntu 24.04 LTS, daily backups on |
+| Server | `edtp-sandbox`, `cx23` (2 vCPU, 4 GB), `fsn1`, Ubuntu 24.04 LTS. Hetzner daily backups on; the nightly dump timer is installed but **not enabled** until the user says (13 November 2026) |
 | Operator | user `edtp`, key-only SSH; key in `~/.edtp/sandbox-vm/` (never committed) |
 | Inbound | **none**, once bootstrapped. Everything, SSH included, comes through the VM's own tunnel `edtp-sandbox` |
 | Hostnames | `sandbox.murcata.es` (portal, behind Access), `sandbox-engine.murcata.es`, `sandbox-platform.murcata.es` (both through the gateway), `sandbox-ssh.murcata.es` (Access, operator only) |

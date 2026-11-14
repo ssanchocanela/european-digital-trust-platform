@@ -8,13 +8,13 @@ import {
   isSessionLive,
   type Membership,
   normaliseDisplayName,
+  normaliseEmail,
   type Person,
   type PersonId,
   type Role,
   type SandboxOrganisation,
   SIGN_IN_ATTEMPT_TTL_MS,
   type SignInAttemptId,
-  type SignInPurpose,
   sharedTrustSources,
 } from "@edtp/sandbox-domain";
 import {
@@ -30,14 +30,16 @@ import type { Logger } from "../../logging/logger.js";
 import type { AuditService } from "../audit/audit.service.js";
 import type { HostedFormReturns } from "../issuances/hosted-form-returns.js";
 import type { PresentationService } from "../presentations/presentation.service.js";
+import type { AccessIdentity, AccessIdentityVerifier } from "./access-identity.js";
 
 /**
- * The sandbox's people: sign-up and sign-in by PID, organisations, members, invitations and API keys
- * (ADR 0015).
+ * The sandbox's people: organisations, members, invitations and API keys (ADR 0015), entered by the
+ * identity Cloudflare Access verified (ADR 0018).
  *
- * Sign-in is a presentation to the sandbox operator's own sign-in verifier, under one policy whose
- * result is a single `PseudonymousSubject`. This service never sees a PID value: it reads the
- * subject from the presentation's result and nothing else.
+ * A person is their verified e-mail address. Presenting a PID is optional: a presentation to the
+ * sandbox operator's own sign-in verifier, under one policy whose result is a single
+ * `PseudonymousSubject`. This service never sees a PID value: it reads the subject from the
+ * presentation's result and nothing else.
  */
 export interface SandboxSettings {
   readonly operatorTenantId: TenantId;
@@ -51,12 +53,14 @@ export interface SandboxSettings {
 /** The result claim the sign-in policy's `PseudonymousSubject` derivation must write. */
 export const SIGN_IN_SUBJECT_CLAIM = "subject";
 
-export type SignInCompletion =
+export type EnterOutcome =
+  | { readonly outcome: "signed_in"; readonly sessionToken: string }
+  | { readonly outcome: "needs_profile" };
+
+export type PidPresentationOutcome =
   | { readonly outcome: "pending" }
   | { readonly outcome: "failed"; readonly failureCode: string }
-  | { readonly outcome: "signed_in"; readonly sessionToken: string }
-  | { readonly outcome: "needs_profile" }
-  | { readonly outcome: "unknown_person" };
+  | { readonly outcome: "pid_presented" };
 
 export interface OrganisationProfile {
   readonly legalName: string;
@@ -82,9 +86,136 @@ export class SandboxService {
     private readonly audit: AuditService,
     private readonly clock: Clock,
     private readonly logger: Logger,
+    private readonly access: AccessIdentityVerifier,
   ) {}
 
-  // --- sign-in ---------------------------------------------------------------------------------
+  // --- entering by the Access identity (ADR 0018) ------------------------------------------------
+
+  /** The identity in Access's assertion, or `unauthenticated` (ADR 0018 Decision 1). */
+  identify(assertion: string | undefined): Promise<AccessIdentity> {
+    return this.access.verify(assertion);
+  }
+
+  /**
+   * A person Access has identified arrives. Known: a session. Unknown: they are asked for a display
+   * name — and, if they came to sign up, an organisation — before anything is created.
+   */
+  async enter(identity: AccessIdentity): Promise<EnterOutcome> {
+    const person = await this.repository.findPersonByEmail(identity.email);
+    if (!person) return { outcome: "needs_profile" };
+    return {
+      outcome: "signed_in",
+      sessionToken: await this.openSession(person.id, this.clock.now()),
+    };
+  }
+
+  /**
+   * The first visit: the person, keyed by the address Access verified, with the display name they
+   * typed. Optionally an organisation they own, or an invitation they accept. One session.
+   */
+  async createProfile(
+    identity: AccessIdentity,
+    input: {
+      readonly displayName: string;
+      readonly organisation?: OrganisationProfile;
+      readonly invitationToken?: string;
+    },
+  ): Promise<{ readonly sessionToken: string; readonly organisation?: SandboxOrganisation }> {
+    const displayName = normaliseDisplayName(input.displayName);
+    if (!displayName) {
+      throw PlatformError.validation("invalid_display_name", "Invalid display name.", [
+        {
+          path: "displayName",
+          code: "invalid",
+          message: "Must be 1 to 80 characters, without control characters.",
+        },
+      ]);
+    }
+    if (await this.repository.findPersonByEmail(identity.email)) {
+      throw PlatformError.conflict("sandbox_person_exists", "You already have an account.");
+    }
+    const now = this.clock.now();
+    // The invitation is checked before the person exists, so a refused one creates nothing.
+    const invitation = input.invitationToken
+      ? await this.openInvitation(input.invitationToken, identity.email)
+      : undefined;
+    const person: Person = {
+      id: asId<"SandboxPersonId">(newUuid()),
+      email: identity.email,
+      displayName,
+      createdAt: now,
+      lastSignInAt: now,
+    };
+    await this.repository.createPerson(person);
+    await this.audit.record({
+      tenantId: this.settings.operatorTenantId,
+      actor: "sandbox",
+      action: "sandbox.person.created",
+      subjectType: "sandbox_person",
+      subjectId: person.id,
+    });
+    let organisation: SandboxOrganisation | undefined;
+    if (input.organisation) {
+      organisation = await this.createOrganisation(person.id, input.organisation, now);
+    }
+    if (invitation) await this.join(invitation.id, person.id, now);
+    return {
+      sessionToken: await this.openSession(person.id, now),
+      ...(organisation ? { organisation } : {}),
+    };
+  }
+
+  /**
+   * ADR 0018 Decision 2: a session is good only together with an assertion for the same address.
+   * Anything else — no assertion, a bad one, another address — ends the session.
+   */
+  async checkSession(sessionToken: string, assertion: string | undefined): Promise<void> {
+    let identity: AccessIdentity;
+    try {
+      identity = await this.access.verify(assertion);
+    } catch (error) {
+      await this.repository.endSession(sessionToken, this.clock.now());
+      throw error;
+    }
+    const session = await this.repository.findSession(sessionToken);
+    const person = session ? await this.repository.findPerson(session.personId) : undefined;
+    if (!person || person.email !== identity.email) {
+      await this.repository.endSession(sessionToken, this.clock.now());
+      throw PlatformError.unauthenticated();
+    }
+  }
+
+  // --- invitations ------------------------------------------------------------------------------
+
+  private async openInvitation(token: string, email: string | undefined) {
+    const invitation = await this.repository.findInvitationByToken(token);
+    if (!invitation) throw PlatformError.notFound("Invitation");
+    const refusal = checkInvitation(invitation, this.clock.now(), email);
+    if (refusal === "for_another_address") {
+      throw PlatformError.forbidden(
+        "invitation_for_another_address",
+        "This invitation was sent to another address.",
+      );
+    }
+    if (refusal) {
+      throw PlatformError.conflict(`invitation_${refusal}`, `The invitation is ${refusal}.`);
+    }
+    return invitation;
+  }
+
+  /** What an invitation link offers, to the person holding it. Names no address. */
+  async invitation(token: string, identity: AccessIdentity) {
+    const invitation = await this.openInvitation(token, identity.email);
+    return { role: invitation.role, expiresAt: invitation.expiresAt };
+  }
+
+  /** A signed-in person accepts an invitation addressed to them. */
+  async acceptInvitation(context: SignedInContext, token: string): Promise<void> {
+    const invitation = await this.openInvitation(token, context.person.email);
+    await this.join(invitation.id, context.person.id, this.clock.now());
+  }
+
+  // --- presenting a PID, optionally (ADR 0018 Decision 3) ----------------------------------------
 
   /**
    * ADR 0015 Decision 2, checked on every start rather than once at boot, so a policy republished
@@ -100,7 +231,7 @@ export class SandboxService {
     if (!published) {
       throw PlatformError.conflict(
         "sandbox_sign_in_not_configured",
-        "Sign-in is not configured.",
+        "PID presentation is not configured.",
       );
     }
     const refs = published.trustPolicy.anchorSources.map((s) => s.ref);
@@ -112,33 +243,23 @@ export class SandboxService {
       });
       throw PlatformError.conflict(
         "sandbox_sign_in_misconfigured",
-        "Sign-in is unavailable: its trust configuration is not separate from the participants'.",
+        "PID presentation is unavailable: its trust configuration is not separate from the participants'.",
       );
     }
   }
 
-  async startSignIn(input: {
-    readonly purpose: SignInPurpose;
-    readonly invitationToken?: string;
-    readonly interactionType: "SAME_DEVICE" | "QR";
-    readonly correlationId: CorrelationId;
-  }) {
+  async startPidPresentation(
+    context: SignedInContext,
+    input: {
+      readonly interactionType: "SAME_DEVICE" | "QR";
+      readonly correlationId: CorrelationId;
+    },
+  ) {
     await this.assertSignInTrustIsSeparate();
-    let invitationId: string | undefined;
-    if (input.purpose === "accept_invitation") {
-      const invitation = input.invitationToken
-        ? await this.repository.findInvitationByToken(input.invitationToken)
-        : undefined;
-      if (!invitation) throw PlatformError.notFound("Invitation");
-      const refusal = checkInvitation(invitation, this.clock.now());
-      if (refusal)
-        throw PlatformError.conflict(`invitation_${refusal}`, `The invitation is ${refusal}.`);
-      invitationId = invitation.id;
-    }
     const view = await this.presentations.create({
       tenantId: this.settings.operatorTenantId,
       policyId: asId<"PresentationPolicyId">(this.settings.signInPolicyId),
-      businessReference: `sandbox-${input.purpose}`,
+      businessReference: "sandbox-present-pid",
       interactionType: input.interactionType,
       correlationId: input.correlationId,
     });
@@ -149,8 +270,8 @@ export class SandboxService {
     await this.repository.createSignInAttempt(
       {
         id: attemptId,
-        purpose: input.purpose,
-        ...(invitationId ? { invitationId: asId<"SandboxInvitationId">(invitationId) } : {}),
+        purpose: "present_pid",
+        personId: context.person.id,
         presentationId: view.presentationId,
         createdAt: now,
         expiresAt,
@@ -158,7 +279,7 @@ export class SandboxService {
       bindingToken,
     );
     if (input.interactionType === "SAME_DEVICE") {
-      const back = new URL("sign-in/return", withSlash(this.settings.portalPublicUrl));
+      const back = new URL("pid/return", withSlash(this.settings.portalPublicUrl));
       back.searchParams.set("attempt", attemptId);
       this.returns.remember(view.presentationId, back.toString(), view.expiresAt);
     }
@@ -171,37 +292,30 @@ export class SandboxService {
     };
   }
 
-  private async openAttempt(attemptId: string, bindingToken: string) {
+  /**
+   * Poll a PID presentation the signed-in person started. When it has verified, its subject is
+   * recorded on the person: once, and never one another person already holds.
+   */
+  async completePidPresentation(
+    context: SignedInContext,
+    attemptId: string,
+    bindingToken: string,
+    correlationId: CorrelationId,
+  ): Promise<PidPresentationOutcome> {
     const attempt = await this.repository.findSignInAttempt(
       asId<"SandboxSignInAttemptId">(attemptId),
       bindingToken,
     );
-    // Unknown and not-this-browser look the same: a binding mismatch reveals nothing.
-    if (!attempt) throw PlatformError.notFound("Sign-in attempt");
+    // Unknown, another browser's, and another person's all look the same.
+    if (!attempt || attempt.personId !== context.person.id) {
+      throw PlatformError.notFound("PID presentation");
+    }
     if (attempt.completedAt) {
-      throw PlatformError.conflict(
-        "sign_in_attempt_used",
-        "This sign-in has already been used.",
-      );
+      throw PlatformError.conflict("sign_in_attempt_used", "This presentation has been used.");
     }
     if (attempt.expiresAt.getTime() <= this.clock.now().getTime()) {
-      throw PlatformError.conflict("sign_in_attempt_expired", "This sign-in has expired.");
+      throw PlatformError.conflict("sign_in_attempt_expired", "This presentation has expired.");
     }
-    return attempt;
-  }
-
-  /**
-   * Poll an attempt. When its presentation has verified, the subject decides: a known person is
-   * signed in (or joins the inviting organisation); an unknown one is asked for a profile, and the
-   * subject is held on the attempt until then.
-   */
-  async completeSignIn(
-    attemptId: string,
-    bindingToken: string,
-    correlationId: CorrelationId,
-  ): Promise<SignInCompletion> {
-    const attempt = await this.openAttempt(attemptId, bindingToken);
-    if (attempt.subject) return { outcome: "needs_profile" };
     const view = await this.presentations.get(
       this.settings.operatorTenantId,
       asId<"PresentationId">(attempt.presentationId),
@@ -221,95 +335,27 @@ export class SandboxService {
       return { outcome: "failed", failureCode: "sign_in_subject_missing" };
     }
     const now = this.clock.now();
-    const person = await this.repository.findPersonBySubject(subject);
-    if (!person) {
-      if (attempt.purpose === "sign_in") {
-        // Complete it, so a verified presentation cannot be replayed into a later sign-up.
-        await this.repository.completeSignInAttempt(attempt.id, now);
-        return { outcome: "unknown_person" };
-      }
-      await this.repository.holdSubject(attempt.id, subject, now);
-      return { outcome: "needs_profile" };
-    }
     if (!(await this.repository.completeSignInAttempt(attempt.id, now))) {
-      throw PlatformError.conflict(
-        "sign_in_attempt_used",
-        "This sign-in has already been used.",
-      );
+      throw PlatformError.conflict("sign_in_attempt_used", "This presentation has been used.");
     }
-    if (attempt.purpose === "accept_invitation" && attempt.invitationId) {
-      await this.join(attempt.invitationId, person.id, now);
+    if (context.person.subject) {
+      return context.person.subject === subject
+        ? { outcome: "pid_presented" }
+        : { outcome: "failed", failureCode: "pid_differs_from_recorded" };
     }
-    return { outcome: "signed_in", sessionToken: await this.openSession(person.id, now) };
-  }
-
-  /**
-   * The profile step for a person the presentation verified but the sandbox does not know: their
-   * display name, and — for a sign-up — the organisation they declare. One person, one session.
-   */
-  async completeProfile(input: {
-    readonly attemptId: string;
-    readonly bindingToken: string;
-    readonly displayName: string;
-    readonly organisation?: OrganisationProfile;
-  }): Promise<{ readonly sessionToken: string; readonly organisation?: SandboxOrganisation }> {
-    const attempt = await this.openAttempt(input.attemptId, input.bindingToken);
-    if (!attempt.subject) {
-      throw PlatformError.conflict(
-        "sign_in_profile_not_expected",
-        "No profile is expected for this sign-in.",
-      );
+    const holder = await this.repository.findPersonBySubject(subject);
+    if (holder) return { outcome: "failed", failureCode: "pid_recorded_for_another_person" };
+    if (!(await this.repository.recordSubject(context.person.id, subject))) {
+      return { outcome: "failed", failureCode: "pid_differs_from_recorded" };
     }
-    const displayName = normaliseDisplayName(input.displayName);
-    if (!displayName) {
-      throw PlatformError.validation("invalid_display_name", "Invalid display name.", [
-        {
-          path: "displayName",
-          code: "invalid",
-          message: "Must be 1 to 80 characters, without control characters.",
-        },
-      ]);
-    }
-    if (attempt.purpose === "sign_up" && !input.organisation) {
-      throw PlatformError.validation(
-        "organisation_required",
-        "An organisation is required to sign up.",
-        [{ path: "organisation", code: "required", message: "Required to sign up." }],
-      );
-    }
-    const now = this.clock.now();
-    if (!(await this.repository.completeSignInAttempt(attempt.id, now))) {
-      throw PlatformError.conflict(
-        "sign_in_attempt_used",
-        "This sign-in has already been used.",
-      );
-    }
-    const person: Person = {
-      id: asId<"SandboxPersonId">(newUuid()),
-      subject: attempt.subject,
-      displayName,
-      createdAt: now,
-      lastSignInAt: now,
-    };
-    await this.repository.createPerson(person);
     await this.audit.record({
       tenantId: this.settings.operatorTenantId,
       actor: "sandbox",
-      action: "sandbox.person.created",
+      action: "sandbox.person.pid_presented",
       subjectType: "sandbox_person",
-      subjectId: person.id,
+      subjectId: context.person.id,
     });
-    let organisation: SandboxOrganisation | undefined;
-    if (attempt.purpose === "sign_up" && input.organisation) {
-      organisation = await this.createOrganisation(person.id, input.organisation, now);
-    }
-    if (attempt.purpose === "accept_invitation" && attempt.invitationId) {
-      await this.join(attempt.invitationId, person.id, now);
-    }
-    return {
-      sessionToken: await this.openSession(person.id, now),
-      ...(organisation ? { organisation } : {}),
-    };
+    return { outcome: "pid_presented" };
   }
 
   private async openSession(personId: PersonId, now: Date): Promise<string> {
@@ -431,14 +477,22 @@ export class SandboxService {
     return this.repository.membersOf(membership.tenantId);
   }
 
-  async invite(context: SignedInContext, tenantId: string, role: Role) {
+  /** An invitation to one address (ADR 0018 Decision 4). The sandbox sends no e-mail. */
+  async invite(context: SignedInContext, tenantId: string, role: Role, rawEmail: string) {
     const membership = this.ownerIn(context, tenantId);
+    const email = normaliseEmail(rawEmail);
+    if (!email) {
+      throw PlatformError.validation("invalid_email", "Invalid e-mail address.", [
+        { path: "email", code: "invalid", message: "Must be an e-mail address." },
+      ]);
+    }
     const now = this.clock.now();
     const token = newOpaqueToken(32);
     const invitation = {
       id: asId<"SandboxInvitationId">(newUuid()),
       tenantId: membership.tenantId,
       role,
+      email,
       createdBy: context.person.id,
       createdAt: now,
       expiresAt: new Date(now.getTime() + INVITATION_TTL_MS),
@@ -452,7 +506,7 @@ export class SandboxService {
       subjectId: invitation.id,
     });
     // The token is returned once; only its hash is kept.
-    return { invitationToken: token, role, expiresAt: invitation.expiresAt };
+    return { invitationToken: token, role, email, expiresAt: invitation.expiresAt };
   }
 
   async removeMember(context: SignedInContext, tenantId: string, target: string) {

@@ -5,6 +5,7 @@ import { AppModule } from "./app.module.js";
 import type { Dependencies } from "./composition.js";
 import { ApiKeyGuard } from "./http/auth.js";
 import { PlatformErrorFilter } from "./http/error.filter.js";
+import { SandboxAccessGuard } from "./http/sandbox-access.guard.js";
 
 /**
  * The HTTP application over a set of dependencies: the module, the global guard and the error
@@ -20,7 +21,9 @@ export async function createHttpApp(
     logger: options.quiet ? false : ["error", "warn"],
     bodyParser: true,
   });
-  app.useGlobalGuards(app.get(ApiKeyGuard));
+  // Order matters: the API key guard sets the request context; the sandbox guard binds a portal
+  // session to the Access identity (ADR 0018).
+  app.useGlobalGuards(app.get(ApiKeyGuard), app.get(SandboxAccessGuard));
   app.useGlobalFilters(new PlatformErrorFilter(deps.logger));
   return app;
 }

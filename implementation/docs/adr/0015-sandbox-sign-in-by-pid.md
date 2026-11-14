@@ -2,6 +2,10 @@
 
 - **Status:** ACCEPTED, 12 November 2026. Its points D3, D4 and D5 were accepted by the user at the S0
   checkpoint; the ADR as a whole was approved with the S1 specification on 12 November 2026.
+- **Amended by [ADR 0018](0018-sandbox-sign-in-by-access-identity.md), 14 November 2026:** a person
+  is now the e-mail address Cloudflare Access verified, and presenting a PID is optional. Decisions 1,
+  4, 5 and 7 are changed there. Decisions 2 and 3 still govern the PID presentation, which is now an
+  optional action of a signed-in person.
 - **Date:** 12 November 2026
 - **Context documents:** [`docs/sandbox/s0-findings.md`](../sandbox/s0-findings.md) §5 G-1/G-2, §6.1,
   §6.5, §6.6; [`docs/sandbox/specification.md`](../sandbox/specification.md).

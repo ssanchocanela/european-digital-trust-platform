@@ -25,7 +25,8 @@ fi
 engine_paths=(/api/docs-json /api/tenant /api/key-chain /api/verifier/config /api/oauth2/token /health
   /storage/x /docs /docs-json /)
 platform_paths=(/v1/tenants /v1/presentations /v1/me /health /openapi /sandbox/v1/me
-  /sandbox/v1/organisations /sandbox/v1/sign-in-attempts /sandbox/public/../v1/tenants /internal/engine/x/attributes)
+  /sandbox/v1/organisations /sandbox/v1/sign-in-attempts /sandbox/v1/access/enter
+  /sandbox/public/../v1/tenants /internal/engine/x/attributes)
 portal_paths=(/ /wallet /org/x /sign-in/return)
 
 failures=0 silent=0 total=0

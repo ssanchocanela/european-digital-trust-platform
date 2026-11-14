@@ -8,19 +8,56 @@ linked rather than repeated.
 
 ---
 
-## 13 November 2026 — **the sandbox VM set up to step 8; nothing deployed**
+## 14 November 2026 — **sign-in by PID made optional: ADR 0018 accepted and built, not deployed**
+
+- **The user decided that signing in with a PID must not be mandatory.** Two reasons:
+  - the sandbox opens before any official PID exists;
+  - only the modified sandbox wallet build can present to the sign-in verifier, because its access
+    certificate comes from the sandbox Access CA.
+- [ADR 0018](adr/0018-sandbox-sign-in-by-access-identity.md) was accepted the same day and built in
+  PR #50:
+  - **the person is the e-mail address Cloudflare Access verified.** The platform validates Access's
+    signed assertion itself and never trusts the plain header;
+  - **a session holds only together with an assertion for the same address**, through one guard over
+    every `/sandbox/v1/` route;
+  - **presenting a PID is an optional action** that gates nothing in v1;
+  - **invitations name an address**, and only that address can accept them;
+  - migration `0018`, and `email` on the redaction deny-list.
+- **Not deployed.** The VM still runs image `60a064a1d9e1` with the ADR 0015 sign-in. Deploying needs:
+  - two values in the VM's `.env`, `SANDBOX_ACCESS_TEAM_DOMAIN` and `SANDBOX_ACCESS_AUDIENCE`;
+  - an image built from `main` once #50 merges;
+  - the user's confirmation.
+- **Brought onto `main` in #50:** four 13 November commits (deployment, timers, backups) that were
+  pushed after #49 had merged.
+
+---
+
+## 13 November 2026 — **the sandbox VM deployed; nightly backup off until the user says, no wallet run yet**
 
 - **#44–#48 are merged.** The ADR 0017 acceptance and a README fix were pushed after #48 merged, so they
   reach `main` on `sandbox/s6-vm-setup`.
 - **Steps 1–8 of [`infra/sandbox-vm/`](../infra/sandbox-vm/README.md) are done:**
-  - `edtp-sandbox` is on Hetzner, with daily backups;
+  - `edtp-sandbox` is on Hetzner;
   - the tunnel and its four hostnames are in place, behind the two Access applications;
   - SSH comes through the tunnel only, and the firewall has no inbound rule;
   - `.env` holds secrets generated on the VM, and the image is `60a064a1d9e1`;
   - the trust domain has its keys sealed;
   - the sign-in verifier is provisioned with a sandbox access certificate, and its policy is published.
-- **No container runs.** Step 9 starts the stack, which is the deployment, and it waits for the user's
-  confirmation.
+- **Step 9, deployed the same day, with the user's confirmation:**
+  - the full stack runs on image `60a064a1d9e1`;
+  - the engine's schema sync is off;
+  - the negative checks pass, 24 of 24, on loopback and from outside;
+  - the sandbox's WRPAC, WRPRC and PID lists, its CPS and its register answer publicly, and re-sign
+    themselves before `NextUpdate`.
+  - **Step 10, half done, as the user decided:**
+    - the scheduled checks run every 15 minutes and alert to the operator's ntfy topic. The first run
+      passed;
+    - **Hetzner's daily server backup is on** (7 kept, window 22:00–02:00 UTC). It was switched off and
+      back on the same day, at the user's word.
+    - **the nightly dump is installed but not enabled**, until the user says. Until then the only
+      backup is Hetzner's whole-server image. It is crash-consistent for the databases, not a dump.
+      The CA keys inside it are sealed, and `SANDBOX_KEYSTORE_KEY` is kept outside the VM.
+  - No participant and no wallet run yet.
 - **Two dates to keep:**
   - the TEST PID list that sign-in trusts has `NextUpdate` **22 December 2026**;
   - the operator's access certificate expires **11 February 2027**.

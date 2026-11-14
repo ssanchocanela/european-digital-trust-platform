@@ -65,6 +65,9 @@ export const DENIED_KEYS: readonly string[] = [
   // Attribute values a caller supplies to the operator-form source. Content, like the above.
   "subjectattributes",
   "suppliedattributes",
+  // A sandbox participant's address, and the Access assertion that carries it (ADR 0018 Decision 5).
+  "email",
+  "assertion",
   // Secrets and key material
   //
   // `hash_pid` is the bearer value the EUDI RP Registration Service returns from its
@@ -111,6 +114,8 @@ const DENIED_SUBSTRINGS: readonly string[] = [
   "client_secret",
   "clientsecret",
   "masterkey",
+  "email",
+  "assertion",
 ];
 
 export const REDACTED = "[REDACTED]";

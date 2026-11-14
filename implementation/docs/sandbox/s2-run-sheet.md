@@ -1,6 +1,12 @@
 # Sandbox S2 — the first real sign-up, run sheet
 
 - **Status:** written 12 November 2026. **Not yet run.** Nothing below has happened with a wallet.
+- **Superseded in part by [ADR 0018](../adr/0018-sandbox-sign-in-by-access-identity.md), 14 November
+  2026.** People no longer sign up or sign in with a PID. They enter by the address Cloudflare Access
+  verified; on a laptop without Access, `SANDBOX_ACCESS_DEV_IDENTITY` stands in. Presenting a PID is
+  an optional action of a signed-in person ("Present a PID" on the first page). Read the steps below
+  as that presentation, not as sign-up. The wallet, certificate and anchor set they use are
+  unchanged.
 - **Proves:** a person signs up with a PID from a test wallet, a second person is invited and joins,
   and both sign in again — the S2 "done when" of [`plan.md`](plan.md).
 - **Does not prove** anything about certificates or trust lists issued by the sandbox. Those are

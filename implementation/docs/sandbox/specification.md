@@ -82,7 +82,7 @@ be offered.
 | Actor | Who | How they act |
 |---|---|---|
 | **Participant organisation** | A company or public body testing a role | Through its people and API keys; one organisation = one platform `Tenant` |
-| **Owner / member** | People of the organisation | Portal, signed in by PID (ADR 0015) |
+| **Owner / member** | People of the organisation | Portal, signed in by their Cloudflare Access address; PID optional (ADR 0015, amended by ADR 0018) |
 | **Tester** | Whoever holds the test wallet for a run, usually a member | Phone with the sandbox wallet build |
 | **Sandbox operator** | The platform operator | Operator role held by configuration: approves brought-in anchors, suspends participants, rotates sandbox keys |
 | **The sandbox itself** | The platform | Registrar, Access CA, WRPRC provider, PID CA (for sandbox-issued PID signing certificates), trust-list operator, sign-in verifier |
@@ -91,22 +91,30 @@ be offered.
 
 ### J1 — Sign up
 
-1. The person opens the portal. Its first screen explains the sandbox, the modified wallet, and that
-   only synthetic data belongs in it. It links the sandbox wallet build (behind Cloudflare Access)
-   and the "PID (demo)" issuer.
-2. "Sign up with your PID":
-   - a presentation to the sign-in verifier, which trusts only the fixed sign-in anchor set (ADR 0015
-     Decision 2);
-   - `SAME_DEVICE`, or `QR` from a desktop browser.
-3. The person confirms a display name and declares the organisation: legal name, trade name, country,
+*Amended by [ADR 0018](../adr/0018-sandbox-sign-in-by-access-identity.md), 14 November 2026.*
+
+1. The person opens the portal, through Cloudflare Access: a one-time PIN to an invited address.
+2. The address Access verified is not yet known, so the portal shows its first screen. It explains:
+   - the sandbox and the modified wallet;
+   - that only synthetic data belongs in it;
+   - that no PID is needed.
+
+   It links the sandbox wallet build (behind Cloudflare Access).
+3. The person types a display name and declares the organisation: legal name, trade name, country,
    identifier (§6.1), contact email, support URI, privacy policy URL.
 4. The organisation is created and marked **not verified**. The person becomes its owner.
 
-### J2 — Sign in, members, keys
+### J2 — Sign in, members, keys, an optional PID
 
-- **Sign in:** the same presentation; the subject matches; a session starts.
-- **Members:** an owner invites a member by link; the member signs in by PID to accept.
+- **Sign in:** opening the portal through Access. The verified address matches, and a session starts.
+  The session holds only while Access's assertion names the same address.
+- **Members:** an owner invites a member **by e-mail address**, with a single-use link. Only that
+  address can accept it. A new invitee types only a display name. The operator must also admit the
+  address in the Access policy.
 - **API keys:** an owner creates and revokes them (ADR 0015 Decisions 7 and 8).
+- **Present a PID (optional):** a signed-in person may present a PID to the sign-in verifier, which
+  trusts only the fixed sign-in anchor set (ADR 0015 Decision 2). This is `SAME_DEVICE`, or `QR` from
+  a desktop browser. Its pseudonymous subject is recorded on the person, and it gates nothing in v1.
 
 ### J3 — Relying Party: register a service and its intended uses
 

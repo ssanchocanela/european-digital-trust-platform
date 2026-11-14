@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import {
   PID_VARIANT_INFO,
   WRPAC_VARIANT_INFO,
@@ -17,7 +18,6 @@ import {
   invitationLanding,
   issuancePage,
   issuerSection,
-  landing,
   message,
   OBSERVATIONS,
   organisationPage,
@@ -40,11 +40,13 @@ import {
 import { offeredFile, openFile, readWalletOffer } from "./wallet.js";
 
 /**
- * The sandbox portal (specification §8.1, ADR 0015).
+ * The sandbox portal (specification §8.1, ADR 0015, ADR 0018).
  *
- * It holds the portal secret and nothing else: no database, no PID, no engine credential. A person's
- * session token and a sign-in's browser binding live in `__Host-` cookies — `Secure`, `HttpOnly`,
- * `SameSite=Lax` — and are forwarded to the platform, which decides.
+ * It holds the portal secret and nothing else: no database, no PID, no engine credential. A person is
+ * who Cloudflare Access says they are: Access's signed assertion (`Cf-Access-Jwt-Assertion`) is
+ * forwarded on every call to the platform, which validates it — the portal never decides identity
+ * itself. A person's session token and a PID presentation's browser binding live in `__Host-`
+ * cookies — `Secure`, `HttpOnly`, `SameSite=Lax` — and are forwarded too.
  *
  * Cross-site requests: every state-changing route is a POST, and a POST is refused unless the
  * browser says it came from this origin (`Origin`, or `Sec-Fetch-Site: same-origin`). With `Lax`
@@ -54,9 +56,9 @@ export interface PortalOptions {
   readonly publicUrl: string;
   readonly api: SandboxApi;
   /**
-   * Refuse every request that does not carry the identity Cloudflare Access injects (ADR 0017). On
-   * the sandbox VM the whole portal is behind Access; this is the second lock, as for the
-   * demonstration portal's operator view.
+   * Refuse every request that does not carry Cloudflare Access's assertion (ADR 0017). On the sandbox
+   * VM the whole portal is behind Access; this is the second lock. The platform validates the
+   * assertion itself (ADR 0018): presence here proves nothing, absence is enough to refuse.
    */
   readonly requireAccess?: boolean;
   /** Where an operator places the sandbox wallet build and its `wallet.json` (wallet.ts). */
@@ -89,18 +91,18 @@ const cookie = (name: string, value: string, maxAge: number) =>
 const clearCookie = (name: string) =>
   `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`;
 
-/** `<attemptId>.<purpose>.<bindingToken>` — the purpose only decides which form to show. */
+/** Access's assertion header, as Cloudflare sends it. */
+export const ACCESS_ASSERTION = "cf-access-jwt-assertion";
+
+/** `<attemptId>.<purpose>.<bindingToken>`: a PID presentation started from this browser. */
 interface Binding {
   readonly attemptId: string;
-  readonly purpose: "sign_in" | "sign_up" | "accept_invitation";
+  readonly purpose: "present_pid";
   readonly token: string;
 }
 
 export function readBinding(raw: string | undefined): Binding | undefined {
-  const match =
-    /^([0-9a-f-]{36})\.(sign_in|sign_up|accept_invitation)\.([A-Za-z0-9_-]{20,200})$/.exec(
-      raw ?? "",
-    );
+  const match = /^([0-9a-f-]{36})\.(present_pid)\.([A-Za-z0-9_-]{20,200})$/.exec(raw ?? "");
   if (!match) return undefined;
   return {
     attemptId: match[1] as string,
@@ -115,6 +117,10 @@ const interaction = z.object({
 const uuid = z.string().uuid();
 const profile = z.object({
   displayName: z.string().max(200),
+  invitationToken: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{20,200}$/)
+    .optional(),
   legalName: z.string().max(200).optional(),
   tradeName: z.string().max(200).optional(),
   country: z.string().max(2).optional(),
@@ -124,6 +130,18 @@ const profile = z.object({
 
 export function createApp(options: PortalOptions): express.Express {
   const origin = new URL(options.publicUrl).origin;
+  // Every call to the platform carries this request's Access assertion, without each route having to
+  // remember it (ADR 0018 Decision 2).
+  const assertion = new AsyncLocalStorage<string | undefined>();
+  const api: SandboxApi = {
+    call: (method, path, callOptions = {}) => {
+      const current = assertion.getStore();
+      return options.api.call(method, path, {
+        ...callOptions,
+        ...(current ? { assertion: current } : {}),
+      });
+    },
+  };
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", false);
@@ -135,9 +153,10 @@ export function createApp(options: PortalOptions): express.Express {
     res.setHeader("cache-control", "no-store");
     next();
   });
+  app.use((req, _res, next) => assertion.run(req.get(ACCESS_ASSERTION), next));
   if (options.requireAccess) {
     app.use((req, res, next) => {
-      if (req.get("cf-access-authenticated-user-email")) return next();
+      if (req.get(ACCESS_ASSERTION)) return next();
       res
         .status(403)
         .type("html")
@@ -193,86 +212,214 @@ export function createApp(options: PortalOptions): express.Express {
     openFile(found.path).pipe(res);
   });
 
-  // --- start and sign-in ---------------------------------------------------------------------
+  // --- entering, by the Access identity (ADR 0018) ---------------------------------------------
+
+  const setSession = (res: Response, value: string) =>
+    res.setHeader("set-cookie", cookie(SESSION_COOKIE, value, SESSION_MAX_AGE_S));
+
+  const notIdentified = (res: Response) =>
+    res
+      .status(401)
+      .type("html")
+      .send(
+        message(
+          "Not identified",
+          "Cloudflare Access did not identify you. Reload the page to sign in again.",
+        ),
+      );
 
   app.get("/", async (req, res) => {
     const token = session(req);
     if (token) {
-      const me = await options.api.call("GET", "me", { session: token });
+      const me = await api.call("GET", "me", { session: token });
       if (me.status === 200) {
-        const person = me.body.person as { displayName: string };
+        const person = me.body.person as { displayName: string; pidPresented?: boolean };
         const memberships =
           (me.body.memberships as { organisationId: string; role: string }[]) ?? [];
         res.type("html").send(
           dashboard(
             person.displayName,
             memberships.map((m) => ({ id: m.organisationId, role: m.role })),
+            { pidPresented: Boolean(person.pidPresented) },
           ),
         );
         return;
       }
-      res.setHeader("set-cookie", clearCookie(SESSION_COOKIE));
     }
-    res.type("html").send(landing());
+    const entered = await api.call("POST", "access/enter");
+    if (entered.status === 401) return void notIdentified(res);
+    if (entered.status !== 200) {
+      res
+        .status(503)
+        .type("html")
+        .send(message("Not available", "The sandbox is not available right now."));
+      return;
+    }
+    if (entered.body.outcome === "signed_in") {
+      setSession(res, String(entered.body.sessionToken));
+      res.redirect(303, "/");
+      return;
+    }
+    res.type("html").send(profileForm());
   });
 
-  const start = async (
-    res: Response,
-    purpose: Binding["purpose"],
-    body: unknown,
-    invitationToken?: string,
-  ): Promise<void> => {
-    const parsed = interaction.safeParse(body);
+  app.post("/profile", async (req, res) => {
+    const parsed = profile.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .type("html")
+        .send(profileForm({ error: "Please check the fields." }));
+      return;
+    }
+    const p = parsed.data;
+    const body: Record<string, unknown> = { displayName: p.displayName };
+    if (p.invitationToken) {
+      body.invitationToken = p.invitationToken;
+    } else {
+      body.organisation = {
+        legalName: p.legalName ?? "",
+        tradeName: p.tradeName ?? "",
+        country: (p.country ?? "").toUpperCase(),
+        ...(p.declaredEuid ? { declaredEuid: p.declaredEuid } : {}),
+        isPublicSectorBody: p.isPublicSectorBody === "yes",
+      };
+    }
+    const result = await api.call("POST", "access/profile", { body });
+    if (result.status === 201) {
+      setSession(res, String(result.body.sessionToken));
+      res.redirect(303, "/");
+      return;
+    }
+    if (result.status === 401) return void notIdentified(res);
+    if (result.status === 400) {
+      res
+        .status(400)
+        .type("html")
+        .send(
+          profileForm({
+            ...(p.invitationToken ? { invitationToken: p.invitationToken } : {}),
+            error: "Please check the fields and try again.",
+          }),
+        );
+      return;
+    }
+    const code = String(result.body.code ?? "");
+    if (code === "sandbox_person_exists") return void res.redirect(303, "/");
+    res
+      .status(result.status === 403 ? 403 : 410)
+      .type("html")
+      .send(message("Not possible", invitationText(code)));
+  });
+
+  const invitationText = (code: string) =>
+    code === "invitation_for_another_address"
+      ? "This invitation was sent to another e-mail address. Ask the owner to invite the address you signed in with."
+      : "This invitation is no longer valid. Ask an owner of the organisation for a new one.";
+
+  const validInvitationToken = (token: string) => /^[A-Za-z0-9_-]{20,200}$/.test(token);
+
+  app.get("/invite/:token", async (req, res) => {
+    if (!validInvitationToken(req.params.token)) {
+      res
+        .status(404)
+        .type("html")
+        .send(message("Not found", "This invitation link is not valid."));
+      return;
+    }
+    const looked = await api.call("POST", "invitations/lookup", {
+      body: { invitationToken: req.params.token },
+    });
+    if (looked.status === 401) return void notIdentified(res);
+    if (looked.status !== 200) {
+      res
+        .status(looked.status === 403 ? 403 : 410)
+        .type("html")
+        .send(message("Not possible", invitationText(String(looked.body.code ?? ""))));
+      return;
+    }
+    const token = session(req);
+    const me = token ? await api.call("GET", "me", { session: token }) : undefined;
+    if (me?.status === 200) {
+      res.type("html").send(invitationLanding(req.params.token, String(looked.body.role)));
+      return;
+    }
+    // Is the address already known? Then a session first, and back here.
+    const entered = await api.call("POST", "access/enter");
+    if (entered.status === 200 && entered.body.outcome === "signed_in") {
+      setSession(res, String(entered.body.sessionToken));
+      res.redirect(303, `/invite/${req.params.token}`);
+      return;
+    }
+    res.type("html").send(profileForm({ invitationToken: req.params.token }));
+  });
+
+  app.post("/invite/:token/accept", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    if (!validInvitationToken(req.params.token)) return void res.status(404).end();
+    const result = await api.call("POST", "invitations/accept", {
+      session: token,
+      body: { invitationToken: req.params.token },
+    });
+    if (result.status === 204) return void res.redirect(303, "/");
+    if (result.status === 401) return void res.redirect(303, "/");
+    res
+      .status(result.status === 403 ? 403 : 410)
+      .type("html")
+      .send(message("Not possible", invitationText(String(result.body.code ?? ""))));
+  });
+
+  app.post("/sign-out", async (req, res) => {
+    const token = session(req);
+    if (token) await api.call("POST", "sign-out", { session: token });
+    res.setHeader("set-cookie", clearCookie(SESSION_COOKIE));
+    res
+      .type("html")
+      .send(
+        message(
+          "Signed out",
+          "You are signed out of the sandbox. Cloudflare Access may still remember you in this browser until its own session ends.",
+        ),
+      );
+  });
+
+  // --- presenting a PID, optionally (ADR 0018 Decision 3) -----------------------------------------
+
+  app.post("/pid/start", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const parsed = interaction.safeParse(req.body);
     const interactionType = parsed.success ? parsed.data.interaction : "SAME_DEVICE";
-    const result = await options.api.call("POST", "sign-in-attempts", {
-      body: { purpose, interactionType, ...(invitationToken ? { invitationToken } : {}) },
+    const result = await api.call("POST", "pid-presentations", {
+      session: token,
+      body: { interactionType },
     });
     if (result.status !== 201) {
-      const code = String(result.body.code ?? "");
-      const text = code.startsWith("invitation_")
-        ? "This invitation is no longer valid. Ask an owner of the organisation for a new one."
-        : "Sign-in is not available right now. Please try again later.";
       res
-        .status(result.status === 404 ? 404 : 503)
+        .status(503)
         .type("html")
-        .send(message("Not available", text));
+        .send(message("Not available", "Presenting a PID is not available right now."));
       return;
     }
     const attemptId = String(result.body.attemptId);
     const bindingToken = String(result.body.bindingToken);
     res.setHeader(
       "set-cookie",
-      cookie(BINDING_COOKIE, `${attemptId}.${purpose}.${bindingToken}`, BINDING_MAX_AGE_S),
+      cookie(BINDING_COOKIE, `${attemptId}.present_pid.${bindingToken}`, BINDING_MAX_AGE_S),
     );
-    res.type("html").send(walletStep(String(result.body.walletUri ?? ""), interactionType));
-  };
-
-  app.post("/sign-up/start", (req, res) => start(res, "sign_up", req.body));
-  app.post("/sign-in/start", (req, res) => start(res, "sign_in", req.body));
-
-  app.get("/invite/:token", (req, res) => {
-    if (!/^[A-Za-z0-9_-]{20,200}$/.test(req.params.token)) {
-      res
-        .status(404)
-        .type("html")
-        .send(message("Not found", "This invitation link is not valid."));
-      return;
-    }
-    res.type("html").send(invitationLanding(req.params.token));
-  });
-  app.post("/invite/:token/start", (req, res) => {
-    if (!/^[A-Za-z0-9_-]{20,200}$/.test(req.params.token)) {
-      res
-        .status(404)
-        .type("html")
-        .send(message("Not found", "This invitation link is not valid."));
-      return;
-    }
-    return start(res, "accept_invitation", req.body, req.params.token);
+    res.type("html").send(
+      walletStep(String(result.body.walletUri ?? ""), interactionType, {
+        waitUrl: "/pid/wait",
+        about: "Your wallet will ask you to present your PID to the EDTP Sandbox.",
+      }),
+    );
   });
 
   /** Both the wallet's return (same device) and the polling page (QR) land here. */
-  const complete = async (req: Request, res: Response) => {
+  const completePid = async (req: Request, res: Response) => {
+    const token = requireSession(req, res);
+    if (!token) return;
     const binding = readBinding(parseCookies(req.get("cookie"))[BINDING_COOKIE]);
     // The return URL names an attempt; only the browser holding its binding can complete it.
     const named = typeof req.query.attempt === "string" ? req.query.attempt : undefined;
@@ -283,128 +430,53 @@ export function createApp(options: PortalOptions): express.Express {
         .send(
           message(
             "Start again",
-            "This sign-in was started in another browser, or has expired. Start again from this browser.",
+            "This presentation was started in another browser, or has expired. Start again from this browser.",
           ),
         );
       return;
     }
-    const result = await options.api.call(
-      "POST",
-      `sign-in-attempts/${binding.attemptId}/complete`,
-      {
-        body: { bindingToken: binding.token },
-      },
-    );
+    const result = await api.call("POST", `pid-presentations/${binding.attemptId}/complete`, {
+      session: token,
+      body: { bindingToken: binding.token },
+    });
     if (result.status !== 200) {
       res.setHeader("set-cookie", clearCookie(BINDING_COOKIE));
       res
         .status(410)
         .type("html")
-        .send(message("Start again", "This sign-in is no longer valid. Please start again."));
+        .send(
+          message("Start again", "This presentation is no longer valid. Please start again."),
+        );
       return;
     }
-    switch (result.body.outcome) {
-      case "pending":
-        res.type("html").send(waiting());
-        return;
-      case "signed_in":
-        res.setHeader("set-cookie", [
-          clearCookie(BINDING_COOKIE),
-          cookie(SESSION_COOKIE, String(result.body.sessionToken), SESSION_MAX_AGE_S),
-        ]);
-        res.redirect(303, "/");
-        return;
-      case "needs_profile":
-        res
-          .type("html")
-          .send(profileForm(binding.purpose === "sign_up" ? "sign_up" : "accept_invitation"));
-        return;
-      case "unknown_person":
-        res.setHeader("set-cookie", clearCookie(BINDING_COOKIE));
-        res
-          .type("html")
-          .send(
-            message("Not signed up", "No sandbox account matches this PID. Sign up first."),
-          );
-        return;
-      default:
-        res.setHeader("set-cookie", clearCookie(BINDING_COOKIE));
-        res
-          .type("html")
-          .send(
-            message(
-              "Sign-in failed",
-              "Your wallet's presentation was not accepted. Please try again.",
-              "failed",
-            ),
-          );
-    }
-  };
-  app.get("/sign-in/return", complete);
-  app.get("/sign-in/wait", complete);
-
-  app.post("/sign-in/profile", async (req, res) => {
-    const binding = readBinding(parseCookies(req.get("cookie"))[BINDING_COOKIE]);
-    const parsed = profile.safeParse(req.body);
-    if (!binding || !parsed.success) {
-      res
-        .status(400)
-        .type("html")
-        .send(message("Start again", "This sign-in is no longer valid. Please start again."));
+    if (result.body.outcome === "pending") {
+      res.type("html").send(waiting());
       return;
     }
-    const p = parsed.data;
-    const body: Record<string, unknown> = {
-      bindingToken: binding.token,
-      displayName: p.displayName,
-    };
-    if (binding.purpose === "sign_up") {
-      body.organisation = {
-        legalName: p.legalName ?? "",
-        tradeName: p.tradeName ?? "",
-        country: (p.country ?? "").toUpperCase(),
-        ...(p.declaredEuid ? { declaredEuid: p.declaredEuid } : {}),
-        isPublicSectorBody: p.isPublicSectorBody === "yes",
-      };
-    }
-    const result = await options.api.call(
-      "POST",
-      `sign-in-attempts/${binding.attemptId}/profile`,
-      { body },
-    );
-    if (result.status === 400) {
+    res.setHeader("set-cookie", clearCookie(BINDING_COOKIE));
+    if (result.body.outcome === "pid_presented") {
       res
-        .status(400)
         .type("html")
         .send(
-          profileForm(
-            binding.purpose === "sign_up" ? "sign_up" : "accept_invitation",
-            "Please check the fields and try again.",
+          message(
+            "PID presented",
+            "Your wallet's presentation was accepted. The sandbox kept only a pseudonymous identifier derived from it.",
           ),
         );
       return;
     }
-    if (result.status !== 201) {
-      res.setHeader("set-cookie", clearCookie(BINDING_COOKIE));
-      res
-        .status(410)
-        .type("html")
-        .send(message("Start again", "This sign-in is no longer valid. Please start again."));
-      return;
-    }
-    res.setHeader("set-cookie", [
-      clearCookie(BINDING_COOKIE),
-      cookie(SESSION_COOKIE, String(result.body.sessionToken), SESSION_MAX_AGE_S),
-    ]);
-    res.redirect(303, "/");
-  });
-
-  app.post("/sign-out", async (req, res) => {
-    const token = session(req);
-    if (token) await options.api.call("POST", "sign-out", { session: token });
-    res.setHeader("set-cookie", clearCookie(SESSION_COOKIE));
-    res.redirect(303, "/");
-  });
+    res
+      .type("html")
+      .send(
+        message(
+          "Not accepted",
+          "Your wallet's presentation was not accepted. Please try again.",
+          "failed",
+        ),
+      );
+  };
+  app.get("/pid/return", completePid);
+  app.get("/pid/wait", completePid);
 
   // --- organisations -------------------------------------------------------------------------
 
@@ -423,7 +495,7 @@ export function createApp(options: PortalOptions): express.Express {
     id: string,
     shown?: { label: string; value: string },
   ) => {
-    const org = await options.api.call("GET", `organisations/${id}`, { session: token });
+    const org = await api.call("GET", `organisations/${id}`, { session: token });
     if (org.status === 401) {
       res.setHeader("set-cookie", clearCookie(SESSION_COOKIE));
       res.redirect(303, "/");
@@ -439,18 +511,18 @@ export function createApp(options: PortalOptions): express.Express {
       country: string;
       declaredEuid?: string;
     };
-    const members = await options.api.call("GET", `organisations/${id}/members`, {
+    const members = await api.call("GET", `organisations/${id}/members`, {
       session: token,
     });
     const keys =
       role === "owner"
-        ? await options.api.call("GET", `organisations/${id}/api-keys`, { session: token })
+        ? await api.call("GET", `organisations/${id}/api-keys`, { session: token })
         : undefined;
     // The certificate service is there only when the sandbox's PKI is configured.
-    const services = await options.api.call("GET", `organisations/${id}/services`, {
+    const services = await api.call("GET", `organisations/${id}/services`, {
       session: token,
     });
-    const runs = await options.api.call("GET", `organisations/${id}/runs`, { session: token });
+    const runs = await api.call("GET", `organisations/${id}/runs`, { session: token });
     const sections =
       (services.status === 200
         ? servicesSection(id, services.body as unknown as ServiceSummary[])
@@ -510,14 +582,16 @@ export function createApp(options: PortalOptions): express.Express {
     const token = requireSession(req, res);
     if (!token || !uuid.safeParse(req.params.id).success) return void res.status(404).end();
     const role = req.body?.role === "owner" ? "owner" : "member";
-    const result = await options.api.call(
-      "POST",
-      `organisations/${req.params.id}/invitations`,
-      {
-        session: token,
-        body: { role },
-      },
-    );
+    const email = typeof req.body?.email === "string" ? req.body.email : "";
+    const result = await api.call("POST", `organisations/${req.params.id}/invitations`, {
+      session: token,
+      body: { role, email },
+    });
+    if (result.status === 400)
+      return void res
+        .status(400)
+        .type("html")
+        .send(message("Check the address", "That is not an e-mail address."));
     if (result.status !== 201)
       return void res
         .status(result.status === 403 ? 403 : 404)
@@ -528,7 +602,7 @@ export function createApp(options: PortalOptions): express.Express {
       `${origin}/`,
     ).toString();
     await renderOrganisation(res, token, req.params.id, {
-      label: `Invitation link (${role}, valid 72 hours, single use)`,
+      label: `Invitation link for ${String(result.body.email ?? "")} (${role}, valid 72 hours, single use)`,
       value: link,
     });
   });
@@ -537,7 +611,7 @@ export function createApp(options: PortalOptions): express.Express {
     const token = requireSession(req, res);
     if (!token || !uuid.safeParse(req.params.id).success) return void res.status(404).end();
     const label = typeof req.body?.label === "string" ? req.body.label : "";
-    const result = await options.api.call("POST", `organisations/${req.params.id}/api-keys`, {
+    const result = await api.call("POST", `organisations/${req.params.id}/api-keys`, {
       session: token,
       body: { label },
     });
@@ -561,11 +635,9 @@ export function createApp(options: PortalOptions): express.Express {
     ) {
       return void res.status(404).end();
     }
-    await options.api.call(
-      "DELETE",
-      `organisations/${req.params.id}/api-keys/${req.params.keyId}`,
-      { session: token },
-    );
+    await api.call("DELETE", `organisations/${req.params.id}/api-keys/${req.params.keyId}`, {
+      session: token,
+    });
     res.redirect(303, `/org/${req.params.id}`);
   });
 
@@ -578,7 +650,7 @@ export function createApp(options: PortalOptions): express.Express {
     ) {
       return void res.status(404).end();
     }
-    const result = await options.api.call(
+    const result = await api.call(
       "DELETE",
       `organisations/${req.params.id}/members/${req.params.personId}`,
       {
@@ -606,7 +678,7 @@ export function createApp(options: PortalOptions): express.Express {
     sid: string,
     error?: string,
   ) => {
-    const service = await options.api.call("GET", `organisations/${org}/services/${sid}`, {
+    const service = await api.call("GET", `organisations/${org}/services/${sid}`, {
       session: token,
     });
     if (service.status !== 200) {
@@ -614,7 +686,7 @@ export function createApp(options: PortalOptions): express.Express {
       return;
     }
     const role = String(service.body.role);
-    const certificates = await options.api.call(
+    const certificates = await api.call(
       "GET",
       `organisations/${org}/certificates?service=${sid}`,
       { session: token },
@@ -627,13 +699,9 @@ export function createApp(options: PortalOptions): express.Express {
     // its route means it is not configured on this deployment, and the section is left out.
     let hostedHtml: string | undefined;
     if (role === "service_provider") {
-      const verifier = await options.api.call(
-        "GET",
-        `organisations/${org}/services/${sid}/verifier`,
-        {
-          session: token,
-        },
-      );
+      const verifier = await api.call("GET", `organisations/${org}/services/${sid}/verifier`, {
+        session: token,
+      });
       if (verifier.status === 200) {
         hostedHtml = verifierSection({
           orgId: org,
@@ -648,13 +716,9 @@ export function createApp(options: PortalOptions): express.Express {
       }
     }
     if (role === "pid_provider") {
-      const issuer = await options.api.call(
-        "GET",
-        `organisations/${org}/services/${sid}/issuer`,
-        {
-          session: token,
-        },
-      );
+      const issuer = await api.call("GET", `organisations/${org}/services/${sid}/issuer`, {
+        session: token,
+      });
       if (issuer.status === 200) {
         hostedHtml = issuerSection({
           orgId: org,
@@ -693,7 +757,7 @@ export function createApp(options: PortalOptions): express.Express {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id)) return void res.status(404).end();
     const b = req.body ?? {};
-    const result = await options.api.call("POST", `organisations/${req.params.id}/services`, {
+    const result = await api.call("POST", `organisations/${req.params.id}/services`, {
       session: token,
       body: {
         role: b.role === "pid_provider" ? "pid_provider" : "service_provider",
@@ -726,7 +790,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.post("/org/:id/services/:sid/intended-uses", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/intended-uses`,
       {
@@ -751,7 +815,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.post("/org/:id/services/:sid/access-certificates", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/access-certificates`,
       {
@@ -777,7 +841,7 @@ export function createApp(options: PortalOptions): express.Express {
       typeof req.body?.intendedUseId === "string" && req.body.intendedUseId
         ? req.body.intendedUseId
         : undefined;
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/registration-certificates`,
       {
@@ -796,7 +860,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.get("/org/:id/certificates/:cid", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.cid)) return void res.status(404).end();
-    const cert = await options.api.call(
+    const cert = await api.call(
       "GET",
       `organisations/${req.params.id}/certificates/${req.params.cid}`,
       { session: token },
@@ -814,7 +878,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.get("/org/:id/certificates/:cid/download", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.cid)) return void res.status(404).end();
-    const cert = await options.api.call(
+    const cert = await api.call(
       "GET",
       `organisations/${req.params.id}/certificates/${req.params.cid}`,
       { session: token },
@@ -830,7 +894,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.post("/org/:id/certificates/:cid/revoke", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.cid)) return void res.status(404).end();
-    await options.api.call(
+    await api.call(
       "POST",
       `organisations/${req.params.id}/certificates/${req.params.cid}/revoke`,
       { session: token },
@@ -847,7 +911,7 @@ export function createApp(options: PortalOptions): express.Express {
     const uses = Object.entries(body)
       .filter(([k]) => /^rc_[0-9a-f-]{36}$/.test(k))
       .map(([k, v]) => ({ intendedUseId: k.slice(3), registrationVariant: String(v) }));
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/verifier`,
       {
@@ -864,7 +928,7 @@ export function createApp(options: PortalOptions): express.Express {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
     const interaction = req.body?.interaction === "QR" ? "QR" : "SAME_DEVICE";
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/runs`,
       {
@@ -886,11 +950,9 @@ export function createApp(options: PortalOptions): express.Express {
   app.get("/org/:id/runs/:rid", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.rid)) return void res.status(404).end();
-    const run = await options.api.call(
-      "GET",
-      `organisations/${req.params.id}/runs/${req.params.rid}`,
-      { session: token },
-    );
+    const run = await api.call("GET", `organisations/${req.params.id}/runs/${req.params.rid}`, {
+      session: token,
+    });
     if (run.status !== 200)
       return void res.status(404).type("html").send(message("Not found", "No such run."));
     res.type("html").send(runPage(req.params.id, run.body as unknown as RunReport));
@@ -905,7 +967,7 @@ export function createApp(options: PortalOptions): express.Express {
       : "other";
     const note =
       typeof b.note === "string" && b.note.trim() ? b.note.trim().slice(0, 500) : undefined;
-    await options.api.call(
+    await api.call(
       "POST",
       `organisations/${req.params.id}/runs/${req.params.rid}/observation`,
       {
@@ -930,7 +992,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.post("/org/:id/services/:sid/issuer", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/issuer`,
       {
@@ -951,7 +1013,7 @@ export function createApp(options: PortalOptions): express.Express {
     if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
     const b = req.body ?? {};
     const interaction = b.interaction === "QR" ? "QR" : "SAME_DEVICE";
-    const result = await options.api.call(
+    const result = await api.call(
       "POST",
       `organisations/${req.params.id}/services/${req.params.sid}/issuer/offers`,
       {
@@ -982,7 +1044,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.get("/org/:id/issuances/:iid", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.iid)) return void res.status(404).end();
-    const view = await options.api.call(
+    const view = await api.call(
       "GET",
       `organisations/${req.params.id}/issuances/${req.params.iid}`,
       { session: token },
@@ -997,7 +1059,7 @@ export function createApp(options: PortalOptions): express.Express {
   app.post("/org/:id/issuances/:iid/revoke", async (req, res) => {
     const token = requireSession(req, res);
     if (!token || !ids(req.params.id, req.params.iid)) return void res.status(404).end();
-    await options.api.call(
+    await api.call(
       "POST",
       `organisations/${req.params.id}/issuances/${req.params.iid}/revoke`,
       { session: token },

@@ -941,13 +941,21 @@ export const sandboxPeople = pgTable(
   "sandbox_people",
   {
     id: uuid("id").primaryKey(),
-    /** A `PseudonymousSubject` derivation. Derived result; never a PID value. */
-    subject: text("subject").notNull(),
+    /** The address Cloudflare Access verified, lower-cased (ADR 0018). Personal data; never logged. */
+    email: text("email"),
+    /**
+     * A `PseudonymousSubject` derivation, present once the person has chosen to present a PID.
+     * Derived result; never a PID value.
+     */
+    subject: text("subject"),
     displayName: text("display_name").notNull(),
     createdAt: ts("created_at").notNull(),
     lastSignInAt: ts("last_sign_in_at").notNull(),
   },
-  (t) => [uniqueIndex("sandbox_people_subject_key").on(t.subject)],
+  (t) => [
+    uniqueIndex("sandbox_people_subject_key").on(t.subject),
+    uniqueIndex("sandbox_people_email_key").on(t.email),
+  ],
 );
 
 export const sandboxMemberships = pgTable(
@@ -977,6 +985,8 @@ export const sandboxInvitations = pgTable(
       .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
     role: text("role").notNull(),
+    /** The address that may accept it (ADR 0018 Decision 4). */
+    email: text("email"),
     createdBy: uuid("created_by")
       .notNull()
       .references(() => sandboxPeople.id, { onDelete: "cascade" }),
@@ -1017,6 +1027,8 @@ export const sandboxSignInAttempts = pgTable(
     invitationId: uuid("invitation_id").references(() => sandboxInvitations.id, {
       onDelete: "cascade",
     }),
+    /** The signed-in person presenting a PID (ADR 0018 Decision 3). */
+    personId: uuid("person_id").references(() => sandboxPeople.id, { onDelete: "cascade" }),
     /** The sign-in verifier's presentation. A platform id, never an engine one. */
     presentationId: uuid("presentation_id").notNull(),
     /** Set when the presentation verified a person not yet known. Derived result. */

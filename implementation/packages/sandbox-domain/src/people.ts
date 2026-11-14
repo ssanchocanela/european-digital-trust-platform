@@ -1,7 +1,7 @@
 import type { Branded, TenantId } from "@edtp/shared";
 
 /**
- * People in the sandbox, their organisations, and how they get in (ADR 0015).
+ * People in the sandbox, their organisations, and how they get in (ADR 0015, amended by ADR 0018).
  *
  * Pure: no I/O, no clock of its own. Every rule a test can state is a function here.
  */
@@ -11,12 +11,15 @@ export type InvitationId = Branded<string, "SandboxInvitationId">;
 export type SignInAttemptId = Branded<string, "SandboxSignInAttemptId">;
 
 /**
- * A person, known by a pseudonymous subject and the name they typed. Nothing from their PID is
- * kept: the subject is a `PseudonymousSubject` derivation, never the values it came from.
+ * A person, known by the e-mail address Cloudflare Access verified and the name they typed
+ * (ADR 0018). A person who chose to present a PID also has a pseudonymous subject. Nothing from
+ * their PID is kept: the subject is a `PseudonymousSubject` derivation, never the values it came
+ * from.
  */
 export interface Person {
   readonly id: PersonId;
-  readonly subject: string;
+  readonly email: string;
+  readonly subject?: string;
   readonly displayName: string;
   readonly createdAt: Date;
   readonly lastSignInAt: Date;
@@ -35,6 +38,23 @@ export function normaliseDisplayName(raw: string): string | undefined {
   ) {
     return undefined;
   }
+  return value;
+}
+
+export const EMAIL_MAX = 254;
+
+/**
+ * An e-mail address as the sandbox keys a person by it: trimmed and lower-cased. Deliberately loose —
+ * Access has already proved the address can receive mail — but refuses what cannot be one: no `@`, a
+ * space, a control character, over 254 characters.
+ */
+export function normaliseEmail(raw: string): string | undefined {
+  const value = raw.trim().toLowerCase();
+  if (value.length === 0 || value.length > EMAIL_MAX) return undefined;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused.
+  if (/[\s\u0000-\u001f\u007f]/.test(value)) return undefined;
+  const at = value.lastIndexOf("@");
+  if (at < 1 || at === value.length - 1 || value.indexOf("@") !== at) return undefined;
   return value;
 }
 
@@ -129,6 +149,8 @@ export interface Invitation {
   readonly id: InvitationId;
   readonly tenantId: TenantId;
   readonly role: Role;
+  /** The only address that may accept it (ADR 0018 Decision 4). Absent on invitations made before. */
+  readonly email?: string;
   readonly createdBy: PersonId;
   readonly createdAt: Date;
   readonly expiresAt: Date;
@@ -136,15 +158,23 @@ export interface Invitation {
   readonly acceptedBy?: PersonId;
 }
 
-export type InvitationRefusal = "used" | "expired";
+export type InvitationRefusal = "used" | "expired" | "for_another_address";
 
-/** Single use, 72 hours (ADR 0015 Decision 7). */
+/**
+ * Single use, 72 hours (ADR 0015 Decision 7), and only by the address it names (ADR 0018
+ * Decision 4): a forwarded link is useless to anyone else. An invitation that names no address —
+ * one made before ADR 0018 — is accepted by nobody.
+ */
 export function checkInvitation(
   invitation: Invitation,
   at: Date,
+  acceptingEmail?: string,
 ): InvitationRefusal | undefined {
   if (invitation.acceptedAt) return "used";
   if (at.getTime() >= invitation.expiresAt.getTime()) return "expired";
+  if (acceptingEmail !== undefined && invitation.email !== acceptingEmail) {
+    return "for_another_address";
+  }
   return undefined;
 }
 
@@ -173,10 +203,11 @@ export function isSessionLive(session: Session, at: Date): boolean {
 // --- Sign-in ---------------------------------------------------------------------------------
 
 /**
- * What a sign-in presentation is for. The attempt is bound to the browser that started it, so a
- * presentation completed on a phone signs in only the page that asked for it.
+ * What a presentation to the sign-in verifier is for. Since ADR 0018 there is one: a signed-in person
+ * chooses to present a PID. The attempt is bound to the browser that started it and to the person,
+ * so a presentation completed on a phone reaches only the page that asked for it.
  */
-export const SIGN_IN_PURPOSES = ["sign_in", "sign_up", "accept_invitation"] as const;
+export const SIGN_IN_PURPOSES = ["present_pid"] as const;
 export type SignInPurpose = (typeof SIGN_IN_PURPOSES)[number];
 
 export const SIGN_IN_ATTEMPT_TTL_MS = 10 * 60 * 1000;

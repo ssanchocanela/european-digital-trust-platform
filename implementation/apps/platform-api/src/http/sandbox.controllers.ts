@@ -13,6 +13,7 @@ import {
 import { ApiExcludeController } from "@nestjs/swagger";
 import { z } from "zod";
 import type { PlatformConfig } from "../config.js";
+import { SANDBOX_ACCESS_ASSERTION_HEADER } from "../modules/sandbox/access-identity.js";
 import type { SandboxService, SignedInContext } from "../modules/sandbox/sandbox.service.js";
 import { CONFIG_TOKEN, SANDBOX_SERVICE } from "../tokens.js";
 import { assertUuidPathParam, constantTimeEquals, Public } from "./auth.js";
@@ -23,11 +24,7 @@ export const SANDBOX_SESSION_HEADER = "x-edtp-sandbox-session";
 const token = z.string().min(20).max(200);
 
 const startSchema = z
-  .object({
-    purpose: z.enum(["sign_in", "sign_up", "accept_invitation"]),
-    invitationToken: token.optional(),
-    interactionType: z.enum(["SAME_DEVICE", "QR"]).default("SAME_DEVICE"),
-  })
+  .object({ interactionType: z.enum(["SAME_DEVICE", "QR"]).default("SAME_DEVICE") })
   .strict();
 
 const bindingSchema = z.object({ bindingToken: token }).strict();
@@ -45,24 +42,30 @@ const organisationSchema = z
 
 const profileSchema = z
   .object({
-    bindingToken: token,
     displayName: z.string().max(200),
     organisation: organisationSchema.optional(),
+    invitationToken: token.optional(),
   })
   .strict();
 
 const invitationSchema = z
-  .object({ role: z.enum(["owner", "member"]).default("member") })
+  .object({
+    role: z.enum(["owner", "member"]).default("member"),
+    email: z.string().max(254),
+  })
   .strict();
+const acceptSchema = z.object({ invitationToken: token }).strict();
 const apiKeySchema = z.object({ label: z.string().trim().min(1).max(100) }).strict();
 
 /**
- * The sandbox portal's API (ADR 0015).
+ * The sandbox portal's API (ADR 0015, ADR 0018).
  *
- * Reached only by the portal, which holds `SANDBOX_PORTAL_SECRET`; a person's session token travels
- * in its own header. Hidden from the public OpenAPI document, like the hosted verifier: this is the
- * portal's back end, not a customer API — a participant's automation uses an organisation API key on
- * the platform's ordinary routes.
+ * Reached only by the portal, which holds `SANDBOX_PORTAL_SECRET`. Two more headers travel with a
+ * person's requests: their session token, and Access's assertion, which the portal forwards and this
+ * side validates. A session is honoured only with an assertion for the same address
+ * (`SandboxAccessGuard`). Hidden from the public OpenAPI document, like the hosted verifier: this is
+ * the portal's back end, not a customer API — a participant's automation uses an organisation API key
+ * on the platform's ordinary routes.
  *
  * The organisation in a path is never trusted: it is checked against the signed-in person's
  * memberships, and another organisation's id is answered as not found (CLAUDE.md §9).
@@ -93,53 +96,92 @@ export class SandboxController {
     return { service, context: await service.authenticate(session) };
   }
 
-  // --- sign-in ---------------------------------------------------------------------------------
+  // --- entering by the Access identity (ADR 0018) ------------------------------------------------
 
-  @Post("sign-in-attempts")
-  @HttpCode(201)
-  async start(
+  @Post("access/enter")
+  @HttpCode(200)
+  async enter(
     @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_ACCESS_ASSERTION_HEADER) assertion: string | undefined,
+  ) {
+    const service = this.service(secret);
+    return service.enter(await service.identify(assertion));
+  }
+
+  @Post("access/profile")
+  @HttpCode(201)
+  async profile(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_ACCESS_ASSERTION_HEADER) assertion: string | undefined,
     @Body() body: unknown,
   ) {
     const service = this.service(secret);
-    const input = startSchema.parse(body ?? {});
-    return service.startSignIn({
-      purpose: input.purpose,
+    const identity = await service.identify(assertion);
+    const input = profileSchema.parse(body ?? {});
+    return service.createProfile(identity, {
+      displayName: input.displayName,
+      ...(input.organisation ? { organisation: input.organisation } : {}),
       ...(input.invitationToken ? { invitationToken: input.invitationToken } : {}),
-      interactionType: input.interactionType,
+    });
+  }
+
+  /** The token is a bearer secret: it travels in a body, never in a path a log could keep. */
+  @Post("invitations/lookup")
+  @HttpCode(200)
+  async invitation(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_ACCESS_ASSERTION_HEADER) assertion: string | undefined,
+    @Body() body: unknown,
+  ) {
+    const service = this.service(secret);
+    const identity = await service.identify(assertion);
+    return service.invitation(acceptSchema.parse(body ?? {}).invitationToken, identity);
+  }
+
+  @Post("invitations/accept")
+  @HttpCode(204)
+  async accept(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Body() body: unknown,
+  ) {
+    const { service, context } = await this.signedIn(secret, session);
+    await service.acceptInvitation(context, acceptSchema.parse(body ?? {}).invitationToken);
+  }
+
+  // --- presenting a PID, optionally ---------------------------------------------------------------
+
+  @Post("pid-presentations")
+  @HttpCode(201)
+  async startPid(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Body() body: unknown,
+  ) {
+    const { service, context } = await this.signedIn(secret, session);
+    return service.startPidPresentation(context, {
+      interactionType: startSchema.parse(body ?? {}).interactionType,
       correlationId: newCorrelationId(),
     });
   }
 
-  @Post("sign-in-attempts/:attemptId/complete")
+  @Post("pid-presentations/:attemptId/complete")
   @HttpCode(200)
-  async complete(
+  async completePid(
     @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
     @Param("attemptId") attemptId: string,
     @Body() body: unknown,
   ) {
-    const service = this.service(secret);
     assertUuidPathParam("attemptId", attemptId);
+    const { service, context } = await this.signedIn(secret, session);
     const { bindingToken } = bindingSchema.parse(body ?? {});
-    return service.completeSignIn(attemptId, bindingToken, newCorrelationId());
-  }
-
-  @Post("sign-in-attempts/:attemptId/profile")
-  @HttpCode(201)
-  async profile(
-    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
-    @Param("attemptId") attemptId: string,
-    @Body() body: unknown,
-  ) {
-    const service = this.service(secret);
-    assertUuidPathParam("attemptId", attemptId);
-    const input = profileSchema.parse(body ?? {});
-    return service.completeProfile({
+    return service.completePidPresentation(
+      context,
       attemptId,
-      bindingToken: input.bindingToken,
-      displayName: input.displayName,
-      ...(input.organisation ? { organisation: input.organisation } : {}),
-    });
+      bindingToken,
+      newCorrelationId(),
+    );
   }
 
   @Post("sign-out")
@@ -161,7 +203,12 @@ export class SandboxController {
   ) {
     const { context } = await this.signedIn(secret, session);
     return {
-      person: { id: context.person.id, displayName: context.person.displayName },
+      person: {
+        id: context.person.id,
+        displayName: context.person.displayName,
+        email: context.person.email,
+        pidPresented: Boolean(context.person.subject),
+      },
       memberships: context.memberships.map((m) => ({
         organisationId: m.tenantId,
         role: m.role,
@@ -200,9 +247,12 @@ export class SandboxController {
     assertUuidPathParam("organisationId", organisationId);
     const { service, context } = await this.signedIn(secret, session);
     const members = await service.members(context, organisationId);
+    // Members of one organisation see each other's addresses (ADR 0018 Decision 5); the route is
+    // reached only through a membership of that organisation.
     return members.map((m) => ({
       personId: m.personId,
       displayName: m.displayName,
+      email: m.email,
       role: m.role,
     }));
   }
@@ -231,7 +281,8 @@ export class SandboxController {
   ) {
     assertUuidPathParam("organisationId", organisationId);
     const { service, context } = await this.signedIn(secret, session);
-    return service.invite(context, organisationId, invitationSchema.parse(body ?? {}).role);
+    const input = invitationSchema.parse(body ?? {});
+    return service.invite(context, organisationId, input.role, input.email);
   }
 
   @Get("organisations/:organisationId/api-keys")

@@ -6,7 +6,7 @@ demonstration VM ([`../demo-vm/`](../demo-vm/README.md), ADR 0010).
 | | |
 |---|---|
 | Provider | Hetzner Cloud |
-| Server | `edtp-sandbox`, `cx23` (2 vCPU, 4 GB), `fsn1`, Ubuntu 24.04 LTS, daily backups on |
+| Server | `edtp-sandbox`, `cx23` (2 vCPU, 4 GB), `fsn1`, Ubuntu 24.04 LTS. Hetzner daily backups on; the nightly dump timer is installed but **not enabled** until the user says (13 November 2026) |
 | Operator | user `edtp`, key-only SSH; key in `~/.edtp/sandbox-vm/` (never committed) |
 | Inbound | **none**, once bootstrapped. Everything, SSH included, comes through the VM's own tunnel `edtp-sandbox` |
 | Hostnames | `sandbox.murcata.es` (portal, behind Access), `sandbox-engine.murcata.es`, `sandbox-platform.murcata.es` (both through the gateway), `sandbox-ssh.murcata.es` (Access, operator only) |
@@ -104,6 +104,9 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
    - Set `EDTP_IMAGE` to the tag the user has confirmed.
    - `ENGINE_CLIENT_ID=root` is in the template: `create-engine-tenant.sh` reads it, and it is not a
      secret (the engine's root client id).
+   - `SANDBOX_ACCESS_TEAM_DOMAIN` and `SANDBOX_ACCESS_AUDIENCE` (ADR 0018): the Zero Trust team domain,
+     and the "EDTP sandbox portal" application's AUD tag (Access → Applications → the application →
+     Overview). Neither is a secret. Without them the platform refuses to start the sandbox.
    - **Copy `SANDBOX_KEYSTORE_KEY` into the operator's password manager now.** It is in no backup.
 
 7. **The trust domain**, fresh: the first deployment is not a migration of the laptop's.

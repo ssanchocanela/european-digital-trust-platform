@@ -86,15 +86,17 @@ describe("what is offered", () => {
 });
 
 describe("the portal", () => {
-  it("refuses every request without Cloudflare Access's identity when required", async () => {
+  it("refuses every request without Cloudflare Access's assertion when required", async () => {
     const get = await serve({ requireAccess: true, walletDir: dir });
     expect((await get("/")).status).toBe(403);
     expect((await get("/wallet")).status).toBe(403);
     expect((await get("/style.css")).status).toBe(403);
+    // The unsigned e-mail header alone is not enough (ADR 0018 Decision 1).
     expect(
       (await get("/wallet", { "cf-access-authenticated-user-email": "op@example.test" }))
         .status,
-    ).toBe(200);
+    ).toBe(403);
+    expect((await get("/wallet", { "cf-access-jwt-assertion": "a.b.c" })).status).toBe(200);
   });
 
   it("serves only a listed file, and says what the build is", async () => {

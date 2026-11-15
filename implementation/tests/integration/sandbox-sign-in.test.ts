@@ -147,7 +147,7 @@ beforeEach(async () => {
 
 describe("entering by the Access identity (ADR 0018 Decision 1)", () => {
   it("asks an unknown address for a profile, then creates the person, the organisation and an owner session", async () => {
-    expect(await sandbox.enter(identity(ANA))).toEqual({ outcome: "needs_profile" });
+    expect(await sandbox.enter(identity(ANA))).toEqual({ outcome: "needs_profile", email: ANA });
     const { sessionToken, organisation } = await signUp(ANA, "Ana");
     expect(organisation?.localIdentifier).toMatch(/^SB:ES-\d{6}$/);
     expect(organisation?.verified).toBe(false);
@@ -402,7 +402,7 @@ describe("members, invitations and keys", () => {
     expect(
       await code(sandbox.createProfile(identity(eve), { displayName: "Eve", invitationToken })),
     ).toBe("invitation_for_another_address");
-    expect(await sandbox.enter(identity(eve))).toEqual({ outcome: "needs_profile" });
+    expect(await sandbox.enter(identity(eve))).toEqual({ outcome: "needs_profile", email: eve });
     // A signed-in person with another address cannot accept it either.
     const other = await signUp("carla@example.test", "Carla");
     expect(

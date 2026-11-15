@@ -135,7 +135,7 @@ describe("the composed sandbox: who is at the portal (ADR 0018)", () => {
 
   it("enters, creates a profile, and honours the session only for the same address", async () => {
     const entered = await (await call("access/enter", { method: "POST" })).json();
-    expect(entered).toEqual({ outcome: "needs_profile" });
+    expect(entered).toEqual({ outcome: "needs_profile", email: "dev@example.test" });
     const created = await call("access/profile", {
       method: "POST",
       body: { displayName: "Dev" },

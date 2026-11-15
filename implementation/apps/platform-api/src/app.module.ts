@@ -31,7 +31,10 @@ import {
 import { SandboxIssuerController } from "./http/sandbox-issuer.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
 import { SandboxVerifierController } from "./http/sandbox-verifier.controller.js";
-import { SandboxWalletTestController } from "./http/sandbox-wallet-test.controller.js";
+import {
+  SandboxWalletTestApiController,
+  SandboxWalletTestController,
+} from "./http/sandbox-wallet-test.controller.js";
 import {
   EngineAttributesController,
   HostedFormController,
@@ -101,6 +104,7 @@ export class AppModule {
         SandboxWalletProviderController,
         SandboxAdminWalletProviderController,
         SandboxWalletTestController,
+        SandboxWalletTestApiController,
         SandboxPublicController,
         SandboxCertificatesController,
         SandboxVerifierController,

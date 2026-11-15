@@ -9,7 +9,14 @@ import {
   TESTER_OBSERVATIONS,
 } from "../modules/sandbox/wallet-test.service.js";
 import { CONFIG_TOKEN, SANDBOX_SERVICE, SANDBOX_WALLET_TESTS } from "../tokens.js";
-import { assertUuidPathParam, constantTimeEquals, Public } from "./auth.js";
+import {
+  assertTenantMatches,
+  assertUuidPathParam,
+  Ctx,
+  constantTimeEquals,
+  Public,
+  type RequestContext,
+} from "./auth.js";
 import { SANDBOX_PORTAL_SECRET_HEADER, SANDBOX_SESSION_HEADER } from "./sandbox.controllers.js";
 
 const startSchema = z
@@ -137,6 +144,109 @@ export class SandboxWalletTestController {
     @Body() body: unknown,
   ) {
     const { context, tests } = await this.auth(secret, session, org);
+    assertUuidPathParam("planRunId", planRunId);
+    const input = observeSchema.parse(body ?? {});
+    await tests.observe(
+      context,
+      org,
+      planRunId,
+      stepIndex(index),
+      input.observation,
+      input.note,
+    );
+  }
+}
+
+/**
+ * The same, for continuous integration (ADR 0022 §5): the organisation's API key, on the platform's
+ * ordinary authentication. The tenant comes from the key; the one in the path is only checked
+ * against it (CLAUDE.md §9). The key acts as a member of its organisation, never as a person.
+ */
+@ApiExcludeController()
+@Controller("v1/tenants/:tenantId/sandbox/wallet-tests")
+export class SandboxWalletTestApiController {
+  constructor(
+    @Inject(SANDBOX_WALLET_TESTS) private readonly tests: SandboxWalletTestService | undefined,
+  ) {}
+
+  private async context(ctx: RequestContext, tenantId: string) {
+    if (!this.tests) throw PlatformError.notFound("Route");
+    const id = assertTenantMatches(ctx, tenantId);
+    return { context: await this.tests.apiContext(id), tests: this.tests, org: id as string };
+  }
+
+  @Get()
+  async list(@Ctx() ctx: RequestContext, @Param("tenantId") tenantId: string) {
+    const { context, tests, org } = await this.context(ctx, tenantId);
+    return { plans: tests.plans(), runs: await tests.runs(context, org) };
+  }
+
+  @Post()
+  @HttpCode(201)
+  async start(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Body() body: unknown,
+  ) {
+    const { context, tests, org } = await this.context(ctx, tenantId);
+    const input = startSchema.parse(body ?? {});
+    return tests.start(context, org, input.serviceId, input.planId, input);
+  }
+
+  @Get(":planRunId")
+  async report(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("planRunId") planRunId: string,
+  ) {
+    const { context, tests, org } = await this.context(ctx, tenantId);
+    assertUuidPathParam("planRunId", planRunId);
+    return tests.report(context, org, planRunId, ctx.correlationId);
+  }
+
+  @Get(":planRunId/signed")
+  async signed(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("planRunId") planRunId: string,
+  ) {
+    const { context, tests, org } = await this.context(ctx, tenantId);
+    assertUuidPathParam("planRunId", planRunId);
+    return { jws: await tests.signedReport(context, org, planRunId, ctx.correlationId) };
+  }
+
+  @Post(":planRunId/steps/:index")
+  @HttpCode(201)
+  async startStep(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("planRunId") planRunId: string,
+    @Param("index") index: string,
+    @Body() body: unknown,
+  ) {
+    const { context, tests, org } = await this.context(ctx, tenantId);
+    assertUuidPathParam("planRunId", planRunId);
+    const { interaction } = stepSchema.parse(body ?? {});
+    return tests.startStep(
+      context,
+      org,
+      planRunId,
+      stepIndex(index),
+      interaction,
+      ctx.correlationId,
+    );
+  }
+
+  @Post(":planRunId/steps/:index/observation")
+  @HttpCode(204)
+  async observe(
+    @Ctx() ctx: RequestContext,
+    @Param("tenantId") tenantId: string,
+    @Param("planRunId") planRunId: string,
+    @Param("index") index: string,
+    @Body() body: unknown,
+  ) {
+    const { context, tests, org } = await this.context(ctx, tenantId);
     assertUuidPathParam("planRunId", planRunId);
     const input = observeSchema.parse(body ?? {});
     await tests.observe(

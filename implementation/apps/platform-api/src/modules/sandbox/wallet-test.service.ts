@@ -1,6 +1,7 @@
 import { X509Certificate } from "node:crypto";
 import type {
   SandboxCertificateRepository,
+  SandboxRepository,
   SandboxWalletTestRepository,
   WalletTestRun,
 } from "@edtp/persistence";
@@ -19,7 +20,7 @@ import {
   signCompactJws,
   toPem,
 } from "@edtp/sandbox-pki";
-import { type Clock, type CorrelationId, newUuid, PlatformError } from "@edtp/shared";
+import { asId, type Clock, type CorrelationId, newUuid, PlatformError } from "@edtp/shared";
 import type { AuditService } from "../audit/audit.service.js";
 import type { SandboxIssuerService } from "./issuer.service.js";
 import type { SandboxService, SignedInContext } from "./sandbox.service.js";
@@ -67,6 +68,7 @@ const TESTER_SAYS_RELEASED = new Set(["presented_without_warning", "warned_user_
 export class SandboxWalletTestService {
   constructor(
     private readonly sandbox: SandboxService,
+    private readonly people: SandboxRepository,
     private readonly services: SandboxCertificateRepository,
     private readonly repository: SandboxWalletTestRepository,
     private readonly verifier: SandboxVerifierService | undefined,
@@ -75,6 +77,31 @@ export class SandboxWalletTestService {
     private readonly audit: AuditService,
     private readonly clock: Clock,
   ) {}
+
+  /**
+   * The context an organisation's API key acts in (ADR 0022 §5): a member of its own organisation,
+   * and nothing more — not an owner, never an operator, no person behind it. The plan service and
+   * the hosted verifier and issuer it drives check only the organisation's active membership, so the
+   * key reaches exactly what a member reaches in the portal, for wallet tests.
+   */
+  async apiContext(tenantId: string): Promise<SignedInContext> {
+    const organisation = await this.people.findOrganisation(asId<"TenantId">(tenantId));
+    if (!organisation) throw PlatformError.notFound("Organisation");
+    const now = this.clock.now();
+    const id = asId<"SandboxPersonId">("00000000-0000-0000-0000-000000000000");
+    return {
+      person: {
+        id,
+        email: "",
+        displayName: "Organisation API key",
+        createdAt: now,
+        lastSignInAt: now,
+      },
+      memberships: [
+        { tenantId: organisation.tenantId, personId: id, role: "member", createdAt: now },
+      ],
+    };
+  }
 
   plans() {
     return WALLET_TEST_PLANS.map((p) => ({

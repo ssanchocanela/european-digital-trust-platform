@@ -302,6 +302,7 @@ export async function wireSandbox(
 
   const walletTests = new SandboxWalletTestService(
     sandbox,
+    harness.deps.repositories.sandbox,
     harness.deps.repositories.sandboxCertificates,
     harness.deps.repositories.sandboxWalletTests,
     verifier,

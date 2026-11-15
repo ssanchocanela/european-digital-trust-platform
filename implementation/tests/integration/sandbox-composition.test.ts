@@ -215,3 +215,85 @@ describe("the composed sandbox: the operator's section (ADR 0019)", () => {
     expect(me.person.operator).toBe(false);
   });
 });
+
+describe("the composed sandbox: wallet tests for continuous integration (ADR 0022 §5)", () => {
+  it("lets an organisation's API key list plans, start a plan run and read its report — and nothing of another tenant", async () => {
+    const portal = {
+      "x-edtp-sandbox-portal-secret": SECRET,
+      "content-type": "application/json",
+    };
+    // The dev identity's account: entered, or created with an organisation.
+    let entered = (await (
+      await fetch(`${base}/sandbox/v1/access/enter`, { method: "POST", headers: portal })
+    ).json()) as { outcome: string; sessionToken?: string };
+    if (entered.outcome === "needs_profile") {
+      entered = (await (
+        await fetch(`${base}/sandbox/v1/access/profile`, {
+          method: "POST",
+          headers: portal,
+          body: JSON.stringify({ displayName: "Dev" }),
+        })
+      ).json()) as { outcome: string; sessionToken?: string };
+    }
+    const session = { ...portal, "x-edtp-sandbox-session": String(entered.sessionToken) };
+    const org = (await (
+      await fetch(`${base}/sandbox/v1/organisations`, {
+        method: "POST",
+        headers: session,
+        body: JSON.stringify({ legalName: "CI Co S.A.", tradeName: "CI Co", country: "ES" }),
+      })
+    ).json()) as { tenantId: string };
+    const service = (await (
+      await fetch(`${base}/sandbox/v1/organisations/${org.tenantId}/services`, {
+        method: "POST",
+        headers: session,
+        body: JSON.stringify({
+          role: "service_provider",
+          tradeName: "CI RP",
+          description: [{ lang: "en", value: "CI" }],
+          supportUri: "https://ci.test/support",
+          privacyPolicyUri: "https://ci.test/privacy",
+          infoUri: "https://ci.test",
+        }),
+      })
+    ).json()) as { relyingPartyServiceId: string };
+    const key = (await (
+      await fetch(`${base}/sandbox/v1/organisations/${org.tenantId}/api-keys`, {
+        method: "POST",
+        headers: session,
+        body: JSON.stringify({ label: "ci" }),
+      })
+    ).json()) as { key: string };
+
+    const api = { authorization: `Bearer ${key.key}`, "content-type": "application/json" };
+    const root = `${base}/v1/tenants/${org.tenantId}/sandbox/wallet-tests`;
+    const listed = (await (await fetch(root, { headers: api })).json()) as { plans: unknown[] };
+    expect(listed.plans).toHaveLength(3);
+    const started = await fetch(root, {
+      method: "POST",
+      headers: api,
+      body: JSON.stringify({
+        serviceId: service.relyingPartyServiceId,
+        planId: "access-certificates",
+        provider: "CI Wallet",
+        build: "ci-1",
+        platform: "emulator",
+      }),
+    });
+    expect(started.status).toBe(201);
+    const { id } = (await started.json()) as { id: string };
+    const report = (await (await fetch(`${root}/${id}`, { headers: api })).json()) as {
+      statement: string;
+      wallet: { build: string };
+    };
+    expect(report.statement).toBe("This is not a conformance test and certifies nothing.");
+    expect(report.wallet.build).toBe("ci-1");
+
+    expect((await fetch(root)).status).toBe(401);
+    const other = await fetch(
+      `${base}/v1/tenants/00000000-0000-4000-8000-0000000000ee/sandbox/wallet-tests`,
+      { headers: api },
+    );
+    expect([403, 404]).toContain(other.status);
+  });
+});

@@ -1,7 +1,11 @@
 # ADR 0022 — Testing wallets in the sandbox
 
-- **Status:** PROPOSED, 15 November 2026. Roadmap track R3, next in the order the user approved. It
-  answers the roadmap's decision 3: whether the sandbox should check wallets' behaviour at all.
+- **Status:** ACCEPTED, 15 November 2026, by the user. §1–§4 built the same day, in a follow-up PR:
+  PR #58 was merged carrying only this ADR. **§5, the API for continuous integration, is not built
+  yet.** That API works on an organisation's API key, which names a tenant and not a person, and the
+  plan service is written for a signed-in person. It is a follow-up of its own. **Not deployed yet.**
+  Roadmap track R3, next in the order the user approved. It answers the roadmap's decision 3: whether
+  the sandbox should check wallets' behaviour at all.
 - **Date:** 15 November 2026
 - **Builds on:**
   - [`specification.md`](../sandbox/specification.md) §5, the defect catalogue, and §6, the run report;
@@ -66,8 +70,15 @@ The sandbox **exercises** wallets and **reports what happened**. It does not gra
 
 Each step keeps two observations apart, and never merges them:
 
-- **The server's observation, automatic.** It comes from the engine's outcome, mapped to the
-  platform's failure codes (CLAUDE.md §6.5):
+- **The server's observation, automatic.** It comes from the platform's transaction state, never the
+  engine's status (CLAUDE.md §6.5). As built, presentations and issuances are read separately:
+  - for an issuance, `credential_collected` replaces `presented`. Whether the wallet then kept the
+    credential happens in the wallet, and only the tester can say. `issuer_refused_wallet` means the
+    issuer did not trust the wallet's attestation;
+  - `engine_refused` became part of `presented`. If the engine refused what the wallet sent, the
+    wallet still released it.
+
+  The cases:
   - `presented`: a presentation arrived, and the wallet released data despite the defect. This is the
     one outcome the server observes without doubt;
   - `wallet_error`: the wallet sent an error, such as an explicit `access_denied` (§6.6: best-effort);
@@ -138,7 +149,7 @@ plans built from today's steps are in use.
   - **The declared build is not verified.** The report says "as declared".
   - **A new key to manage:** the report-signing key, in the sealed store, published, rotated with the
     others.
-- **To change on acceptance:**
+- **Changed on acceptance** (done 15 November 2026):
   - the specification (§5.4 gains plans, §6 gains the plan report);
   - the roadmap (R3);
   - `security-limitations.md`.

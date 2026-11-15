@@ -321,6 +321,11 @@ validator. The wallet's reaction is recorded, not predicted.
 
 ### 5.4 What the sandbox can and cannot say about a defect
 
+*Since [ADR 0022](../adr/0022-sandbox-testing-wallets.md):* defects can also be taken in order, as a
+**wallet test plan** for one declared wallet build. The same rule holds for plans: each step shows
+what the cited requirement asks, what the server observed and what the tester observed, side by side,
+and never a verdict.
+
 The sandbox controls the certificate, not the wallet. **A run report never says "the wallet
 complied".** It says:
 - which defect was built in;

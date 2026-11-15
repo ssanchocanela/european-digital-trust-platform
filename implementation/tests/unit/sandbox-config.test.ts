@@ -102,12 +102,25 @@ describe("sandbox configuration", () => {
 
   it("reads the operators as normalised addresses, and refuses something that is not one (ADR 0019)", () => {
     expect(
-      loadConfig({ ...base, ...sandbox, SANDBOX_OPERATOR_EMAILS: " Op@Example.test , b@x.test" })
-        .SANDBOX_OPERATOR_EMAILS,
+      loadConfig({
+        ...base,
+        ...sandbox,
+        SANDBOX_OPERATOR_EMAILS: " Op@Example.test , b@x.test",
+      }).SANDBOX_OPERATOR_EMAILS,
     ).toEqual(["op@example.test", "b@x.test"]);
     expect(loadConfig({ ...base, ...sandbox }).SANDBOX_OPERATOR_EMAILS).toEqual([]);
     expect(() =>
       loadConfig({ ...base, ...sandbox, SANDBOX_OPERATOR_EMAILS: "not an address" }),
+    ).toThrow();
+  });
+
+  it("takes several Access audiences, comma-separated (ADR 0019)", () => {
+    const two = `${"a".repeat(64)},${"b".repeat(64)}`;
+    expect(
+      loadConfig({ ...base, ...sandbox, SANDBOX_ACCESS_AUDIENCE: two }).SANDBOX_ACCESS_AUDIENCE,
+    ).toBe(two);
+    expect(() =>
+      loadConfig({ ...base, ...sandbox, SANDBOX_ACCESS_AUDIENCE: `${"a".repeat(64)}, x` }),
     ).toThrow();
   });
 });

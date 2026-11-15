@@ -126,6 +126,30 @@ describe("the Cloudflare Access assertion", () => {
   });
 });
 
+describe("several Access applications (ADR 0019)", () => {
+  it("accepts an assertion for any configured audience, and still refuses any other", async () => {
+    const admin = "c".repeat(64);
+    const fetchStub = (async () =>
+      new Response(
+        JSON.stringify({ keys: [jwk(good.publicKey, "k1")] }),
+      )) as unknown as typeof fetch;
+    const v = new CloudflareAccessVerifier(
+      TEAM,
+      [AUD, admin],
+      { now: () => NOW },
+      new Logger("error"),
+      fetchStub,
+    );
+    expect(await v.verify(assertion(valid))).toEqual({ email: "ana@example.test" });
+    expect(await v.verify(assertion({ ...valid, aud: [admin] }))).toEqual({
+      email: "ana@example.test",
+    });
+    expect(await code(v.verify(assertion({ ...valid, aud: ["d".repeat(64)] })))).toBe(
+      "unauthenticated",
+    );
+  });
+});
+
 describe("the development identity (ADR 0018 Decision 7)", () => {
   it("is one fixed, normalised address, and refuses something that is not one", async () => {
     expect(await new DevelopmentAccessIdentity(" Dev@Example.test ").verify()).toEqual({

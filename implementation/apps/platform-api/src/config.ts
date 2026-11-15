@@ -172,10 +172,14 @@ const schema = z.object({
       .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, "must be a host name, without a scheme")
       .optional(),
   ),
+  /**
+   * The audience tags of the Access applications in front of the portal, comma-separated: the
+   * portal's, and the operator section's (ADR 0019), which Access signs `/admin` requests with.
+   */
   SANDBOX_ACCESS_AUDIENCE: unsetIfEmpty(
     z
       .string()
-      .regex(/^[0-9a-f]{32,128}$/)
+      .regex(/^[0-9a-f]{32,128}(,[0-9a-f]{32,128})*$/, "audience tags, comma-separated")
       .optional(),
   ),
   SANDBOX_ACCESS_DEV_IDENTITY: unsetIfEmpty(z.string().email().optional()),

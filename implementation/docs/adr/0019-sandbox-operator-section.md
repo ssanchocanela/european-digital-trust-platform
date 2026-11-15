@@ -44,6 +44,9 @@ has no view of it.
   `sandbox.murcata.es/admin`, whose policy names only the operators. A path-specific application takes
   precedence over the portal's, so a participant is stopped by Access before the portal sees the
   request. The platform's check stays: the edge rule is defence in depth, not the rule.
+- **Two audiences, then.** Access signs a request with the audience tag of the application that
+  admitted it, so `/admin` requests carry the admin application's tag. `SANDBOX_ACCESS_AUDIENCE`
+  takes both, comma-separated. This was found when the application was created, on 15 November 2026.
 
 ### 2. What the section shows
 

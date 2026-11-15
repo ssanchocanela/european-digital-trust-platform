@@ -133,6 +133,8 @@ services:
       # There is no development identity here, and the compose test keeps it that way.
       SANDBOX_ACCESS_TEAM_DOMAIN: ${SANDBOX_ACCESS_TEAM_DOMAIN:?set SANDBOX_ACCESS_TEAM_DOMAIN to <team>.cloudflareaccess.com}
       SANDBOX_ACCESS_AUDIENCE: ${SANDBOX_ACCESS_AUDIENCE:?set SANDBOX_ACCESS_AUDIENCE to the portal application's audience tag}
+      # The operators (ADR 0019): addresses, comma-separated. Empty: nobody sees /admin.
+      SANDBOX_OPERATOR_EMAILS: ${SANDBOX_OPERATOR_EMAILS:-}
       SANDBOX_PARTICIPANT_TRUST_SOURCES: ${SANDBOX_PARTICIPANT_TRUST_SOURCES:?}
       SANDBOX_PKI_DIR: /pki
       SANDBOX_KEYSTORE_KEY: ${SANDBOX_KEYSTORE_KEY:?set SANDBOX_KEYSTORE_KEY in .env}

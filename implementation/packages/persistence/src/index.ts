@@ -13,5 +13,6 @@ export * from "./repositories/sandbox-certificate.repository.js";
 export * from "./repositories/sandbox-issuer.repository.js";
 export * from "./repositories/sandbox-verifier.repository.js";
 export * from "./repositories/sandbox-wallet-provider.repository.js";
+export * from "./repositories/sandbox-wallet-test.repository.js";
 export * from "./repositories/support.repository.js";
 export * from "./repositories/transaction.repository.js";

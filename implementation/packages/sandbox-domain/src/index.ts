@@ -5,3 +5,4 @@
  */
 export * from "./people.js";
 export * from "./quotas.js";
+export * from "./wallet-testing.js";

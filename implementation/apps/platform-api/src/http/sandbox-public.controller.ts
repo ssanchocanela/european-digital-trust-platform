@@ -103,6 +103,19 @@ export class SandboxPublicController {
     await this.channel(res, `status:${key}`, "application/statuslist+jwt");
   }
 
+  /**
+   * The wallet test report signer's certificate (ADR 0022 §4), so anyone handed a signed report can
+   * check it came from this sandbox unchanged. Created with the first signed report; 404 before.
+   */
+  @Get("ca/report-signer.cer")
+  async reportSigner(@Res() res: Response) {
+    const latest = await this.on().publications.latest("certificate:report-signer");
+    if (!latest) throw PlatformError.notFound("Certificate");
+    res.setHeader("content-type", "application/pkix-cert");
+    res.setHeader("cache-control", "public, max-age=3600");
+    res.send(Buffer.from(latest.body, "base64"));
+  }
+
   @Get("ca/:file")
   ca(@Param("file") file: string, @Res() res: Response) {
     const name = file.replace(/\.cer$/, "");

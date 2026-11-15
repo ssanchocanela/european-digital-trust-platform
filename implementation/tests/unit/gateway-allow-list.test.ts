@@ -156,6 +156,7 @@ describe("the sandbox's public reads (S4)", () => {
       "/sandbox/public/lote/WRPACProviders.jwt",
       "/sandbox/public/lote/WRPRCProviders.jwt",
       "/sandbox/public/lote/WalletProviders.jwt",
+      "/sandbox/public/ca/report-signer.cer",
       "/sandbox/public/wallets",
       "/sandbox/public/status/registrar-signing",
       "/sandbox/public/status/unavailable",

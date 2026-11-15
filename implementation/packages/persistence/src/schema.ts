@@ -1151,6 +1151,43 @@ export const sandboxWalletProviderAnchors = pgTable(
   ],
 );
 
+/** Wallet test plan runs (ADR 0022): one declared wallet build through a fixed plan. */
+export const sandboxWalletTestRuns = pgTable(
+  "sandbox_wallet_test_runs",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .notNull()
+      .references(() => sandboxServices.relyingPartyServiceId, { onDelete: "cascade" }),
+    planId: text("plan_id").notNull(),
+    planVersion: integer("plan_version").notNull(),
+    provider: text("provider").notNull(),
+    build: text("build").notNull(),
+    platform: text("platform").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [index("sandbox_wallet_test_runs_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+export const sandboxWalletTestSteps = pgTable(
+  "sandbox_wallet_test_steps",
+  {
+    planRunId: uuid("plan_run_id")
+      .notNull()
+      .references(() => sandboxWalletTestRuns.id, { onDelete: "cascade" }),
+    stepIndex: integer("step_index").notNull(),
+    refId: uuid("ref_id").notNull(),
+    startedAt: ts("started_at").notNull(),
+    observation: text("observation"),
+    note: text("note"),
+    observedAt: ts("observed_at"),
+  },
+  (t) => [primaryKey({ columns: [t.planRunId, t.stepIndex] })],
+);
+
 export const sandboxVerifiers = pgTable(
   "sandbox_verifiers",
   {

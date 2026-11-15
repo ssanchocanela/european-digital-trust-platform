@@ -62,6 +62,13 @@ import {
   walletStep,
 } from "./pages.js";
 import { offeredFile, openFile, readWalletOffer } from "./wallet.js";
+import {
+  type PlanReport,
+  type PlanRunSummary,
+  type PlanView,
+  planReportPage,
+  walletTestsPage,
+} from "./wallet-test-pages.js";
 
 /**
  * The sandbox portal (specification §8.1, ADR 0015, ADR 0018).
@@ -624,6 +631,172 @@ export function createApp(options: PortalOptions): express.Express {
     );
   });
 
+  // --- wallet tests (ADR 0022) ------------------------------------------------------------------
+
+  const renderWalletTests = async (
+    res: Response,
+    token: string,
+    org: string,
+    error?: string,
+  ) => {
+    const [tests, services] = await Promise.all([
+      api.call("GET", `organisations/${org}/wallet-tests`, { session: token }),
+      api.call("GET", `organisations/${org}/services`, { session: token }),
+    ]);
+    if (tests.status !== 200) return void notFound(res);
+    res
+      .status(error ? 400 : 200)
+      .type("html")
+      .send(
+        walletTestsPage({
+          orgId: org,
+          plans: tests.body.plans as PlanView[],
+          runs: tests.body.runs as PlanRunSummary[],
+          services:
+            services.status === 200
+              ? (services.body as unknown as {
+                  relyingPartyServiceId: string;
+                  serviceTradeName: string;
+                  role: string;
+                }[])
+              : [],
+          ...(error ? { error } : {}),
+        }),
+      );
+  };
+
+  app.get("/org/:id/wallet-tests", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    if (!uuid.safeParse(req.params.id).success) return void notFound(res);
+    await renderWalletTests(res, token, req.params.id);
+  });
+
+  app.post("/org/:id/wallet-tests", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const org = req.params.id;
+    if (!uuid.safeParse(org).success) return void notFound(res);
+    const [planId, serviceId] = String(req.body?.plan ?? "").split("|");
+    const result = await api.call("POST", `organisations/${org}/wallet-tests`, {
+      session: token,
+      body: {
+        planId,
+        serviceId,
+        provider: String(req.body?.provider ?? ""),
+        build: String(req.body?.build ?? ""),
+        platform: String(req.body?.platform ?? ""),
+      },
+    });
+    if (result.status === 201) {
+      return void res.redirect(303, `/org/${org}/wallet-tests/${String(result.body.id)}`);
+    }
+    if (result.status === 401) return void res.redirect(303, "/");
+    await renderWalletTests(
+      res,
+      token,
+      org,
+      String(result.body.message ?? "The plan could not be started."),
+    );
+  });
+
+  const renderReport = async (res: Response, token: string, org: string, rid: string) => {
+    const report = await api.call("GET", `organisations/${org}/wallet-tests/${rid}`, {
+      session: token,
+    });
+    if (report.status === 401) return void res.redirect(303, "/");
+    if (report.status !== 200) return void notFound(res);
+    res.type("html").send(planReportPage(org, report.body as unknown as PlanReport));
+  };
+
+  app.get("/org/:id/wallet-tests/:rid", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { id, rid } = req.params;
+    if (!uuid.safeParse(id).success || !uuid.safeParse(rid).success) return void notFound(res);
+    await renderReport(res, token, id, rid);
+  });
+
+  app.post("/org/:id/wallet-tests/:rid/steps/:n", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { id, rid, n } = req.params;
+    if (!uuid.safeParse(id).success || !uuid.safeParse(rid).success || !/^\d{1,3}$/.test(n)) {
+      return void notFound(res);
+    }
+    const parsed = interaction.safeParse(req.body);
+    const interactionType = parsed.success ? parsed.data.interaction : "SAME_DEVICE";
+    const result = await api.call(
+      "POST",
+      `organisations/${id}/wallet-tests/${rid}/steps/${n}`,
+      {
+        session: token,
+        body: { interaction: interactionType },
+      },
+    );
+    if (result.status === 401) return void res.redirect(303, "/");
+    if (result.status !== 201) {
+      return void res
+        .status(409)
+        .type("html")
+        .send(
+          message("Not possible", String(result.body.message ?? "The step could not start.")),
+        );
+    }
+    res.type("html").send(
+      walletStep(String(result.body.walletUri ?? ""), interactionType, {
+        waitUrl: `/org/${id}/wallet-tests/${rid}`,
+        about:
+          result.body.kind === "issuer"
+            ? "Your wallet will be offered a synthetic PID by your hosted issuer."
+            : "Your wallet will be asked to present to your hosted verifier.",
+      }),
+    );
+  });
+
+  app.post("/org/:id/wallet-tests/:rid/steps/:n/observation", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { id, rid, n } = req.params;
+    if (!uuid.safeParse(id).success || !uuid.safeParse(rid).success || !/^\d{1,3}$/.test(n)) {
+      return void notFound(res);
+    }
+    const note = typeof req.body?.note === "string" ? req.body.note.slice(0, 500) : "";
+    await api.call("POST", `organisations/${id}/wallet-tests/${rid}/steps/${n}/observation`, {
+      session: token,
+      body: {
+        observation: String(req.body?.observation ?? ""),
+        ...(note.trim() ? { note } : {}),
+      },
+    });
+    res.redirect(303, `/org/${id}/wallet-tests/${rid}`);
+  });
+
+  for (const format of ["json", "jwt"] as const) {
+    app.get(`/org/:id/wallet-tests/:rid/report.${format}`, async (req, res) => {
+      const token = requireSession(req, res);
+      if (!token) return;
+      const { id, rid } = req.params;
+      if (!uuid.safeParse(id).success || !uuid.safeParse(rid).success)
+        return void notFound(res);
+      const result = await api.call(
+        "GET",
+        `organisations/${id}/wallet-tests/${rid}${format === "jwt" ? "/signed" : ""}`,
+        { session: token },
+      );
+      if (result.status !== 200) return void notFound(res);
+      res.setHeader(
+        "content-disposition",
+        `attachment; filename="wallet-test-${rid}.${format}"`,
+      );
+      if (format === "jwt") {
+        res.type("application/jwt").send(String(result.body.jws ?? ""));
+      } else {
+        res.type("application/json").send(JSON.stringify(result.body, null, 2));
+      }
+    });
+  }
+
   // --- leaving (ADR 0021) -----------------------------------------------------------------------
 
   app.get("/account/delete", async (req, res) => {
@@ -846,6 +1019,7 @@ export function createApp(options: PortalOptions): express.Express {
     });
     const runs = await api.call("GET", `organisations/${id}/runs`, { session: token });
     const sections =
+      `<p><a class="button secondary" href="/org/${id}/wallet-tests">Wallet tests</a></p>` +
       (services.status === 200
         ? servicesSection(id, services.body as unknown as ServiceSummary[])
         : "") +

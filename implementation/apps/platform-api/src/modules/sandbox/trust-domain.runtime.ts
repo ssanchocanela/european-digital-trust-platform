@@ -111,6 +111,11 @@ export class SandboxTrustDomain {
     return this.store.create(name);
   }
 
+  /** Whether the sealed store holds a key of this name (e.g. the report signer, ADR 0022). */
+  hasKey(name: string): Promise<boolean> {
+    return this.store.has(name);
+  }
+
   /** The chain for a signing leaf, leaf first, root last: the whole chain, as a WRPRC carries it. */
   chainOf(signingKey: string): Buffer[] {
     const member = TRUST_DOMAIN.find((m) => m.name === signingKey);

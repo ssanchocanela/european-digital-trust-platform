@@ -78,7 +78,7 @@ wallet. An official wallet will refuse them, by design. You need that build only
 <p><a href="/wallet">Get the sandbox wallet build</a></p>`;
 }
 
-function interactionChoice(): string {
+export function interactionChoice(): string {
   return `<label>Where is your wallet?<select name="interaction">
 <option value="SAME_DEVICE">On this device</option>
 <option value="QR">On my phone (scan a QR code — a cross-device flow the ARF discourages)</option>

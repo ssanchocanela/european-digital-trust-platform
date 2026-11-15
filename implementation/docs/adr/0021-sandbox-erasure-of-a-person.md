@@ -1,7 +1,8 @@
 # ADR 0021 — Erasure of a person from the sandbox
 
-- **Status:** PROPOSED, 15 November 2026. Roadmap track R7, first item, in the order the user approved:
-  erasure before any outside participant is admitted.
+- **Status:** ACCEPTED, 15 November 2026, by the user, and built the same day. PR #57 was merged carrying only
+  this ADR; the code reached `main` in the follow-up PR. **Not deployed yet.** Roadmap track R7, first item, in the order the user approved: erasure before any outside
+  participant is admitted.
 - **Date:** 15 November 2026
 - **Answers:** [ADR 0019](0019-sandbox-operator-section.md) Open 1, "erasure of a person on request".
 - **Follows:**
@@ -108,7 +109,7 @@ later, if a participant asks; that is not a person's erasure.
   outsiders.
 - **Negative.** Erasure is final. An erased person who comes back is a new person, with no memberships.
 - **Negative.** Backups hold the data for up to 14 days afterwards. This is stated, not hidden.
-- **To change on acceptance:**
+- **Changed on acceptance** (done 15 November 2026):
   - the specification (a journey for leaving);
   - `security-limitations.md` (the backup window);
   - the roadmap (R7's first item);

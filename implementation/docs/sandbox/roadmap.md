@@ -97,7 +97,8 @@ opening up requires. Within a track, the first bullet is the smallest useful ste
 
 ### R7 — Operating a service others depend on
 
-- **Erasure of a person on request** (ADR 0019 Open 1), before any outside participant is admitted.
+- **Erasure of a person on request** (ADR 0019 Open 1), before any outside participant is admitted —
+  *[ADR 0021](../adr/0021-sandbox-erasure-of-a-person.md), built 15 November 2026, not deployed.*
 - **The nightly dump switched on** (decided off until the user says), restore tested.
 - **Monitoring and alerts** beyond the negative checks: errors, quota pressure, list freshness, CA
   certificate expiry.

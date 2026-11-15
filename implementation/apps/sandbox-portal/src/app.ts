@@ -10,8 +10,10 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { z } from "zod";
 import {
   type AdminAnchorRow,
+  type AdminErasureView,
   type AuditRow,
   adminAudit,
+  adminErasureConfirm,
   adminInvitations,
   adminOrganisation,
   adminOrganisations,
@@ -31,6 +33,8 @@ import {
   type CertificateSummary,
   certificatePage,
   dashboard,
+  type ErasurePlanView,
+  erasurePage,
   type IssuanceStatusView,
   type IssuerView,
   invitationLanding,
@@ -618,6 +622,112 @@ export function createApp(options: PortalOptions): express.Express {
       `audit${organisation ? `?organisation=${organisation}` : ""}`,
       (b) => adminAudit(b.records as AuditRow[], Boolean(organisation)),
     );
+  });
+
+  // --- leaving (ADR 0021) -----------------------------------------------------------------------
+
+  app.get("/account/delete", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const plan = await api.call("GET", "me/erasure", { session: token });
+    if (plan.status === 401) return void res.redirect(303, "/");
+    if (plan.status !== 200) return void notFound(res);
+    res.type("html").send(erasurePage(plan.body as unknown as ErasurePlanView));
+  });
+
+  app.post("/account/delete", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const confirmEmail =
+      typeof req.body?.confirmEmail === "string" ? req.body.confirmEmail : "";
+    const result = await api.call("POST", "me/erase", {
+      session: token,
+      body: { confirmEmail },
+    });
+    if (result.status === 200) {
+      res.setHeader("set-cookie", clearCookie(SESSION_COOKIE));
+      res
+        .type("html")
+        .send(
+          message(
+            "Account deleted",
+            "Your account is erased. Cloudflare Access may still admit your address until the operator removes it; if you come back, you start as a new person.",
+          ),
+        );
+      return;
+    }
+    if (result.status === 401) return void res.redirect(303, "/");
+    const plan = await api.call("GET", "me/erasure", { session: token });
+    res
+      .status(result.status === 409 ? 409 : 400)
+      .type("html")
+      .send(
+        erasurePage(
+          plan.body as unknown as ErasurePlanView,
+          String(result.body.message ?? "The account could not be deleted."),
+        ),
+      );
+  });
+
+  app.post("/org/:id/members/:personId/make-owner", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { id, personId } = req.params;
+    if (!uuid.safeParse(id).success || !uuid.safeParse(personId).success) {
+      return void notFound(res);
+    }
+    const result = await api.call(
+      "POST",
+      `organisations/${id}/members/${personId}/make-owner`,
+      {
+        session: token,
+      },
+    );
+    if (result.status === 401) return void res.redirect(303, "/");
+    if (result.status !== 204) {
+      return void res
+        .status(result.status === 403 ? 403 : 404)
+        .type("html")
+        .send(message("Refused", "Only an owner can make a member an owner."));
+    }
+    res.redirect(303, `/org/${id}`);
+  });
+
+  const adminErasure = async (req: Request, res: Response, error?: string) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { pid } = req.params as { pid: string };
+    if (!uuid.safeParse(pid).success) return void notFound(res);
+    const override = req.query.override === "true";
+    const preview = await api.call(
+      "GET",
+      `admin/people/${pid}/erasure${override ? "?override=true" : ""}`,
+      { session: token },
+    );
+    if (preview.status === 401) return void res.redirect(303, "/");
+    if (preview.status !== 200) return void notFound(res);
+    res
+      .status(error ? 409 : 200)
+      .type("html")
+      .send(
+        adminErasureConfirm(pid, preview.body as unknown as AdminErasureView, override, error),
+      );
+  };
+  app.get("/admin/people/:pid/erase", (req, res) => adminErasure(req, res));
+  app.post("/admin/people/:pid/erase", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { pid } = req.params;
+    if (!uuid.safeParse(pid).success) return void notFound(res);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason : "";
+    const result = await api.call("POST", `admin/people/${pid}/erase`, {
+      session: token,
+      body: { reason, override: req.query.override === "true" },
+    });
+    if (result.status === 200) return void res.redirect(303, "/admin/people");
+    if (result.status === 401) return void res.redirect(303, "/");
+    if (result.status === 404) return void notFound(res);
+    return adminErasure(req, res, String(result.body.message ?? "The erasure was refused."));
   });
 
   // --- Wallet Provider anchors (ADR 0020) ----------------------------------------------------------

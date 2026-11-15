@@ -56,6 +56,7 @@ import {
   REGISTRATION_SERVICE,
   SANDBOX_ADMIN,
   SANDBOX_CERTIFICATES,
+  SANDBOX_ERASURE,
   SANDBOX_ISSUER,
   SANDBOX_PUBLIC,
   SANDBOX_SERVICE,
@@ -132,6 +133,7 @@ export class AppModule {
         { provide: SANDBOX_ISSUER, useValue: deps.services.sandboxIssuer },
         { provide: SANDBOX_ADMIN, useValue: deps.services.sandboxAdmin },
         { provide: SANDBOX_WALLET_PROVIDERS, useValue: deps.services.sandboxWalletProviders },
+        { provide: SANDBOX_ERASURE, useValue: deps.services.sandboxErasure },
         {
           provide: SANDBOX_PUBLIC,
           useValue:

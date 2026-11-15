@@ -14,11 +14,13 @@ import { ApiExcludeController } from "@nestjs/swagger";
 import { z } from "zod";
 import type { PlatformConfig } from "../config.js";
 import type { SandboxAdminService } from "../modules/sandbox/admin.service.js";
+import type { SandboxErasureService } from "../modules/sandbox/erasure.service.js";
 import type { SandboxService } from "../modules/sandbox/sandbox.service.js";
 import type { SandboxWalletProviderService } from "../modules/sandbox/wallet-provider.service.js";
 import {
   CONFIG_TOKEN,
   SANDBOX_ADMIN,
+  SANDBOX_ERASURE,
   SANDBOX_SERVICE,
   SANDBOX_WALLET_PROVIDERS,
 } from "../tokens.js";
@@ -40,7 +42,13 @@ export class SandboxAdminController {
     @Inject(CONFIG_TOKEN) private readonly config: PlatformConfig,
     @Inject(SANDBOX_SERVICE) private readonly sandbox: SandboxService | undefined,
     @Inject(SANDBOX_ADMIN) private readonly admin: SandboxAdminService | undefined,
+    @Inject(SANDBOX_ERASURE) private readonly erasure: SandboxErasureService | undefined,
   ) {}
+
+  private erasureService(): SandboxErasureService {
+    if (!this.erasure) throw PlatformError.notFound("Route");
+    return this.erasure;
+  }
 
   private async auth(secret: string | undefined, session: string | undefined) {
     const expected = this.config.SANDBOX_PORTAL_SECRET;
@@ -111,6 +119,43 @@ export class SandboxAdminController {
     const { context, admin } = await this.auth(secret, session);
     assertUuidPathParam("personId", personId);
     return admin.endSessions(context, personId);
+  }
+
+  @Get("people/:personId/erasure")
+  async erasurePreview(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("personId") personId: string,
+    @Query("override") override: string | undefined,
+  ) {
+    const { context } = await this.auth(secret, session);
+    assertUuidPathParam("personId", personId);
+    return this.erasureService().previewByOperator(context, personId, override === "true");
+  }
+
+  @Post("people/:personId/erase")
+  @HttpCode(200)
+  async erase(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("personId") personId: string,
+    @Body() body: unknown,
+  ) {
+    const { context } = await this.auth(secret, session);
+    assertUuidPathParam("personId", personId);
+    const input = z
+      .object({
+        reason: z.string().trim().min(3).max(200),
+        override: z.boolean().default(false),
+      })
+      .strict()
+      .parse(body ?? {});
+    return this.erasureService().eraseByOperator(
+      context,
+      personId,
+      input.reason,
+      input.override,
+    );
   }
 
   @Get("invitations")

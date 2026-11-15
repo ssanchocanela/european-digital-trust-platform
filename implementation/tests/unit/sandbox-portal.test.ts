@@ -974,3 +974,89 @@ describe("the portal: Wallet Providers (ADR 0020)", () => {
     });
   });
 });
+
+describe("the portal: leaving (ADR 0021)", () => {
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+  const PID = "ffffffff-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const plan = (allowed: boolean) => ({
+    organisations: [
+      {
+        tenantId: ORG,
+        localIdentifier: "SB:ES-000001",
+        role: "owner",
+        members: 2,
+        effect: allowed ? "kept" : "blocked",
+      },
+    ],
+    allowed,
+    backups: { dumpsDays: 14, serverImagesDays: 7 },
+  });
+
+  it("says what deletion does, and offers no form while a last-owner rule blocks it", async () => {
+    const { request } = await serve((_m, path) =>
+      path === "me/erasure" ? { status: 200, body: plan(false) } : { status: 404, body: {} },
+    );
+    const html = await (await request("/account/delete", { cookie })).text();
+    expect(html).toContain("cannot be undone");
+    expect(html).toContain("14 days");
+    expect(html).toContain("blocks the deletion");
+    expect(html).not.toContain('name="confirmEmail"');
+  });
+
+  it("sends the typed address, clears the session cookie, and says Access may still admit them", async () => {
+    const { request, calls } = await serve((_m, path) =>
+      path === "me/erase"
+        ? { status: 200, body: { erased: true, suspended: [] } }
+        : path === "me/erasure"
+          ? { status: 200, body: plan(true) }
+          : { status: 404, body: {} },
+    );
+    const res = await request("/account/delete", {
+      method: "POST",
+      cookie,
+      body: "confirmEmail=ana%40example.test",
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=;`))).toBe(
+      true,
+    );
+    expect(await res.text()).toContain("Cloudflare Access may still admit");
+    expect(calls.at(-1)).toMatchObject({
+      path: "me/erase",
+      body: { confirmEmail: "ana@example.test" },
+    });
+  });
+
+  it("lets the operator override a last owner, with a reason", async () => {
+    const { request, calls } = await serve((method, path) =>
+      path.startsWith(`admin/people/${PID}/erasure`)
+        ? {
+            status: 200,
+            body: {
+              displayName: "Ana",
+              email: "ana@example.test",
+              ...plan(path.endsWith("override=true")),
+            },
+          }
+        : method === "POST"
+          ? { status: 200, body: {} }
+          : { status: 404, body: {} },
+    );
+    const first = await (await request(`/admin/people/${PID}/erase`, { cookie })).text();
+    expect(first).toContain("override");
+    expect(first).not.toContain('name="reason"');
+    const overriding = await (
+      await request(`/admin/people/${PID}/erase?override=true`, { cookie })
+    ).text();
+    expect(overriding).toContain('name="reason"');
+    await request(`/admin/people/${PID}/erase?override=true`, {
+      method: "POST",
+      cookie,
+      body: "reason=erasure+request+by+e-mail",
+    });
+    expect(calls.at(-1)).toMatchObject({
+      path: `admin/people/${PID}/erase`,
+      body: { reason: "erasure request by e-mail", override: true },
+    });
+  });
+});

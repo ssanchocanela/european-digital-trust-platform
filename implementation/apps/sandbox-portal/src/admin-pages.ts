@@ -216,7 +216,8 @@ export function adminPeople(list: readonly PersonRow[]): string {
         (p) => `<tr><td>${e(p.displayName)}</td><td>${e(p.email || "—")}</td>
 <td>${p.organisations.map((o) => `${e(o.identifier)} (${e(o.role)})`).join("<br>") || "—"}</td>
 <td>${p.pidPresented ? "presented" : "—"}</td><td>${day(p.createdAt)}</td><td>${day(p.lastSignInAt)}</td>
-<td><form method="post" action="/admin/people/${e(p.id)}/end-sessions"><button class="secondary">End sessions</button></form></td></tr>`,
+<td><form method="post" action="/admin/people/${e(p.id)}/end-sessions"><button class="secondary">End sessions</button></form>
+<a href="/admin/people/${e(p.id)}/erase">Erase…</a></td></tr>`,
       ),
     ) +
       `<p class="muted">Ending sessions signs the person out of the sandbox now. To keep them out, also remove
@@ -320,5 +321,60 @@ ${table(
   head,
   others.map((a) => row(a, "")),
 )}`,
+  );
+}
+
+export interface AdminErasureView {
+  readonly displayName: string;
+  readonly email: string;
+  readonly organisations: readonly {
+    localIdentifier: string;
+    role: string;
+    members: number;
+    effect: "kept" | "suspended" | "blocked";
+  }[];
+  readonly allowed: boolean;
+  readonly backups: { dumpsDays: number; serverImagesDays: number };
+}
+
+/** The operator erases a person on a request received another way (ADR 0021 §1, §3). */
+export function adminErasureConfirm(
+  personId: string,
+  v: AdminErasureView,
+  override: boolean,
+  error?: string,
+): string {
+  const blocked = v.organisations.filter((o) => o.effect === "blocked");
+  return adminPage(
+    `Erase ${v.displayName}?`,
+    `<p>${e(v.email || "(no address)")}. Their account, memberships, sessions, the invitations they created and those
+addressed to them are erased. The audit trail keeps an identifier that then points at nobody. It cannot be undone.</p>
+${table(
+  ["Organisation", "Role", "Members", "What happens"],
+  v.organisations.map(
+    (o) =>
+      `<tr><td>${e(o.localIdentifier)}</td><td>${e(o.role)}</td><td>${e(o.members)}</td><td>${e(o.effect)}</td></tr>`,
+  ),
+)}
+${
+  blocked.length
+    ? `<p><strong>They are the last owner of ${e(blocked.length)} organisation(s) with other members.</strong> Ask them to
+make another member an owner, or <a href="/admin/people/${e(personId)}/erase?override=true">override</a>: the
+organisation is then suspended, and its other members lose it.</p>`
+    : ""
+}
+${error ? `<p role="alert"><strong>${e(error)}</strong></p>` : ""}
+${
+  v.allowed
+    ? `<form method="post" action="/admin/people/${e(personId)}/erase${override ? "?override=true" : ""}">
+<label for="reason">Reason (kept in the audit trail; no personal data)</label>
+<input id="reason" name="reason" required minlength="3" maxlength="200">
+<button>Erase</button></form>`
+    : ""
+}
+<p class="muted">Then remove ${e(v.email || "the address")} from the Cloudflare Access policy, or they can come back
+as a new person. Backups keep the data until they rotate: up to ${e(v.backups.dumpsDays)} days for the dumps,
+${e(v.backups.serverImagesDays)} for Hetzner's images.</p>
+<p><a href="/admin/people">Cancel</a></p>`,
   );
 }

@@ -52,8 +52,10 @@ They need to bring their wallets, and to see how Relying Parties and PID Provide
 - **What the platform refuses,** before anything is stored:
   - any input that contains a private key (`PRIVATE KEY` anywhere in it);
   - more than one certificate;
-  - a certificate that is not a CA: `basicConstraints` CA must be true, and `keyUsage` must include
-    `keyCertSign`;
+  - a certificate that is neither a CA nor a single attestation-signing certificate. A CA must have
+    `basicConstraints` CA true and `keyCertSign`. The engine matches a CA when the attestation's chain
+    ends at it, and matches any other certificate only as the exact signer, the "pinned leaf"
+    (`interop-findings.md` A36). Both are accepted; the portal says which it is;
   - an expired certificate, or one valid for more than 20 years;
   - a key other than EC P-256/P-384 or RSA ≥ 3072;
   - the sandbox's own CAs, and the anchors already on the list.
@@ -107,6 +109,25 @@ They need to bring their wallets, and to see how Relying Parties and PID Provide
   provider and build. It is never "the Reference Wallet". A result from a participant's wallet is that
   wallet's result.
 
+### 6b. What the engine checks, read in its source (15 November 2026)
+
+[`interop-findings.md`](../interop-findings.md) A36 and A37, at the pinned `v7.6.0`:
+
+- **One list serves both checks.** The engine checks the wallet's client attestation at the token
+  endpoint and the key attestation in the `attestation` proof at the credential endpoint, both
+  against the configured Wallet Provider lists. So the list in §4 is enough: nothing else needs
+  configuring per provider.
+- **The attestation must carry an `x5c` chain,** and the list entries must be of the `WalletSolution`
+  service type. A provider whose attestations name their key some other way (a `kid`, a trust chain
+  without `x5c`) is refused. The provider's guide must say so.
+- **A plain `jwt` proof would skip the check,** and is refused before that point, because the hosted
+  issuers advertise `attestation` only.
+- **A wallet attestation's status list is fetched by the engine outside its outbound URL policy**
+  (A37). A trusted provider can therefore make the engine send a GET to a URL of its choosing, which
+  can be an internal one. This is why operator approval (§3) is a security control and not only an
+  administrative one, and it is why R1 adds an egress rule. On the sandbox VM, the engine's container
+  may reach the public internet and `platform-api`, and no other private address.
+
 ### 7. What this ADR does not do
 
 - **Certify, test or rank wallets.** A tester that checks a wallet's own behaviour is a separate,
@@ -147,9 +168,12 @@ They need to bring their wallets, and to see how Relying Parties and PID Provide
 
 ## Open
 
-1. **Which wallet-attestation formats the pinned engine accepts** for issuance, and whether it checks
-   the attestation against the list for every format. To be read in the engine's source before
-   building, not assumed.
+1. ~~Which wallet-attestation formats the pinned engine accepts for issuance.~~ **Answered in §6b**
+   (A36): an `x5c`-signed client attestation and an `x5c`-signed key attestation, both checked against
+   the same lists. **Still to see with a wallet:** what the sandbox build actually sends. No sandbox
+   issuance run has happened yet.
+4. **The engine's status-list fetch (A37)** should go through its own outbound policy. That needs an
+   upstream issue; until it is fixed, the VM's egress rule is the control.
 2. **Whether a run report can name the wallet from the attestation itself,** rather than from what the
    participant states.
 3. **Whether Relying Parties should see wallet attestations too.** Some flows present them to

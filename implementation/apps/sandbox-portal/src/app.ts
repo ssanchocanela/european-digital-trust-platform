@@ -149,7 +149,10 @@ export function createApp(options: PortalOptions): express.Express {
   app.use((_req, res, next) => {
     res.setHeader("content-security-policy", CSP);
     res.setHeader("x-content-type-options", "nosniff");
-    res.setHeader("referrer-policy", "no-referrer");
+    // `same-origin`, not `no-referrer`: under `no-referrer` a browser sends `Origin: null` even on a
+    // form posted to this very site, which the origin check below then refuses. Nothing still goes
+    // to another site.
+    res.setHeader("referrer-policy", "same-origin");
     res.setHeader("cache-control", "no-store");
     next();
   });
@@ -172,9 +175,12 @@ export function createApp(options: PortalOptions): express.Express {
   // Second lock against cross-site form posts (the first is SameSite=Lax).
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.method !== "POST") return next();
+    // `Origin: null` is what a browser sends under a `no-referrer` policy, or from a privacy setting;
+    // then the browser's own `Sec-Fetch-Site`, which a page cannot set, decides.
+    const presented = req.get("origin");
     const fromHere =
-      req.get("origin") === origin ||
-      (!req.get("origin") && req.get("sec-fetch-site") === "same-origin");
+      presented === origin ||
+      ((!presented || presented === "null") && req.get("sec-fetch-site") === "same-origin");
     if (!fromHere) {
       res
         .status(403)
@@ -233,14 +239,18 @@ export function createApp(options: PortalOptions): express.Express {
     if (token) {
       const me = await api.call("GET", "me", { session: token });
       if (me.status === 200) {
-        const person = me.body.person as { displayName: string; pidPresented?: boolean };
+        const person = me.body.person as {
+          displayName: string;
+          email?: string;
+          pidPresented?: boolean;
+        };
         const memberships =
           (me.body.memberships as { organisationId: string; role: string }[]) ?? [];
         res.type("html").send(
           dashboard(
             person.displayName,
             memberships.map((m) => ({ id: m.organisationId, role: m.role })),
-            { pidPresented: Boolean(person.pidPresented) },
+            { pidPresented: Boolean(person.pidPresented), email: person.email ?? "" },
           ),
         );
         return;
@@ -260,7 +270,7 @@ export function createApp(options: PortalOptions): express.Express {
       res.redirect(303, "/");
       return;
     }
-    res.type("html").send(profileForm());
+    res.type("html").send(profileForm({ email: String(entered.body.email ?? "") }));
   });
 
   app.post("/profile", async (req, res) => {

@@ -138,7 +138,11 @@ export function message(title: string, text: string, status = "info"): string {
 }
 
 export function profileForm(
-  options: { readonly invitationToken?: string; readonly error?: string } = {},
+  options: {
+    readonly invitationToken?: string;
+    readonly error?: string;
+    readonly email?: string;
+  } = {},
 ): string {
   const joining = Boolean(options.invitationToken);
   const organisation = joining
@@ -155,6 +159,7 @@ certificate will carry a registration number you type: certificates carry a sand
     "Welcome",
     `${landing()}
 <h1>${joining ? "Join the organisation" : "Create your account"}</h1>
+${options.email ? `<p>Signed in through Cloudflare Access as <strong>${escapeHtml(options.email)}</strong>.</p>` : ""}
 ${options.error ? `<p role="alert"><strong>${escapeHtml(options.error)}</strong></p>` : ""}
 <form method="post" action="/profile">
 <label for="displayName">Your name, as others in the sandbox will see it</label>
@@ -172,7 +177,7 @@ export interface DashboardOrganisation {
 export function dashboard(
   displayName: string,
   organisations: readonly DashboardOrganisation[],
-  options: { readonly pidPresented?: boolean } = {},
+  options: { readonly pidPresented?: boolean; readonly email?: string } = {},
 ): string {
   const rows = organisations
     .map(
@@ -189,6 +194,7 @@ accepted, and the sandbox keeps only a pseudonymous identifier derived from it.<
   return page(
     "Your organisations",
     `<h1>Hello, ${escapeHtml(displayName)}</h1>
+${options.email ? `<p class="muted">Signed in through Cloudflare Access as ${escapeHtml(options.email)}.</p>` : ""}
 <h2>Your organisations</h2>
 ${organisations.length ? `<table><tr><th>Organisation</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
 <h2>Your PID</h2>

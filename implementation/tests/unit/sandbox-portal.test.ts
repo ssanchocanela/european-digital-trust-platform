@@ -209,6 +209,39 @@ describe("the portal: entering by the Access identity (ADR 0018)", () => {
     });
   });
 
+  it("accepts a form a browser posts with Origin: null under its own Sec-Fetch-Site, and sends a same-origin referrer policy", async () => {
+    const { request, calls } = await serve(entering("needs_profile"));
+    const page = await request("/");
+    expect(page.headers.get("referrer-policy")).toBe("same-origin");
+    const res = await request("/profile", {
+      method: "POST",
+      body: "displayName=Ana&legalName=A&tradeName=A&country=ES",
+      headers: { origin: "null", "sec-fetch-site": "same-origin" },
+    });
+    expect(res.status).toBe(303);
+    expect(calls.at(-1)?.path).toBe("access/profile");
+  });
+
+  it("refuses Origin: null when the browser says the form came from another site", async () => {
+    const { request, calls } = await serve(entering("needs_profile"));
+    const res = await request("/profile", {
+      method: "POST",
+      body: "displayName=Ana",
+      headers: { origin: "null", "sec-fetch-site": "cross-site" },
+    });
+    expect(res.status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("shows the address Access verified", async () => {
+    const { request } = await serve((_m, path) =>
+      path === "access/enter"
+        ? { status: 200, body: { outcome: "needs_profile", email: "ana@example.test" } }
+        : { status: 404, body: {} },
+    );
+    expect(await (await request("/")).text()).toContain("ana@example.test");
+  });
+
   it("refuses a form posted from another origin", async () => {
     const { request, calls } = await serve(entering("needs_profile"));
     const res = await request("/profile", {

@@ -167,6 +167,8 @@ services:
       # The whole portal is behind Cloudflare Access (ADR 0017); this is the second lock.
       SANDBOX_PORTAL_REQUIRE_ACCESS: "true"
       SANDBOX_PORTAL_WALLET_DIR: /wallet
+      # For links to the sandbox's public lists and its wallet guide (ADR 0020).
+      SANDBOX_PUBLIC_BASE_URL: ${SANDBOX_PUBLIC_BASE_URL:?}
     ports:
       - "127.0.0.1:3300:3300"
     volumes:

@@ -49,6 +49,8 @@ EDTP_BACKUP_HOLDS_LOCK=1 infra/sandbox-vm/nightly-backup.sh "pre-deploy-$tag" >/
 switch_to() {
   sed -i "s|^EDTP_IMAGE=.*|EDTP_IMAGE=$1|" .env
   "${C[@]}" up -d >/dev/null 2>&1
+  # A recreated network gets a new subnet: re-apply the egress rules for it (ADR 0020, A37).
+  sudo "$ROOT/infra/sandbox-vm/egress-rules.sh" apply >/dev/null 2>&1 || say "egress rules NOT applied"
   for _ in $(seq 1 45); do
     [ "$("${C[@]}" ps platform-api --format '{{.Health}}')" = healthy ] && return 0
     sleep 2

@@ -191,6 +191,13 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
     `systemctl enable --now edtp-sandbox-checks.timer edtp-sandbox-backup.timer`. Run
     `infra/sandbox-vm/nightly-backup.sh` once by hand and look at what it wrote.
 
+10b. **Egress rules** (ADR 0020, `interop-findings.md` A37). Install `files/edtp-sandbox-egress.service`
+    and run `systemctl enable --now edtp-sandbox-egress.service`. It applies the `EDTP-EGRESS` chain
+    at boot, and `deploy.sh` re-applies it on every deployment. Check it with
+    `sudo infra/sandbox-vm/egress-rules.sh check`, and from the engine's container that the metadata
+    service is refused:
+    `docker exec edtp-sandbox-eudiplo-1 node -e "fetch('http://169.254.169.254/').then(()=>console.log('REACHED'),()=>console.log('refused'))"`.
+
 11. **Deploying from GitHub** (a person):
     - create the GitHub environment `sandbox`:
       - the repository owner as its required reviewer;

@@ -1,7 +1,8 @@
 # ADR 0019 — The operator's section in the sandbox portal
 
-- **Status:** PROPOSED, 14 November 2026. Drafted at the user's request, after the first real browser
-  test of the deployed sandbox: "there should be an admin part".
+- **Status:** ACCEPTED, 15 November 2026, by the user, and built the same day (PR #52). Drafted on
+  14 November at the user's request, after the first real browser test of the deployed sandbox:
+  "there should be an admin part". **Not deployed yet.**
 - **Date:** 14 November 2026
 - **Amends:** [ADR 0018](0018-sandbox-sign-in-by-access-identity.md) Decision 6, "no operator role is
   created in the portal".
@@ -129,7 +130,7 @@ an audit record:
   - **The operator sees every participant's address.** The portal's help text says so.
   - **One more Access application** to keep in step with `SANDBOX_OPERATOR_EMAILS`. They are two lists
     of the same people. If they drift, the stricter one wins, which is safe but confusing.
-- **To change on acceptance:**
+- **Changed on acceptance** (done 15 November 2026):
   - ADR 0018 Decision 6;
   - the specification's J9;
   - `infra/sandbox-vm/` (`.env`, the README's Access step, the negative checks);

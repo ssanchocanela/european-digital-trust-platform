@@ -8,6 +8,29 @@ linked rather than repeated.
 
 ---
 
+## 15 November 2026 — **the operator's section: ADR 0019 accepted and built, not deployed**
+
+- **[ADR 0019](adr/0019-sandbox-operator-section.md), built in PR #52:** the portal's `/admin` for the
+  addresses in `SANDBOX_OPERATOR_EMAILS`.
+  - **Views:** an overview; organisations with quota use; one organisation's members, services,
+    certificates and invitations; people; pending invitations; the audit trail.
+  - **Actions:** suspend, revoke an invitation, end a person's sessions. Each is audited under the
+    operator's person id.
+  - **Anyone else gets `404`.**
+- **#52 also carries #51,** the fix for every portal form being refused: `Referrer-Policy:
+  no-referrer` makes browsers send `Origin: null`. That was found in the first real browser test on
+  14 November.
+- **To deploy it** (the user confirms first):
+  - merge #51 and #52;
+  - put the operator addresses in the VM's `.env`;
+  - create the `EDTP sandbox admin` Access application on `sandbox.murcata.es/admin`;
+  - deploy the image built from `main`.
+- **Still to do:** the first person through the portal's forms in a real browser, and any wallet run.
+  `status.md` on `main` still says ADR 0018 is not deployed: it was deployed on 14 November, image
+  `c72d9bd8ebec`.
+
+---
+
 ## 14 November 2026 — **sign-in by PID made optional: ADR 0018 accepted and built, not deployed**
 
 - **The user decided that signing in with a PID must not be mandatory.** Two reasons:

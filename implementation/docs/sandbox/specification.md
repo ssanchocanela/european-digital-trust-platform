@@ -214,6 +214,13 @@ engine is S5 work (plan).
 
 ### J9 — Operator
 
+*Built in the portal's `/admin` section by [ADR 0019](../adr/0019-sandbox-operator-section.md), 15 November
+2026:*
+- **seeing:** participants, people, invitations, quota use and the audit trail;
+- **acting:** suspending an organisation, revoking an invitation, ending a person's sessions.
+
+Brought-in anchors and key rotation are still to come.
+
 - **Approve or refuse a brought-in PID anchor** (v1.1).
 - **Suspend a participant.** Every certificate of the participant is revoked immediately — the
   sandbox's reading of `AS-MS-31-025`/`-026` (`RPACANot_06`/`RPACANot_07`) and of TS 119 411-8

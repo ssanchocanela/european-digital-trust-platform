@@ -110,7 +110,8 @@ export const PLATFORM_RULES: readonly Rule[] = [
     // the same closed set the controller accepts. `/sandbox/v1/*`, the portal's API, is not here.
     pattern: new RegExp(
       "^/sandbox/public/(" +
-        "lote/(PID|WRPAC|WRPRC)Providers\\.jwt" +
+        "lote/(PID|WRPAC|WRPRC|Wallet)Providers\\.jwt" +
+        "|wallets" +
         "|crl/access-ca(-untrusted)?\\.crl" +
         "|status/(registrar(-untrusted)?-signing|unavailable)" +
         "|ca/(access-ca|registrar|pid-ca)(-untrusted)?\\.cer" +

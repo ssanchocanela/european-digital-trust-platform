@@ -315,13 +315,13 @@ export function servicesSection(orgId: string, services: readonly ServiceSummary
   const rows = services
     .map(
       (s) =>
-        `<tr><td><a href="/org/${id}/services/${escapeHtml(s.relyingPartyServiceId)}">${escapeHtml(s.serviceIdentifier)}</a></td><td>${escapeHtml(s.serviceTradeName)}</td><td>${s.role === "pid_provider" ? "PID Provider" : "Relying Party"}</td></tr>`,
+        `<tr><td><a href="/org/${id}/services/${escapeHtml(s.relyingPartyServiceId)}">${escapeHtml(s.serviceIdentifier)}</a></td><td>${escapeHtml(s.serviceTradeName)}</td><td>${s.role === "pid_provider" ? "PID Provider" : s.role === "wallet_provider" ? "Wallet Provider" : "Relying Party"}</td></tr>`,
     )
     .join("");
   return `<h2>Services</h2>
 ${services.length ? `<table><tr><th>Id</th><th>Name</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
 <form method="post" action="/org/${id}/services">
-<label for="role">Role</label><select id="role" name="role"><option value="service_provider">Relying Party (Service_Provider)</option><option value="pid_provider">PID Provider (PID_Provider)</option></select>
+<label for="role">Role</label><select id="role" name="role"><option value="service_provider">Relying Party (Service_Provider)</option><option value="pid_provider">PID Provider (PID_Provider)</option><option value="wallet_provider">Wallet Provider</option></select>
 <label for="tradeName">Service trade name</label><input id="tradeName" name="tradeName" required maxlength="200">
 <label for="description">Description (English)</label><input id="description" name="description" required maxlength="500">
 <label for="supportUri">Support address (https:// or mailto:)</label><input id="supportUri" name="supportUri" required maxlength="500">
@@ -809,5 +809,67 @@ each build's notice names the upstream release, the modifications and the licenc
 issuer metadata and runs the issuer registration checks; <strong>sandbox</strong> does not (WD-2).</p>
 <table><thead><tr><th>Build</th><th>Profile</th><th>Deviations</th><th>Built</th><th>SHA-256</th><th>Terms</th></tr></thead>
 <tbody>${rows}</tbody></table>${terms}`,
+  );
+}
+
+export interface WalletProviderAnchorView {
+  readonly id: string;
+  readonly kind: "ca" | "signer";
+  readonly fingerprint: string;
+  readonly subject: string;
+  readonly notAfter: string;
+  readonly status: string;
+  readonly reason?: string;
+}
+
+/** A Wallet Provider service (ADR 0020): its anchors, upload, withdraw. */
+export function walletProviderPage(input: {
+  readonly orgId: string;
+  readonly service: ServiceSummary;
+  readonly anchors: readonly WalletProviderAnchorView[];
+  readonly owner: boolean;
+  /** The public "Use your wallet with the sandbox" page, when the portal knows the public base. */
+  readonly guideUrl?: string;
+  readonly error?: string;
+}): string {
+  const org = escapeHtml(input.orgId);
+  const sid = escapeHtml(input.service.relyingPartyServiceId);
+  const rows = input.anchors
+    .map(
+      (
+        a,
+      ) => `<tr><td>${escapeHtml(a.subject)}<br><small><code>${escapeHtml(a.fingerprint)}</code></small></td>
+<td>${a.kind === "ca" ? "CA" : "signing certificate"}</td><td>${escapeHtml(a.notAfter.slice(0, 10))}</td>
+<td>${escapeHtml(a.status)}${a.reason ? `<br><small>${escapeHtml(a.reason)}</small>` : ""}</td>
+<td>${
+        input.owner && (a.status === "PENDING" || a.status === "APPROVED")
+          ? `<form method="post" action="/org/${org}/services/${sid}/wallet-provider-anchors/${escapeHtml(a.id)}/withdraw"><button class="secondary">Withdraw</button></form>`
+          : ""
+      }</td></tr>`,
+    )
+    .join("");
+  return page(
+    "Wallet Provider",
+    `<h1>${escapeHtml(input.service.serviceTradeName)} <small>Wallet Provider</small></h1>
+<p>The sandbox's hosted PID issuers accept a wallet when its attestations chain to an anchor on the sandbox's
+${input.guideUrl ? `<a href="${escapeHtml(input.guideUrl)}">Wallet Providers list</a>` : "Wallet Providers list"}. Upload the <strong>public</strong> certificate your wallet
+attestations chain to (a CA) or are signed with. The operator approves it before it reaches the list. Never paste
+a private key: the sandbox refuses any input that contains one.</p>
+${input.error ? `<p role="alert"><strong>${escapeHtml(input.error)}</strong></p>` : ""}
+<h2>Anchors</h2>
+${rows ? `<div class="scroll"><table><tr><th>Certificate</th><th>Kind</th><th>Expires</th><th>Status</th><th></th></tr>${rows}</table></div>` : "<p>None yet.</p>"}
+${
+  input.owner
+    ? `<h2>Upload a certificate</h2>
+<form method="post" action="/org/${org}/services/${sid}/wallet-provider-anchors">
+<label for="certificatePem">PEM certificate (<code>-----BEGIN CERTIFICATE-----</code> …)</label>
+<textarea id="certificatePem" name="certificatePem" rows="10" required maxlength="20000"></textarea>
+<button>Upload for approval</button></form>
+<p class="muted">At most two at a time, current and next. Your wallet attestations must carry an <code>x5c</code>
+chain; the sandbox's issuers check both the client attestation and the key attestation against the list.</p>`
+    : '<p class="muted">Only an owner of the organisation can upload or withdraw anchors.</p>'
+}
+<p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true },
   );
 }

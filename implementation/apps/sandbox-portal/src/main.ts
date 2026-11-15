@@ -20,6 +20,7 @@ const schema = z.object({
     .transform((v) => v === "true"),
   /** The directory holding the wallet build and its wallet.json; unset, nothing is offered. */
   SANDBOX_PORTAL_WALLET_DIR: z.string().min(1).optional(),
+  SANDBOX_PUBLIC_BASE_URL: z.string().url().optional(),
 });
 
 function main(): void {
@@ -35,6 +36,9 @@ function main(): void {
     publicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
     api: httpApi(config.SANDBOX_PLATFORM_URL, config.SANDBOX_PORTAL_SECRET),
     requireAccess: config.SANDBOX_PORTAL_REQUIRE_ACCESS,
+    ...(config.SANDBOX_PUBLIC_BASE_URL
+      ? { publicBaseUrl: config.SANDBOX_PUBLIC_BASE_URL }
+      : {}),
     ...(config.SANDBOX_PORTAL_WALLET_DIR
       ? { walletDir: config.SANDBOX_PORTAL_WALLET_DIR }
       : {}),

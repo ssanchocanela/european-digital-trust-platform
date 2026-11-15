@@ -5,7 +5,8 @@ import type { Signer } from "./x509.js";
 
 /**
  * The sandbox's trust lists: ETSI TS 119 602 V1.1.1 LoTEs, Annexes D (PID providers), F (Access
- * CAs) and G (WRPRC providers), `docs/sandbox/specification.md` §7.3.
+ * CAs) and G (WRPRC providers), `docs/sandbox/specification.md` §7.3; and, since ADR 0020, a Wallet
+ * Providers list with the identifiers the notified EU list carries (read 15 November 2026).
  *
  * The shape is the notified lists' own, field for field, as published at
  * `trustedlist.serviceproviders.eudiw.dev` on 12 November 2026 — a hand-written list missing
@@ -54,6 +55,15 @@ export const LOTE_PROFILES: Readonly<Record<ListKind, KindProfile>> = {
     schemeRules: `${ETSI}/WRPRCProvidersList/schemerules/EU`,
     serviceType: `${ETSI}/SvcType/WRPRC`,
     subject: "registration certificate providers (WRPRC providers)",
+  },
+  WalletProviders: {
+    loteType: `${ETSI}/LoTEType/EUWalletProvidersList`,
+    statusDetermination: `${ETSI}/WalletProvidersList/StatusDetn/EU`,
+    schemeRules: `${ETSI}/WalletProvidersList/schemerules/EU`,
+    // The engine matches wallet attestations against `WalletSolution[/Issuance|/Revocation]`
+    // (`docs/interop-findings.md` A36).
+    serviceType: `${ETSI}/SvcType/WalletSolution`,
+    subject: "wallet providers",
   },
 };
 

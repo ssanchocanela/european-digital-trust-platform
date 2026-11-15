@@ -16,7 +16,13 @@ import { z } from "zod";
 import type { PlatformConfig } from "../config.js";
 import type { SandboxCertificateService } from "../modules/sandbox/certificates.service.js";
 import type { SandboxService } from "../modules/sandbox/sandbox.service.js";
-import { CONFIG_TOKEN, SANDBOX_CERTIFICATES, SANDBOX_SERVICE } from "../tokens.js";
+import type { SandboxWalletProviderService } from "../modules/sandbox/wallet-provider.service.js";
+import {
+  CONFIG_TOKEN,
+  SANDBOX_CERTIFICATES,
+  SANDBOX_SERVICE,
+  SANDBOX_WALLET_PROVIDERS,
+} from "../tokens.js";
 import { assertUuidPathParam, constantTimeEquals, Public } from "./auth.js";
 import { SANDBOX_PORTAL_SECRET_HEADER, SANDBOX_SESSION_HEADER } from "./sandbox.controllers.js";
 
@@ -50,7 +56,7 @@ const claimPath = z
 
 const serviceSchema = z
   .object({
-    role: z.enum(["service_provider", "pid_provider"]),
+    role: z.enum(["service_provider", "pid_provider", "wallet_provider"]),
     tradeName: z.string().trim().min(1).max(200),
     description: localised,
     supportUri,
@@ -246,5 +252,83 @@ export class SandboxCertificatesController {
     const { context, certificates } = await this.auth(secret, session, org);
     assertUuidPathParam("certificateId", id);
     return certificates.revoke(context, org, id);
+  }
+}
+
+const anchorSchema = z.object({ certificatePem: z.string().min(50).max(20_000) }).strict();
+
+/**
+ * A Wallet Provider service's anchors (ADR 0020): list, upload the public certificate, withdraw.
+ * Same access rule as the rest of `/sandbox/v1`; an owner uploads and withdraws.
+ */
+@ApiExcludeController()
+@Public()
+@Controller(
+  "sandbox/v1/organisations/:organisationId/services/:serviceId/wallet-provider-anchors",
+)
+export class SandboxWalletProviderController {
+  constructor(
+    @Inject(CONFIG_TOKEN) private readonly config: PlatformConfig,
+    @Inject(SANDBOX_SERVICE) private readonly sandbox: SandboxService | undefined,
+    @Inject(SANDBOX_WALLET_PROVIDERS)
+    private readonly walletProviders: SandboxWalletProviderService | undefined,
+  ) {}
+
+  private async auth(
+    secret: string | undefined,
+    session: string | undefined,
+    organisationId: string,
+    serviceId: string,
+  ) {
+    const expected = this.config.SANDBOX_PORTAL_SECRET;
+    if (!this.sandbox || !this.walletProviders || !expected)
+      throw PlatformError.notFound("Route");
+    if (!secret || !constantTimeEquals(secret, expected)) throw PlatformError.unauthenticated();
+    if (!session) throw PlatformError.unauthenticated();
+    assertUuidPathParam("organisationId", organisationId);
+    assertUuidPathParam("serviceId", serviceId);
+    return {
+      context: await this.sandbox.authenticate(session),
+      walletProviders: this.walletProviders,
+    };
+  }
+
+  @Get()
+  async list(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("organisationId") org: string,
+    @Param("serviceId") serviceId: string,
+  ) {
+    const { context, walletProviders } = await this.auth(secret, session, org, serviceId);
+    return walletProviders.anchors(context, org, serviceId);
+  }
+
+  @Post()
+  @HttpCode(201)
+  async upload(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("organisationId") org: string,
+    @Param("serviceId") serviceId: string,
+    @Body() body: unknown,
+  ) {
+    const { context, walletProviders } = await this.auth(secret, session, org, serviceId);
+    const { certificatePem } = anchorSchema.parse(body ?? {});
+    return walletProviders.upload(context, org, serviceId, certificatePem);
+  }
+
+  @Post(":anchorId/withdraw")
+  @HttpCode(204)
+  async withdraw(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("organisationId") org: string,
+    @Param("serviceId") serviceId: string,
+    @Param("anchorId") anchorId: string,
+  ) {
+    const { context, walletProviders } = await this.auth(secret, session, org, serviceId);
+    assertUuidPathParam("anchorId", anchorId);
+    await walletProviders.withdraw(context, org, serviceId, anchorId);
   }
 }

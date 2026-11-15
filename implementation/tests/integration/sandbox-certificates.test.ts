@@ -313,7 +313,8 @@ describe("registration certificates", () => {
 
 describe("publications", () => {
   it("publishes every channel once, and nothing again until content changes", async () => {
-    expect(await s.publications.publishAll()).toBe(7);
+    // Two CRLs, two status lists, four lists (WRPAC, WRPRC, PID, WalletProviders — ADR 0020).
+    expect(await s.publications.publishAll()).toBe(8);
     expect(await s.publications.publishAll()).toBe(0);
     const lote = decodeCompactJws((await s.publications.latest("lote:WRPAC"))?.body ?? "");
     expect(JSON.stringify(lote.payload)).toContain(

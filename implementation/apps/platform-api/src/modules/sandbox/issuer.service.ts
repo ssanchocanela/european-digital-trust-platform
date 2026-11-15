@@ -12,6 +12,7 @@ import type {
   SandboxCertificateRepository,
   SandboxIssuerRepository,
   SandboxRepository,
+  SandboxWalletProviderRepository,
 } from "@edtp/persistence";
 import {
   basicConstraints,
@@ -139,7 +140,60 @@ export class SandboxIssuerService {
     private readonly domain: SandboxTrustDomain,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    /** Participants' approved anchors (ADR 0020). Absent: the operator's files only. */
+    private readonly walletProviders?: SandboxWalletProviderRepository,
   ) {}
+
+  /**
+   * What the hosted issuers trust as Wallet Providers: the anchors the operator placed (the EU
+   * development Wallet Providers), and every approved participant anchor of an active organisation —
+   * the same set the published `WalletProviders` list carries.
+   */
+  private async walletProviderAnchors() {
+    const operator = this.domain.walletProviderAnchors.map((a) => ({
+      name: a.name,
+      certificatePem: toPem(a.certificate, "CERTIFICATE"),
+    }));
+    const participants = this.walletProviders
+      ? (await this.walletProviders.listed(this.clock.now())).map((a) => ({
+          name: `${a.organisation} — ${a.subject}`.slice(0, 200),
+          certificatePem: toPem(Buffer.from(a.certificateDer, "base64"), "CERTIFICATE"),
+        }))
+      : [];
+    return [...operator, ...participants];
+  }
+
+  /**
+   * Rewrite every hosted issuer's Wallet Provider list from the current set (ADR 0020 §4), after an
+   * approval, a withdrawal or a suspension. One issuer failing does not stop the others; it is logged
+   * by the caller's audit trail and retried at the next change or sweep.
+   */
+  async refreshWalletProviders(): Promise<{
+    readonly refreshed: number;
+    readonly failed: number;
+  }> {
+    const listId = this.settings.walletProviderTrustListId;
+    if (!listId || !this.verifierProvisioning.upsertIssuerTrustList) {
+      return { refreshed: 0, failed: 0 };
+    }
+    const issuers = await this.walletProviderAnchors();
+    let refreshed = 0;
+    let failed = 0;
+    for (const ref of await this.repository.allEngineTenantRefs()) {
+      try {
+        await this.verifierProvisioning.upsertIssuerTrustList(ref, {
+          listId,
+          description: "Wallet Providers trusted by the sandbox (TEST)",
+          providerType: "wallet-provider",
+          issuers,
+        });
+        refreshed++;
+      } catch {
+        failed++;
+      }
+    }
+    return { refreshed, failed };
+  }
 
   private async providerOf(context: SignedInContext, orgId: string, serviceId: string) {
     const membership = await this.sandbox.activeMembershipIn(context, orgId);
@@ -209,7 +263,8 @@ export class SandboxIssuerService {
   private async loadWalletProviders(engineTenantRef: string) {
     const listId = this.settings.walletProviderTrustListId;
     if (!listId) return; // the adapter then requires no wallet attestation
-    if (this.domain.walletProviderAnchors.length === 0) {
+    const anchors = await this.walletProviderAnchors();
+    if (anchors.length === 0) {
       throw PlatformError.conflict(
         "sandbox_wallet_providers_missing",
         "The issuer requires wallet attestation, and the sandbox holds no Wallet Provider anchors.",
@@ -255,12 +310,9 @@ export class SandboxIssuerService {
     });
     await this.verifierProvisioning.upsertIssuerTrustList(engineTenantRef, {
       listId,
-      description: "EUDI development Wallet Providers, carried by the sandbox (TEST)",
+      description: "Wallet Providers trusted by the sandbox (TEST)",
       providerType: "wallet-provider",
-      issuers: this.domain.walletProviderAnchors.map((a) => ({
-        name: a.name,
-        certificatePem: toPem(a.certificate, "CERTIFICATE"),
-      })),
+      issuers: anchors,
     });
   }
 

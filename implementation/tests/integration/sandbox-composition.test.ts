@@ -76,6 +76,19 @@ describe("the composed sandbox", () => {
     expect((await fetch(`${base}/sandbox/public/status/registrar-signing`)).status).toBe(200);
     expect((await fetch(`${base}/sandbox/public/status/unavailable`)).status).toBe(503);
     expect((await fetch(`${base}/sandbox/public/cps`)).status).toBe(200);
+    // The fourth list and the guide that points a wallet at all four (ADR 0020).
+    const wp = await fetch(`${base}/sandbox/public/lote/WalletProviders.jwt`);
+    expect(wp.status).toBe(200);
+    const wpList = decodeCompactJws(await wp.text()).payload as {
+      LoTE: { ListAndSchemeInformation: { LoTEType: string } };
+    };
+    expect(wpList.LoTE.ListAndSchemeInformation.LoTEType).toBe(
+      "http://uri.etsi.org/19602/LoTEType/EUWalletProvidersList",
+    );
+    const guide = await (await fetch(`${base}/sandbox/public/wallets`)).text();
+    expect(guide).toContain("https://sandbox.test/sandbox/public/lote/WalletProviders.jwt");
+    expect(guide).toMatch(/SHA-256 of its DER, base64url: [A-Za-z0-9_-]{43}/);
+    expect(guide).toContain("MODIFIED wallet");
     expect(
       (await fetch(`${base}/sandbox/public/ca/registrar.cer`)).headers.get("content-type"),
     ).toContain("pkix-cert");

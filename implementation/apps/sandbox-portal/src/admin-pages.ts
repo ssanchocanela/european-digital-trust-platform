@@ -9,7 +9,8 @@ const day = (iso: string | null | undefined) =>
   iso ? e(iso.slice(0, 16).replace("T", " ")) : "—";
 
 const NAV = `<nav class="admin"><a href="/admin">Overview</a><a href="/admin/organisations">Organisations</a>
-<a href="/admin/people">People</a><a href="/admin/invitations">Invitations</a><a href="/admin/audit">Audit trail</a>
+<a href="/admin/people">People</a><a href="/admin/invitations">Invitations</a>
+<a href="/admin/wallet-providers">Wallet Providers</a><a href="/admin/audit">Audit trail</a>
 <a href="/">Back to the portal</a></nav>`;
 
 const adminPage = (title: string, body: string) =>
@@ -275,6 +276,49 @@ ${table(
     ) => `<tr><td>${day(a.at)}</td><td>${e(a.organisation ?? "—")}</td><td><code>${e(a.actor)}</code></td>
 <td>${e(a.action)}${a.outcome ? ` (${e(a.outcome)})` : ""}</td><td>${e(a.subjectType)} <code>${e(a.subjectId ?? "")}</code></td></tr>`,
   ),
+)}`,
+  );
+}
+
+export interface AdminAnchorRow {
+  readonly id: string;
+  readonly organisation: string;
+  readonly organisationStatus: string;
+  readonly kind: "ca" | "signer";
+  readonly fingerprint: string;
+  readonly subject: string;
+  readonly notAfter: string;
+  readonly status: string;
+  readonly reason?: string;
+  readonly createdAt: string;
+}
+
+/** Wallet Provider anchors awaiting a decision, and the rest (ADR 0020 §3). */
+export function adminWalletProviders(list: readonly AdminAnchorRow[]): string {
+  const pending = list.filter((a) => a.status === "PENDING");
+  const others = list.filter((a) => a.status !== "PENDING");
+  const row = (a: AdminAnchorRow, actions: string) =>
+    `<tr><td>${e(a.organisation)}${a.organisationStatus !== "ACTIVE" ? ` <span class="status-SUSPENDED">${e(a.organisationStatus)}</span>` : ""}</td>
+<td>${e(a.subject)}<br><small><code>${e(a.fingerprint)}</code></small></td><td>${a.kind === "ca" ? "CA" : "signer"}</td>
+<td>${day(a.notAfter)}</td><td>${e(a.status)}${a.reason ? `<br><small>${e(a.reason)}</small>` : ""}</td><td>${actions}</td></tr>`;
+  const decide = (a: AdminAnchorRow) =>
+    `<form method="post" action="/admin/wallet-providers/${e(a.id)}/approve"><button>Approve</button></form>
+<form method="post" action="/admin/wallet-providers/${e(a.id)}/refuse"><input name="reason" required minlength="3" maxlength="200" placeholder="Reason, shown to the provider"><button class="secondary">Refuse</button></form>`;
+  const head = ["Organisation", "Certificate", "Kind", "Expires", "Status", ""];
+  return adminPage(
+    "Wallet Providers",
+    `<p class="muted">An approved anchor goes on the sandbox's Wallet Providers list, and every hosted PID issuer then
+accepts wallets whose attestations chain to it. A trusted provider can also make the engine fetch a URL of its
+choosing (<code>interop-findings.md</code> A37), so approve only providers you know.</p>
+<h2>Waiting for a decision</h2>
+${table(
+  head,
+  pending.map((a) => row(a, decide(a))),
+)}
+<h2>Decided</h2>
+${table(
+  head,
+  others.map((a) => row(a, "")),
 )}`,
   );
 }

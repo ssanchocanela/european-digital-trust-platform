@@ -908,3 +908,69 @@ describe("the portal: the operator's section (ADR 0019)", () => {
     expect(participantPage).not.toContain('href="/admin"');
   });
 });
+
+describe("the portal: Wallet Providers (ADR 0020)", () => {
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+  const SID = "dddddddd-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const AID = "eeeeeeee-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const wpScript: Script = (method, path) => {
+    if (path === `organisations/${ORG}/services/${SID}`)
+      return {
+        status: 200,
+        body: {
+          relyingPartyServiceId: SID,
+          serviceIdentifier: "S001",
+          serviceTradeName: "<b>Wallet</b>",
+          role: "wallet_provider",
+        },
+      };
+    if (path === `organisations/${ORG}`) return { status: 200, body: { role: "owner" } };
+    if (path.endsWith("/wallet-provider-anchors") && method === "GET")
+      return {
+        status: 200,
+        body: [
+          {
+            id: AID,
+            kind: "ca",
+            fingerprint: "ab".repeat(32),
+            subject: "CN=<script>",
+            notAfter: "2027-11-15T00:00:00Z",
+            status: "PENDING",
+          },
+        ] as unknown as Record<string, unknown>,
+      };
+    if (path.endsWith("/wallet-provider-anchors")) return { status: 201, body: {} };
+    if (path.startsWith("admin/wallet-provider-anchors/")) return { status: 204, body: {} };
+    return { status: 404, body: {} };
+  };
+
+  it("shows a Wallet Provider service its anchors, escaped, and no certificate forms", async () => {
+    const { request } = await serve(wpScript);
+    const html = await (await request(`/org/${ORG}/services/${SID}`, { cookie })).text();
+    expect(html).toContain("&lt;b&gt;Wallet&lt;/b&gt;");
+    expect(html).toContain("CN=&lt;script&gt;");
+    expect(html).toContain("Upload for approval");
+    expect(html).not.toContain("access-certificates");
+  });
+
+  it("sends the uploaded PEM to the platform, and the operator's decisions", async () => {
+    const { request, calls } = await serve(wpScript);
+    const pem = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----";
+    const res = await request(`/org/${ORG}/services/${SID}/wallet-provider-anchors`, {
+      method: "POST",
+      cookie,
+      body: `certificatePem=${encodeURIComponent(pem)}`,
+    });
+    expect(res.status).toBe(303);
+    expect(calls.find((c) => c.method === "POST")?.body).toEqual({ certificatePem: pem });
+    await request(`/admin/wallet-providers/${AID}/refuse`, {
+      method: "POST",
+      cookie,
+      body: "reason=unknown+provider",
+    });
+    expect(calls.at(-1)).toMatchObject({
+      path: `admin/wallet-provider-anchors/${AID}/refuse`,
+      body: { reason: "unknown provider" },
+    });
+  });
+});

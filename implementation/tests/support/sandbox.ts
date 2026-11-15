@@ -19,6 +19,7 @@ import { SandboxService } from "../../apps/platform-api/src/modules/sandbox/sand
 import { SandboxTrustDomain } from "../../apps/platform-api/src/modules/sandbox/trust-domain.runtime.js";
 import { sandboxUrls } from "../../apps/platform-api/src/modules/sandbox/urls.js";
 import { SandboxVerifierService } from "../../apps/platform-api/src/modules/sandbox/verifier.service.js";
+import { SandboxWalletProviderService } from "../../apps/platform-api/src/modules/sandbox/wallet-provider.service.js";
 import type { Harness } from "./harness.js";
 import { seedTenant } from "./seed.js";
 
@@ -144,6 +145,7 @@ export async function wireSandbox(
     urls,
     harness.clock,
     harness.deps.logger,
+    harness.deps.repositories.sandboxWalletProviders,
   );
   const certificates = new SandboxCertificateService(
     sandbox,
@@ -249,8 +251,23 @@ export async function wireSandbox(
         domain,
         harness.deps.services.audit,
         harness.clock,
+        harness.deps.repositories.sandboxWalletProviders,
       )
     : undefined;
+  if (issuer) {
+    publications.onPublished = async (channel) => {
+      if (channel === "lote:WalletProviders") await issuer.refreshWalletProviders();
+    };
+  }
+  const walletProviders = new SandboxWalletProviderService(
+    sandbox,
+    harness.deps.repositories.sandboxCertificates,
+    harness.deps.repositories.sandboxWalletProviders,
+    domain,
+    publications,
+    harness.deps.services.audit,
+    harness.clock,
+  );
 
   const metadata = harness.issuer
     ? new SandboxMetadataService(
@@ -275,6 +292,7 @@ export async function wireSandbox(
   return {
     sandbox,
     admin,
+    walletProviders,
     domain,
     urls,
     publications,

@@ -259,6 +259,13 @@ export class SandboxCertificateService {
     const org = await this.organisationOf(context, tenantId);
     const service = await this.repository.service(org.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
+    // ADR 0020 §1: a Wallet Provider service needs no access or registration certificate.
+    if (service.role === "wallet_provider") {
+      throw PlatformError.conflict(
+        "sandbox_not_for_wallet_providers",
+        "A Wallet Provider service takes no access or registration certificate.",
+      );
+    }
     await this.assertCertificateQuota(org.tenantId, serviceId);
     const dnsNames = [...new Set(input.dnsNames.map((d) => d.trim().toLowerCase()))];
     if (dnsNames.length === 0 || dnsNames.length > 5 || !dnsNames.every(isAcceptableDnsName)) {
@@ -326,6 +333,13 @@ export class SandboxCertificateService {
     const org = await this.organisationOf(context, tenantId);
     const service = await this.repository.service(org.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
+    // ADR 0020 §1: a Wallet Provider service needs no access or registration certificate.
+    if (service.role === "wallet_provider") {
+      throw PlatformError.conflict(
+        "sandbox_not_for_wallet_providers",
+        "A Wallet Provider service takes no access or registration certificate.",
+      );
+    }
     await this.assertCertificateQuota(org.tenantId, serviceId);
     const info = WRPRC_VARIANT_INFO[input.variant];
     if (info.appliesTo !== "both" && info.appliesTo !== service.role) {
@@ -482,6 +496,9 @@ export class SandboxCertificateService {
       await this.revokeRecord(record, at);
       revoked++;
     }
+    // Its Wallet Provider anchors leave the list with it (ADR 0020 §3): the list carries only active
+    // organisations' anchors, so republishing is enough.
+    await this.publications.publishIfNeeded("lote:WalletProviders");
     await this.audit.record({
       tenantId: organisation.tenantId,
       actor,
@@ -602,7 +619,7 @@ export class SandboxCertificateService {
         ? new X509Certificate(access.body)
         : syntheticBindingCertificate(this.domain),
       at: now,
-      kind: service?.role ?? "service_provider",
+      kind: service?.role === "pid_provider" ? "pid_provider" : "service_provider",
       statusOf: (uri) =>
         uri === this.urls.unavailableStatus
           ? "unreachable"

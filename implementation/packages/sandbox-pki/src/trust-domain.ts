@@ -30,7 +30,9 @@ export const SANDBOX_ORGANISATION = "EDTP Sandbox - TEST ONLY";
 /** ETSI TS 119 602 §6.8: the list signer's C and O match the scheme territory and operator. */
 export const SANDBOX_TERRITORY = "EU";
 
-export type ListKind = "WRPAC" | "WRPRC" | "PID";
+/** The sandbox's four lists. `WalletProviders` carries no sandbox CA: its entries are the EU
+ * development Wallet Providers the operator places, and participants' approved anchors (ADR 0020). */
+export type ListKind = "WRPAC" | "WRPRC" | "PID" | "WalletProviders";
 
 export interface DomainMember {
   /** The key's name in the store, and the certificate's file name. */

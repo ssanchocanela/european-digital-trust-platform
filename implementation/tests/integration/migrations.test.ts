@@ -121,6 +121,7 @@ describe("migrations", () => {
         "sandbox_sign_in_attempts",
         "sandbox_verifier_uses",
         "sandbox_verifiers",
+        "sandbox_wallet_provider_anchors",
       ].sort(),
     );
   });

@@ -1122,6 +1122,35 @@ export const sandboxPublications = pgTable(
 
 // --- sandbox hosted verifier (S4) -----------------------------------------------------
 
+/** Wallet Provider anchors (ADR 0020): public certificates only, operator-approved. */
+export const sandboxWalletProviderAnchors = pgTable(
+  "sandbox_wallet_provider_anchors",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .notNull()
+      .references(() => sandboxServices.relyingPartyServiceId, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    certificateDer: text("certificate_der").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    subject: text("subject").notNull(),
+    notAfter: ts("not_after").notNull(),
+    status: text("status").notNull(),
+    reason: text("reason"),
+    createdAt: ts("created_at").notNull(),
+    decidedAt: ts("decided_at"),
+  },
+  (t) => [
+    index("sandbox_wallet_provider_anchors_service_idx").on(
+      t.tenantId,
+      t.relyingPartyServiceId,
+    ),
+  ],
+);
+
 export const sandboxVerifiers = pgTable(
   "sandbox_verifiers",
   {

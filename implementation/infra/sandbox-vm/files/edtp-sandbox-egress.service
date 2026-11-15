@@ -1,0 +1,13 @@
+[Unit]
+Description=EDTP sandbox: egress rules for the sandbox's containers (ADR 0020, interop-findings A37)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The stack may still be starting at boot: retry until its network exists.
+ExecStart=/bin/bash -c 'for i in $(seq 1 30); do /home/edtp/edtp/implementation/infra/sandbox-vm/egress-rules.sh apply && exit 0; sleep 10; done; exit 1'
+
+[Install]
+WantedBy=multi-user.target

@@ -112,6 +112,14 @@ export class SandboxIssuerRepository {
   }
 
   /** The issuer an engine tenant serves, across organisations: for the public metadata route. */
+  /** Every hosted issuer's engine tenant, to rewrite their Wallet Provider lists (ADR 0020 §4). */
+  async allEngineTenantRefs(): Promise<string[]> {
+    const rows = await this.db
+      .select({ ref: sandboxIssuers.engineTenantRef })
+      .from(sandboxIssuers);
+    return rows.map((r) => r.ref);
+  }
+
   async issuerByEngineTenant(
     engineTenantRef: string,
   ): Promise<SandboxIssuerRecord | undefined> {

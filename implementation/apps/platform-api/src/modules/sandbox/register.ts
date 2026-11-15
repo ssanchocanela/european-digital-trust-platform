@@ -45,40 +45,44 @@ export class SandboxRegister {
       isPSB: org.isPublicSectorBody,
       registryURI: this.urls.registryEntry(org.localIdentifier),
       verified: false,
-      services: org.services.map((s) => ({
-        serviceTradeName: s.serviceTradeName,
-        serviceIdentifier: s.serviceIdentifier,
-        supportURI: s.supportUri,
-        srvDescription: s.description.map((d) => ({ lang: d.lang, content: d.value })),
-        entitlements: [
-          s.role === "pid_provider" ? ENTITLEMENT_PID_PROVIDER : ENTITLEMENT_SERVICE_PROVIDER,
-        ],
-        providesAttestations:
-          s.role === "pid_provider" ? [{ format: "dc+sd-jwt", type: PID_TYPE_SD_JWT }] : [],
-        intendedUses: s.intendedUses.map((u) => ({
-          intendedUseIdentifier: u.intendedUseIdentifier,
-          purpose: (u.purpose as { lang: string; value: string }[]).map((p) => ({
-            lang: p.lang,
-            content: p.value,
-          })),
-          privacyPolicy: (u.privacyPolicyUris as { lang: string; value: string }[]).map(
-            (p) => ({
-              type: "privacy-policy",
-              policyURI: p.value,
-            }),
-          ),
-          createdAt: u.validFrom.toISOString(),
-          ...(u.revokedAt ? { revokedAt: u.revokedAt.toISOString() } : {}),
-          credentials: (u.registeredCredentials as RegisteredCredential[]).map((c) => ({
-            format: c.format,
-            meta: credentialMeta(
-              c.format,
-              c.format === "dc+sd-jwt" ? (c.vctValues ?? []) : [c.doctype ?? ""],
+      // A Wallet Provider is not a wallet-relying party: it has no entitlement in this register, and
+      // is listed on the Wallet Providers list instead (ADR 0020 §1).
+      services: org.services
+        .filter((s) => s.role !== "wallet_provider")
+        .map((s) => ({
+          serviceTradeName: s.serviceTradeName,
+          serviceIdentifier: s.serviceIdentifier,
+          supportURI: s.supportUri,
+          srvDescription: s.description.map((d) => ({ lang: d.lang, content: d.value })),
+          entitlements: [
+            s.role === "pid_provider" ? ENTITLEMENT_PID_PROVIDER : ENTITLEMENT_SERVICE_PROVIDER,
+          ],
+          providesAttestations:
+            s.role === "pid_provider" ? [{ format: "dc+sd-jwt", type: PID_TYPE_SD_JWT }] : [],
+          intendedUses: s.intendedUses.map((u) => ({
+            intendedUseIdentifier: u.intendedUseIdentifier,
+            purpose: (u.purpose as { lang: string; value: string }[]).map((p) => ({
+              lang: p.lang,
+              content: p.value,
+            })),
+            privacyPolicy: (u.privacyPolicyUris as { lang: string; value: string }[]).map(
+              (p) => ({
+                type: "privacy-policy",
+                policyURI: p.value,
+              }),
             ),
-            claims: c.claims.map((path) => ({ path })),
+            createdAt: u.validFrom.toISOString(),
+            ...(u.revokedAt ? { revokedAt: u.revokedAt.toISOString() } : {}),
+            credentials: (u.registeredCredentials as RegisteredCredential[]).map((c) => ({
+              format: c.format,
+              meta: credentialMeta(
+                c.format,
+                c.format === "dc+sd-jwt" ? (c.vctValues ?? []) : [c.doctype ?? ""],
+              ),
+              claims: c.claims.map((path) => ({ path })),
+            })),
           })),
         })),
-      })),
     }));
   }
 

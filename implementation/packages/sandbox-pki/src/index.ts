@@ -11,6 +11,7 @@ export * from "./pid-signing.js";
 export * from "./status-list.js";
 export * from "./trust-domain.js";
 export * from "./validate.js";
+export * from "./wallet-provider-anchor.js";
 export * from "./wrpac.js";
 export * from "./wrprc.js";
 export * from "./x509.js";

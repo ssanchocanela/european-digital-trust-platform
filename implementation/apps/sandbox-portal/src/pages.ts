@@ -37,6 +37,8 @@ table{width:100%;border-collapse:collapse;margin:.5rem 0}td,th{text-align:left;p
 code,.secret{font-family:ui-monospace,monospace;word-break:break-all}
 .secret{display:block;padding:.75rem;border:1px dashed var(--line);border-radius:6px;margin:.5rem 0}
 .qr{max-width:16rem}.qr svg{width:100%;height:auto;background:#fff}
+.scroll{overflow-x:auto}.scroll table{min-width:36rem;font-size:.9rem}nav.admin a{margin-right:1rem}
+.status-SUSPENDED{color:var(--warn);font-weight:600}
 `;
 
 const BANNER =
@@ -177,7 +179,11 @@ export interface DashboardOrganisation {
 export function dashboard(
   displayName: string,
   organisations: readonly DashboardOrganisation[],
-  options: { readonly pidPresented?: boolean; readonly email?: string } = {},
+  options: {
+    readonly pidPresented?: boolean;
+    readonly email?: string;
+    readonly operator?: boolean;
+  } = {},
 ): string {
   const rows = organisations
     .map(
@@ -195,6 +201,7 @@ accepted, and the sandbox keeps only a pseudonymous identifier derived from it.<
     "Your organisations",
     `<h1>Hello, ${escapeHtml(displayName)}</h1>
 ${options.email ? `<p class="muted">Signed in through Cloudflare Access as ${escapeHtml(options.email)}.</p>` : ""}
+${options.operator ? `<p><a class="button" href="/admin">Operator</a></p>` : ""}
 <h2>Your organisations</h2>
 ${organisations.length ? `<table><tr><th>Organisation</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
 <h2>Your PID</h2>

@@ -793,3 +793,118 @@ describe("the organisation page, end to end through its route", () => {
     expect(html).toContain(`/org/${ORG}/runs/${RUN}`);
   });
 });
+
+describe("the portal: the operator's section (ADR 0019)", () => {
+  const cookie = `${SESSION_COOKIE}=${SESSION}`;
+  const OVERVIEW = {
+    activeOrganisations: 2,
+    suspendedOrganisations: 1,
+    people: 3,
+    pendingInvitations: 1,
+    certificates: 5,
+    revokedCertificates: 1,
+    runsLastDay: 4,
+    offersLastDay: 0,
+  };
+
+  it("shows nothing but a 404 when the platform says the person is not an operator", async () => {
+    const { request, calls } = await serve(() => ({ status: 404, body: {} }));
+    for (const path of ["/admin", "/admin/organisations", "/admin/people", "/admin/audit"]) {
+      const res = await request(path, { cookie });
+      expect(res.status, path).toBe(404);
+      expect(await res.text()).not.toContain("Overview");
+    }
+    expect(calls.every((c) => c.path.startsWith("admin/") && c.session === SESSION)).toBe(true);
+  });
+
+  it("renders the overview for an operator, and escapes what it shows", async () => {
+    const { request } = await serve((_m, path) =>
+      path === "admin/organisations"
+        ? {
+            status: 200,
+            body: {
+              organisations: [
+                {
+                  tenantId: ORG,
+                  localIdentifier: "SB:ES-000001",
+                  legalName: "<b>Evil</b>",
+                  country: "ES",
+                  status: "SUSPENDED",
+                  createdAt: "2026-11-14T10:00:00Z",
+                  members: 1,
+                  services: 2,
+                  verifiers: 1,
+                  issuers: 0,
+                  certificates: 3,
+                },
+              ],
+              quotas: { servicesPerOrganisation: 10 },
+            },
+          }
+        : path === "admin/overview"
+          ? { status: 200, body: OVERVIEW }
+          : { status: 404, body: {} },
+    );
+    expect(await (await request("/admin", { cookie })).text()).toContain(
+      "Certificates revoked",
+    );
+    const list = await (await request("/admin/organisations", { cookie })).text();
+    expect(list).toContain("&lt;b&gt;Evil&lt;/b&gt;");
+    expect(list).toContain("2 / 10");
+  });
+
+  it("asks for confirmation, then sends the reason to suspend", async () => {
+    const detail = {
+      organisation: {
+        tenantId: ORG,
+        localIdentifier: "SB:ES-000001",
+        legalName: "Banco",
+        country: "ES",
+        status: "ACTIVE",
+        createdAt: "2026-11-14T10:00:00Z",
+      },
+      members: [],
+      services: [],
+      certificates: [],
+      invitations: [],
+      quotas: {},
+    };
+    const { request, calls } = await serve((method, path) => {
+      if (path === `admin/organisations/${ORG}` && method === "GET")
+        return { status: 200, body: detail };
+      if (path === `admin/organisations/${ORG}/suspend`) return { status: 200, body: {} };
+      return { status: 404, body: {} };
+    });
+    const confirm = await (
+      await request(`/admin/organisations/${ORG}/suspend`, { cookie })
+    ).text();
+    expect(confirm).toContain("There is no undo");
+    const res = await request(`/admin/organisations/${ORG}/suspend`, {
+      method: "POST",
+      cookie,
+      body: "reason=abuse+of+the+quota",
+    });
+    expect(res.status).toBe(303);
+    expect(calls.at(-1)).toMatchObject({
+      method: "POST",
+      path: `admin/organisations/${ORG}/suspend`,
+      session: SESSION,
+      body: { reason: "abuse of the quota" },
+    });
+  });
+
+  it("links the section from the dashboard for operators only", async () => {
+    const me =
+      (operator: boolean): Script =>
+      (_m, path) =>
+        path === "me"
+          ? { status: 200, body: { person: { displayName: "Ana", operator }, memberships: [] } }
+          : { status: 404, body: {} };
+    const operatorPage = await (await (await serve(me(true))).request("/", { cookie })).text();
+    expect(operatorPage).toContain('href="/admin"');
+    const participantPage = await (
+      await (await serve(me(false))).request("/", { cookie })
+    ).text();
+    expect(participantPage).not.toContain('href="/admin"');
+  });
+});

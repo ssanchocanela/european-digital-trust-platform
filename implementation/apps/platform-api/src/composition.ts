@@ -58,6 +58,7 @@ import {
 } from "./modules/sandbox/access-identity.js";
 import { SandboxAdminService } from "./modules/sandbox/admin.service.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
+import { SandboxErasureService } from "./modules/sandbox/erasure.service.js";
 import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "./modules/sandbox/metadata.service.js";
 import { SandboxPublicationService } from "./modules/sandbox/publication.service.js";
@@ -141,6 +142,8 @@ export interface Dependencies {
     readonly sandboxVerifier?: SandboxVerifierService;
     /** Present when the sandbox's PKI is configured (S5). */
     readonly sandboxIssuer?: SandboxIssuerService;
+    /** Erasure of a person (ADR 0021); present with the sandbox. */
+    readonly sandboxErasure?: SandboxErasureService;
     /** Wallet Providers' anchors (ADR 0020). */
     readonly sandboxWalletProviders?: SandboxWalletProviderService;
     /** Signed metadata for sandbox issuers (S5b, ADR 0016). */
@@ -561,6 +564,14 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
       ...(sandbox ? { sandbox } : {}),
       ...(sandbox && config.SANDBOX_OPERATOR_TENANT_ID
         ? {
+            sandboxErasure: new SandboxErasureService(
+              sandbox,
+              repositories.sandbox,
+              pki?.certificates,
+              audit,
+              clock,
+              asId<"TenantId">(config.SANDBOX_OPERATOR_TENANT_ID),
+            ),
             sandboxAdmin: new SandboxAdminService(
               sandbox,
               repositories.sandboxAdmin,

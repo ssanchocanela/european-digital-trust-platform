@@ -49,3 +49,4 @@ export const SANDBOX_VERIFIER = Symbol("SANDBOX_VERIFIER");
 export const SANDBOX_ISSUER = Symbol("SANDBOX_ISSUER");
 export const SANDBOX_ADMIN = Symbol("SANDBOX_ADMIN");
 export const SANDBOX_WALLET_PROVIDERS = Symbol("SANDBOX_WALLET_PROVIDERS");
+export const SANDBOX_ERASURE = Symbol("SANDBOX_ERASURE");

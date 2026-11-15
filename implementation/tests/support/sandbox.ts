@@ -11,6 +11,7 @@ import type {
 } from "../../apps/platform-api/src/modules/sandbox/access-identity.js";
 import { SandboxAdminService } from "../../apps/platform-api/src/modules/sandbox/admin.service.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
+import { SandboxErasureService } from "../../apps/platform-api/src/modules/sandbox/erasure.service.js";
 import { SandboxIssuerService } from "../../apps/platform-api/src/modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "../../apps/platform-api/src/modules/sandbox/metadata.service.js";
 import { SandboxPublicationService } from "../../apps/platform-api/src/modules/sandbox/publication.service.js";
@@ -289,9 +290,19 @@ export async function wireSandbox(
     asId<"TenantId">(operator.tenantId),
   );
 
+  const erasure = new SandboxErasureService(
+    sandbox,
+    harness.deps.repositories.sandbox,
+    certificates,
+    harness.deps.services.audit,
+    harness.clock,
+    asId<"TenantId">(operator.tenantId),
+  );
+
   return {
     sandbox,
     admin,
+    erasure,
     walletProviders,
     domain,
     urls,

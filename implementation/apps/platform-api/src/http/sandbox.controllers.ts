@@ -14,8 +14,9 @@ import { ApiExcludeController } from "@nestjs/swagger";
 import { z } from "zod";
 import type { PlatformConfig } from "../config.js";
 import { SANDBOX_ACCESS_ASSERTION_HEADER } from "../modules/sandbox/access-identity.js";
+import type { SandboxErasureService } from "../modules/sandbox/erasure.service.js";
 import type { SandboxService, SignedInContext } from "../modules/sandbox/sandbox.service.js";
-import { CONFIG_TOKEN, SANDBOX_SERVICE } from "../tokens.js";
+import { CONFIG_TOKEN, SANDBOX_ERASURE, SANDBOX_SERVICE } from "../tokens.js";
 import { assertUuidPathParam, constantTimeEquals, Public } from "./auth.js";
 
 export const SANDBOX_PORTAL_SECRET_HEADER = "x-edtp-sandbox-portal-secret";
@@ -77,7 +78,13 @@ export class SandboxController {
   constructor(
     @Inject(CONFIG_TOKEN) private readonly config: PlatformConfig,
     @Inject(SANDBOX_SERVICE) private readonly sandbox: SandboxService | undefined,
+    @Inject(SANDBOX_ERASURE) private readonly erasure: SandboxErasureService | undefined,
   ) {}
+
+  private erasureService(): SandboxErasureService {
+    if (!this.erasure) throw PlatformError.notFound("Route");
+    return this.erasure;
+  }
 
   private service(secret: string | undefined): SandboxService {
     const expected = this.config.SANDBOX_PORTAL_SECRET;
@@ -215,6 +222,46 @@ export class SandboxController {
         role: m.role,
       })),
     };
+  }
+
+  // --- leaving (ADR 0021) ---------------------------------------------------------------------
+
+  @Get("me/erasure")
+  async erasurePreview(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+  ) {
+    const { context } = await this.signedIn(secret, session);
+    return this.erasureService().previewSelf(context);
+  }
+
+  @Post("me/erase")
+  @HttpCode(200)
+  async erase(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Body() body: unknown,
+  ) {
+    const { context } = await this.signedIn(secret, session);
+    const { confirmEmail } = z
+      .object({ confirmEmail: z.string().max(254) })
+      .strict()
+      .parse(body ?? {});
+    return this.erasureService().eraseSelf(context, confirmEmail);
+  }
+
+  @Post("organisations/:organisationId/members/:personId/make-owner")
+  @HttpCode(204)
+  async makeOwner(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("organisationId") organisationId: string,
+    @Param("personId") personId: string,
+  ) {
+    assertUuidPathParam("organisationId", organisationId);
+    assertUuidPathParam("personId", personId);
+    const { service, context } = await this.signedIn(secret, session);
+    await service.makeOwner(context, organisationId, personId);
   }
 
   @Post("organisations")

@@ -518,6 +518,23 @@ export class SandboxService {
     return { invitationToken: token, role, email, expiresAt: invitation.expiresAt };
   }
 
+  /** An owner makes an existing member an owner (ADR 0021 §4). No demotion in v1. */
+  async makeOwner(context: SignedInContext, tenantId: string, target: string) {
+    const membership = this.ownerIn(context, tenantId);
+    if (
+      !(await this.repository.makeOwner(membership.tenantId, asId<"SandboxPersonId">(target)))
+    ) {
+      throw PlatformError.notFound("Member");
+    }
+    await this.audit.record({
+      tenantId: membership.tenantId,
+      actor: "sandbox",
+      action: "sandbox.member.made_owner",
+      subjectType: "sandbox_person",
+      subjectId: target,
+    });
+  }
+
   async removeMember(context: SignedInContext, tenantId: string, target: string) {
     const membership = this.membershipIn(context, tenantId);
     const members = await this.repository.membersOf(membership.tenantId);

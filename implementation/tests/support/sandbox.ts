@@ -21,6 +21,7 @@ import { SandboxTrustDomain } from "../../apps/platform-api/src/modules/sandbox/
 import { sandboxUrls } from "../../apps/platform-api/src/modules/sandbox/urls.js";
 import { SandboxVerifierService } from "../../apps/platform-api/src/modules/sandbox/verifier.service.js";
 import { SandboxWalletProviderService } from "../../apps/platform-api/src/modules/sandbox/wallet-provider.service.js";
+import { SandboxWalletTestService } from "../../apps/platform-api/src/modules/sandbox/wallet-test.service.js";
 import type { Harness } from "./harness.js";
 import { seedTenant } from "./seed.js";
 
@@ -299,10 +300,22 @@ export async function wireSandbox(
     asId<"TenantId">(operator.tenantId),
   );
 
+  const walletTests = new SandboxWalletTestService(
+    sandbox,
+    harness.deps.repositories.sandboxCertificates,
+    harness.deps.repositories.sandboxWalletTests,
+    verifier,
+    issuer,
+    domain,
+    harness.deps.services.audit,
+    harness.clock,
+  );
+
   return {
     sandbox,
     admin,
     erasure,
+    walletTests,
     walletProviders,
     domain,
     urls,

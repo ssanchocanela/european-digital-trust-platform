@@ -115,7 +115,7 @@ export const PLATFORM_RULES: readonly Rule[] = [
         "|crl/access-ca(-untrusted)?\\.crl" +
         "|status/(registrar(-untrusted)?-signing|unavailable)" +
         "|ca/(access-ca|registrar|pid-ca)(-untrusted)?\\.cer" +
-        "|ca/(lote-signer|registrar(-untrusted)?-signing)\\.cer" +
+        "|ca/(lote-signer|report-signer|registrar(-untrusted)?-signing)\\.cer" +
         "|cps" +
         `|wrp(/check-intended-use|/${ID}(/services/${ID})?)?` +
         ")$",

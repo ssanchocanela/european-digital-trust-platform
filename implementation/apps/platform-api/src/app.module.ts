@@ -31,6 +31,7 @@ import {
 import { SandboxIssuerController } from "./http/sandbox-issuer.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
 import { SandboxVerifierController } from "./http/sandbox-verifier.controller.js";
+import { SandboxWalletTestController } from "./http/sandbox-wallet-test.controller.js";
 import {
   EngineAttributesController,
   HostedFormController,
@@ -62,6 +63,7 @@ import {
   SANDBOX_SERVICE,
   SANDBOX_VERIFIER,
   SANDBOX_WALLET_PROVIDERS,
+  SANDBOX_WALLET_TESTS,
   VERIFIER_PORT,
   VERIFIER_PROVISIONING_PORT,
   WEBHOOK_ENDPOINT_REPOSITORY,
@@ -98,6 +100,7 @@ export class AppModule {
         SandboxAdminController,
         SandboxWalletProviderController,
         SandboxAdminWalletProviderController,
+        SandboxWalletTestController,
         SandboxPublicController,
         SandboxCertificatesController,
         SandboxVerifierController,
@@ -134,6 +137,7 @@ export class AppModule {
         { provide: SANDBOX_ADMIN, useValue: deps.services.sandboxAdmin },
         { provide: SANDBOX_WALLET_PROVIDERS, useValue: deps.services.sandboxWalletProviders },
         { provide: SANDBOX_ERASURE, useValue: deps.services.sandboxErasure },
+        { provide: SANDBOX_WALLET_TESTS, useValue: deps.services.sandboxWalletTests },
         {
           provide: SANDBOX_PUBLIC,
           useValue:

@@ -53,14 +53,17 @@ export class CloudflareAccessVerifier implements AccessIdentityVerifier {
   private fetchedAt = 0;
   private inFlight: Promise<void> | undefined;
   private readonly issuer: string;
+  /** The portal's application, and the operator section's (ADR 0019): each signs its own paths. */
+  private readonly audiences: readonly string[];
 
   constructor(
     teamDomain: string,
-    private readonly audience: string,
+    audience: string | readonly string[],
     private readonly clock: Clock,
     private readonly logger: Logger,
     private readonly fetchImpl: typeof fetch = fetch,
   ) {
+    this.audiences = typeof audience === "string" ? [audience] : [...audience];
     const host = teamDomain.replace(/^https:\/\//, "").replace(/\/+$/, "");
     this.issuer = `https://${host}`;
   }
@@ -121,7 +124,9 @@ export class CloudflareAccessVerifier implements AccessIdentityVerifier {
       return refuse("signature");
     if (claims.iss !== this.issuer) return refuse("issuer");
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (!aud.includes(this.audience)) return refuse("audience");
+    if (!aud.some((a) => typeof a === "string" && this.audiences.includes(a))) {
+      return refuse("audience");
+    }
     const now = this.clock.now().getTime() / 1000;
     if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_S <= now) {
       return refuse("expired");

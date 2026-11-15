@@ -397,7 +397,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
           config.SANDBOX_ACCESS_TEAM_DOMAIN && config.SANDBOX_ACCESS_AUDIENCE
             ? new CloudflareAccessVerifier(
                 config.SANDBOX_ACCESS_TEAM_DOMAIN,
-                config.SANDBOX_ACCESS_AUDIENCE,
+                config.SANDBOX_ACCESS_AUDIENCE.split(","),
                 clock,
                 logger,
               )

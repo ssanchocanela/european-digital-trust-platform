@@ -115,6 +115,9 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
      Overview). Neither is a secret. Without them the platform refuses to start the sandbox.
    - `SANDBOX_OPERATOR_EMAILS` (ADR 0019): the operators' addresses, comma-separated. They must match
      the `EDTP sandbox admin` Access application.
+   - **`SANDBOX_ACCESS_AUDIENCE` holds both AUD tags, comma-separated: the portal's and the admin
+     application's.** Access signs `/admin` requests with the admin application's tag. With only the
+     portal's tag, every `/admin` request is refused, operators included.
    - **Copy `SANDBOX_KEYSTORE_KEY` into the operator's password manager now.** It is in no backup.
 
 7. **The trust domain**, fresh: the first deployment is not a migration of the laptop's.

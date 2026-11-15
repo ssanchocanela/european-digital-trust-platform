@@ -167,3 +167,20 @@ export const NEGATIVE_PROBES: readonly {
     why: "the sandbox portal's API: entering by an Access identity",
   },
 ];
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+
+/**
+ * The sandbox's wallet test API for continuous integration (ADR 0022 §5, Open 4): exactly these
+ * paths, and only on a stack that turns them on (`GATEWAY_SANDBOX_CI_API=on`, the sandbox VM). They
+ * take an organisation API key; at the edge, a path-specific Cloudflare Access application also
+ * demands a service token, so a public probe is answered by Access, not by the platform. Nothing else
+ * under `/v1` is reachable: `/v1/tenants` itself, every other tenant route, stay outside the list.
+ */
+export const SANDBOX_CI_API_RULE: Rule = {
+  methods: ["GET", "POST"],
+  pattern: new RegExp(
+    `^/v1/tenants/${UUID}/sandbox/wallet-tests(/${UUID}(/signed|/steps/[0-9]{1,3}(/observation)?)?)?$`,
+  ),
+  why: "Sandbox — the wallet test API for continuous integration, behind an Access service token",
+};

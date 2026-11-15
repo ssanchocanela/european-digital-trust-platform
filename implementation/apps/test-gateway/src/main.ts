@@ -1,7 +1,13 @@
 import http from "node:http";
 import { clientKey, RateLimiter } from "@edtp/shared";
 import { z } from "zod";
-import { ENGINE_RULES, isAllowed, PLATFORM_RULES, type Rule } from "./allow-list.js";
+import {
+  ENGINE_RULES,
+  isAllowed,
+  PLATFORM_RULES,
+  type Rule,
+  SANDBOX_CI_API_RULE,
+} from "./allow-list.js";
 import { hostedFormGate } from "./hosted-form-gate.js";
 import { sandboxMetadataForward } from "./sandbox-metadata.js";
 
@@ -100,6 +106,14 @@ const schema = z.object({
    * Off by default; `on` only on a stack where the sandbox's hosted issuers run.
    */
   GATEWAY_SANDBOX_SIGNED_METADATA: z
+    .enum(["on", "off"])
+    .default("off")
+    .transform((v) => v === "on"),
+  /**
+   * Sandbox R3 (ADR 0022 Open 4): expose the wallet test API's own paths, and nothing else of `/v1`.
+   * Off by default; `on` only on the sandbox VM, behind a path-specific Access application.
+   */
+  GATEWAY_SANDBOX_CI_API: z
     .enum(["on", "off"])
     .default("off")
     .transform((v) => v === "on"),
@@ -499,9 +513,18 @@ const main = (): void => {
   }
 
   const engine = createProxy("engine", ENGINE_RULES, config.GATEWAY_ENGINE_TARGET, config);
+  const platformRules = config.GATEWAY_SANDBOX_CI_API
+    ? [...PLATFORM_RULES, SANDBOX_CI_API_RULE]
+    : PLATFORM_RULES;
+  if (config.GATEWAY_SANDBOX_CI_API) {
+    log("sandbox CI API exposed", {
+      warning:
+        "/v1/tenants/{id}/sandbox/wallet-tests is reachable: Access must demand a service token",
+    });
+  }
   const platform = createProxy(
     "platform",
-    PLATFORM_RULES,
+    platformRules,
     config.GATEWAY_PLATFORM_TARGET,
     config,
   );
@@ -517,7 +540,7 @@ const main = (): void => {
     log("platform gateway listening", {
       port: config.GATEWAY_PLATFORM_PORT,
       target: config.GATEWAY_PLATFORM_TARGET,
-      rules: PLATFORM_RULES.length,
+      rules: platformRules.length,
     });
   });
 

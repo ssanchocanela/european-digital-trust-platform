@@ -13,6 +13,7 @@ import {
   isAllowed,
   NEGATIVE_PROBES,
   PLATFORM_RULES,
+  SANDBOX_CI_API_RULE,
 } from "@edtp/test-gateway/allow-list.js";
 import { describe, expect, it } from "vitest";
 
@@ -185,5 +186,46 @@ describe("the sandbox's public reads (S4)", () => {
     ]) {
       expect(isAllowed(PLATFORM_RULES, "GET", path), path).toBe(false);
     }
+  });
+});
+
+describe("the sandbox CI API rule (ADR 0022 Open 4)", () => {
+  const T = "11111111-2222-4333-8444-555555555555";
+  const R = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+  const rules = [...PLATFORM_RULES, SANDBOX_CI_API_RULE];
+
+  it("allows exactly the wallet test paths, GET and POST", () => {
+    for (const path of [
+      `/v1/tenants/${T}/sandbox/wallet-tests`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/${R}`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/${R}/signed`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/${R}/steps/3`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/${R}/steps/12/observation`,
+    ]) {
+      expect(isAllowed(rules, "GET", path), path).toBe(true);
+      expect(isAllowed(rules, "POST", path), path).toBe(true);
+      expect(isAllowed(rules, "DELETE", path), path).toBe(false);
+    }
+  });
+
+  it("keeps every other /v1 route out", () => {
+    for (const path of [
+      "/v1/tenants",
+      `/v1/tenants/${T}`,
+      `/v1/tenants/${T}/presentations`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/../presentations`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/${R}/steps/1000`,
+      `/v1/tenants/not-a-uuid/sandbox/wallet-tests`,
+      `/v1/tenants/${T}/sandbox/wallet-tests/${R}/signed/x`,
+      "/v1/me",
+    ]) {
+      expect(isAllowed(rules, "GET", path), path).toBe(false);
+    }
+  });
+
+  it("is not in the default platform rules", () => {
+    expect(isAllowed(PLATFORM_RULES, "GET", `/v1/tenants/${T}/sandbox/wallet-tests`)).toBe(
+      false,
+    );
   });
 });

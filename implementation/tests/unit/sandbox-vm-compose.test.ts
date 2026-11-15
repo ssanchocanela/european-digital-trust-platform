@@ -78,6 +78,9 @@ describe("the sandbox VM's compose file", () => {
       "true",
     );
     expect(environment(service(sandbox, "gateway")).GATEWAY_SANDBOX_SIGNED_METADATA).toBe("on");
+    // The CI API's paths, behind an Access service token (ADR 0022 Open 4); never in the root file.
+    expect(environment(service(sandbox, "gateway")).GATEWAY_SANDBOX_CI_API).toBe("on");
+    expect(root).not.toContain("GATEWAY_SANDBOX_CI_API");
     expect(environment(service(sandbox, "platform-api")).SANDBOX_TRUST_ENVIRONMENT).toBe(
       "TEST",
     );

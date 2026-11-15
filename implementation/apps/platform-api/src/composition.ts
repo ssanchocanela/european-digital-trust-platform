@@ -516,6 +516,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
           );
           const walletTests = new SandboxWalletTestService(
             sandbox,
+            repositories.sandbox,
             repositories.sandboxCertificates,
             repositories.sandboxWalletTests,
             verifier,

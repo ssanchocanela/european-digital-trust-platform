@@ -1,9 +1,10 @@
 # ADR 0022 — Testing wallets in the sandbox
 
-- **Status:** ACCEPTED, 15 November 2026, by the user. §1–§4 built the same day, in a follow-up PR:
-  PR #58 was merged carrying only this ADR. **§5, the API for continuous integration, is not built
-  yet.** That API works on an organisation's API key, which names a tenant and not a person, and the
-  plan service is written for a signed-in person. It is a follow-up of its own. **Not deployed yet.**
+- **Status:** ACCEPTED, 15 November 2026, by the user.
+  - §1–§4 were built the same day, in a follow-up PR (#60): PR #58 was merged carrying only this ADR.
+    They are deployed (image `88a2eaf43d1f`).
+  - §5 was built in its own PR. **It is not reachable from outside the sandbox VM yet:** the gateway
+    exposes no platform `/v1` route, and opening one is the decision in Open 4.
   Roadmap track R3, next in the order the user approved. It answers the roadmap's decision 3: whether
   the sandbox should check wallets' behaviour at all.
 - **Date:** 15 November 2026
@@ -160,6 +161,15 @@ plans built from today's steps are in use.
 2. **The protocol-level defects** (§6): a separate ADR.
 3. **Whether reports may be published** by the participant on the sandbox, for example a public page per
    wallet build. Not in v1: reports are private to the organisation that ran them.
+4. **Exposing the CI API.** The routes are `/v1/tenants/{tenantId}/sandbox/wallet-tests[...]`. They
+   take an organisation API key, which acts as a member of its organisation, never as a person or an
+   operator. To reach them from outside, two things are needed:
+   - a gateway rule on `sandbox-platform.murcata.es` for exactly those paths;
+   - a path-specific Cloudflare Access application with a *Service Auth* policy, so that CI also
+     presents an Access service token.
+
+   The negative checks would then expect a redirect to Access there, as they do for the portal. To be
+   decided by the user before it is opened.
 
 ## Status of claims
 

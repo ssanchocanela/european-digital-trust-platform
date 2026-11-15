@@ -2,7 +2,7 @@
 
 - **Status:** ACCEPTED, 15 November 2026, by the user, and built the same day (PR #52). Drafted on
   14 November at the user's request, after the first real browser test of the deployed sandbox:
-  "there should be an admin part". **Not deployed yet.**
+  "there should be an admin part". **Deployed** on 15 November 2026, with the user's confirmation (image `523965fbb808`), and used by the operator in a browser.
 - **Date:** 14 November 2026
 - **Amends:** [ADR 0018](0018-sandbox-sign-in-by-access-identity.md) Decision 6, "no operator role is
   created in the portal".

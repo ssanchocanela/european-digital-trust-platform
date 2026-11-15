@@ -31,7 +31,7 @@
 The order puts first what unblocks other participants, then what deepens the testing, then what
 opening up requires. Within a track, the first bullet is the smallest useful step.
 
-### R1 — Wallet Providers bring their wallets ([ADR 0020](../adr/0020-sandbox-wallet-provider-role.md), proposed)
+### R1 — Wallet Providers bring their wallets ([ADR 0020](../adr/0020-sandbox-wallet-provider-role.md), accepted) — *built 15 November 2026, not deployed*
 
 - A `wallet_provider` service; the provider uploads the public CA certificate of its wallet
   attestations; the operator approves it; the sandbox publishes a `WalletProviders` list; the hosted

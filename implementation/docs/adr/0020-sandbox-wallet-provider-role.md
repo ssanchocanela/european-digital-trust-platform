@@ -1,8 +1,9 @@
 # ADR 0020 — The Wallet Provider role in the sandbox
 
-- **Status:** PROPOSED, 15 November 2026. Drafted at the user's request: "in the medium term we will
-  have to accept other wallets, by letting Wallet Providers update the list of accepted wallets by
-  uploading the public part of their certificate".
+- **Status:** ACCEPTED, 15 November 2026, by the user, after the engine investigation in §6b, and
+  built the same day as roadmap track R1. **Not deployed yet.** Drafted at the user's request: "in the
+  medium term we will have to accept other wallets, by letting Wallet Providers update the list of
+  accepted wallets by uploading the public part of their certificate".
 - **Date:** 15 November 2026
 - **Builds:**
   - [`specification.md`](../sandbox/specification.md) §2, which lists the Wallet Provider as a later
@@ -42,8 +43,9 @@ They need to bring their wallets, and to see how Relying Parties and PID Provide
   for a Relying Party or a PID Provider.
 - It needs no access or registration certificate from the sandbox for this. What it needs is for its
   anchor to be trusted.
-- The register lists it as a Wallet Provider, marked **not verified**, as every organisation is
-  (ADR 0015 Decision 6).
+- It is **not** in the register of wallet-relying parties: a Wallet Provider is not one, and TS5 gives
+  it no entitlement there. Its approved anchors are on the `WalletProviders` list (§4) instead. Its
+  organisation is **not verified**, as every organisation is (ADR 0015 Decision 6).
 
 ### 2. It brings its own anchor: the public certificate only
 
@@ -160,7 +162,7 @@ They need to bring their wallets, and to see how Relying Parties and PID Provide
     removed anchor stops issuance at the next issuance after publication.
   - **A third-party wallet's behaviour is outside the sandbox's control.** A failure may be the
     wallet's, and the run report must say so neutrally.
-- **To change on acceptance:**
+- **Changed on acceptance** (done 15 November 2026):
   - the specification's §2 (the Wallet Provider moves into scope), its journeys, and §8;
   - the plan (a milestone, see the roadmap R1);
   - `security-limitations.md`;

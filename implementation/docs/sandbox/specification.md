@@ -42,9 +42,11 @@ State's roles: Registrar, Access CA, provider of registration certificates, and 
 - **Relying Party** — a wallet-relying party with entitlement `Service_Provider`;
 - **PID Provider** — entitlement `PID_Provider`.
 
+**Wallet Provider** — added after v1 by [ADR 0020](../adr/0020-sandbox-wallet-provider-role.md)
+(15 November 2026), journey J10.
+
 **Later, out of v1:**
 - QEAA, PuB-EAA and non-qualified EAA Providers;
-- Wallet Provider;
 - intermediaries;
 - verification of an organisation's identity or representation;
 - mdoc PIDs (G-9, planned for v1.1).
@@ -211,6 +213,19 @@ registration-certificate checks (CLAUDE.md §6.21). The three issuance-side WRPR
 offered **only as take-away certificates**, with this limitation stated, and never on the hosted
 issuer as if they were tested. Decided at S0, D6; an ADR on signing the metadata in front of the
 engine is S5 work (plan).
+
+### J10 — Wallet Provider: bring a wallet ([ADR 0020](../adr/0020-sandbox-wallet-provider-role.md))
+
+1. Register a service with the role **Wallet Provider**. It takes no access or registration
+   certificate, and is not in the register of wallet-relying parties.
+2. Upload the **public** certificate the wallet attestations chain to (a CA) or are signed with. The
+   portal refuses a private key, a second certificate, an expired one, a weak key, and a duplicate.
+   A service holds at most two pending or approved anchors.
+3. The **operator approves** it in `/admin`, or refuses it with a reason the provider sees.
+4. The approved anchor is on `WalletProviders.jwt` at once, and every hosted PID issuer's engine list
+   is rewritten from it. Withdrawing it, or the organisation's suspension, takes it off.
+5. Point the wallet at the sandbox's four lists: `/sandbox/public/wallets` says which, with the list
+   signer's pin.
 
 ### J9 — Operator
 

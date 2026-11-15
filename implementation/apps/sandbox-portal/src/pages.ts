@@ -205,7 +205,9 @@ ${options.operator ? `<p><a class="button" href="/admin">Operator</a></p>` : ""}
 <h2>Your organisations</h2>
 ${organisations.length ? `<table><tr><th>Organisation</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
 <h2>Your PID</h2>
-${pid}`,
+${pid}
+<h2>Your account</h2>
+<p><a href="/account/delete">Delete my account…</a></p>`,
     { signedIn: true },
   );
 }
@@ -242,7 +244,11 @@ export function organisationPage(
       (m) =>
         `<tr><td>${escapeHtml(m.displayName)}</td><td>${escapeHtml(m.email ?? "")}</td><td>${escapeHtml(m.role)}</td><td>${
           owner
-            ? `<form method="post" action="/org/${id}/members/${escapeHtml(m.personId)}/remove"><button class="secondary">Remove</button></form>`
+            ? `${
+                m.role === "member"
+                  ? `<form method="post" action="/org/${id}/members/${escapeHtml(m.personId)}/make-owner"><button class="secondary">Make owner</button></form>`
+                  : ""
+              }<form method="post" action="/org/${id}/members/${escapeHtml(m.personId)}/remove"><button class="secondary">Remove</button></form>`
             : ""
         }</td></tr>`,
     )
@@ -870,6 +876,54 @@ chain; the sandbox's issuers check both the client attestation and the key attes
     : '<p class="muted">Only an owner of the organisation can upload or withdraw anchors.</p>'
 }
 <p><a href="/org/${org}">Back to the organisation</a></p>`,
+    { signedIn: true },
+  );
+}
+
+export interface ErasurePlanView {
+  readonly organisations: readonly {
+    tenantId: string;
+    localIdentifier: string;
+    role: string;
+    members: number;
+    effect: "kept" | "suspended" | "blocked";
+  }[];
+  readonly allowed: boolean;
+  readonly backups: { dumpsDays: number; serverImagesDays: number };
+}
+
+const EFFECT: Record<string, string> = {
+  kept: "kept — you only leave it",
+  suspended: "suspended — you are its only member: its certificates are revoked and it stops",
+  blocked: "blocks the deletion — you are its last owner and it has other members",
+};
+
+/** What deleting one's own account does (ADR 0021 §5), before it is done. */
+export function erasurePage(plan: ErasurePlanView, error?: string): string {
+  const rows = plan.organisations
+    .map(
+      (o) =>
+        `<tr><td>${escapeHtml(o.localIdentifier)}</td><td>${escapeHtml(o.role)}</td><td>${escapeHtml(o.members)}</td><td>${escapeHtml(EFFECT[o.effect] ?? o.effect)}</td></tr>`,
+    )
+    .join("");
+  return page(
+    "Delete my account",
+    `<h1>Delete my account</h1>
+<p>This erases your account: your e-mail address, the name you typed, the identifier kept if you presented a PID,
+your memberships and sessions, the invitations you created and those addressed to you. The audit trail keeps
+what happened, under an identifier that will then point at nobody. <strong>It cannot be undone.</strong></p>
+${rows ? `<h2>Your organisations</h2><div class="scroll"><table><tr><th>Organisation</th><th>Role</th><th>Members</th><th>What happens</th></tr>${rows}</table></div>` : ""}
+<p class="muted">Backups keep this data until they rotate: up to ${escapeHtml(plan.backups.dumpsDays)} days for the
+database dumps, ${escapeHtml(plan.backups.serverImagesDays)} for the server images. Cloudflare Access keeps admitting your
+address until the sandbox operator removes it; if you come back, you start as a new person.</p>
+${error ? `<p role="alert"><strong>${escapeHtml(error)}</strong></p>` : ""}
+${
+  plan.allowed
+    ? `<form method="post" action="/account/delete"><label for="confirmEmail">Type your e-mail address to confirm</label>
+<input id="confirmEmail" name="confirmEmail" type="email" required maxlength="254"><button>Delete my account</button></form>`
+    : "<p><strong>Make another member an owner of each organisation marked above first.</strong> An owner can do it from the organisation's members table.</p>"
+}
+<p><a href="/">Cancel</a></p>`,
     { signedIn: true },
   );
 }

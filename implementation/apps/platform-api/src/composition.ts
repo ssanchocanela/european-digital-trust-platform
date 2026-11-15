@@ -28,6 +28,7 @@ import {
   SandboxIssuerRepository,
   SandboxRepository,
   SandboxVerifierRepository,
+  SandboxWalletProviderRepository,
   TransactionRepository,
   WebhookDeliveryRepository,
   WebhookEndpointRepository,
@@ -65,6 +66,7 @@ import { SandboxService } from "./modules/sandbox/sandbox.service.js";
 import type { SandboxTrustDomain } from "./modules/sandbox/trust-domain.runtime.js";
 import { sandboxUrls } from "./modules/sandbox/urls.js";
 import { SandboxVerifierService } from "./modules/sandbox/verifier.service.js";
+import { SandboxWalletProviderService } from "./modules/sandbox/wallet-provider.service.js";
 import { WebhookService } from "./webhook/webhook.service.js";
 
 /**
@@ -103,6 +105,7 @@ export interface Dependencies {
     readonly listing: ListingRepository;
     readonly sandbox: SandboxRepository;
     readonly sandboxAdmin: SandboxAdminRepository;
+    readonly sandboxWalletProviders: SandboxWalletProviderRepository;
     readonly sandboxCertificates: SandboxCertificateRepository;
     readonly sandboxVerifiers: SandboxVerifierRepository;
     readonly sandboxIssuers: SandboxIssuerRepository;
@@ -138,6 +141,8 @@ export interface Dependencies {
     readonly sandboxVerifier?: SandboxVerifierService;
     /** Present when the sandbox's PKI is configured (S5). */
     readonly sandboxIssuer?: SandboxIssuerService;
+    /** Wallet Providers' anchors (ADR 0020). */
+    readonly sandboxWalletProviders?: SandboxWalletProviderService;
     /** Signed metadata for sandbox issuers (S5b, ADR 0016). */
     readonly sandboxMetadata?: SandboxMetadataService;
     /** Present only when runtime engine tenants are configured (root client and sealing key). */
@@ -183,6 +188,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     listing: new ListingRepository(db),
     sandbox: new SandboxRepository(db),
     sandboxAdmin: new SandboxAdminRepository(db),
+    sandboxWalletProviders: new SandboxWalletProviderRepository(db),
     sandboxCertificates: new SandboxCertificateRepository(db),
     sandboxVerifiers: new SandboxVerifierRepository(db),
     sandboxIssuers: new SandboxIssuerRepository(db),
@@ -381,7 +387,14 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
           {
             operatorTenantId: asId<"TenantId">(config.SANDBOX_OPERATOR_TENANT_ID),
             signInPolicyId: config.SANDBOX_SIGN_IN_POLICY_ID,
-            participantTrustSources: config.SANDBOX_PARTICIPANT_TRUST_SOURCES,
+            // The Wallet Providers list is participant-supplied too (ADR 0020 §5): sign-in must never
+            // name it either.
+            participantTrustSources: [
+              ...config.SANDBOX_PARTICIPANT_TRUST_SOURCES,
+              ...(config.SANDBOX_PUBLIC_BASE_URL
+                ? [sandboxUrls(config.SANDBOX_PUBLIC_BASE_URL).lote("WalletProviders")]
+                : []),
+            ],
             portalPublicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
             operatorEmails: config.SANDBOX_OPERATOR_EMAILS,
           },
@@ -416,6 +429,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             urls,
             clock,
             logger,
+            repositories.sandboxWalletProviders,
           );
           const certificates = new SandboxCertificateService(
             sandbox,
@@ -475,6 +489,21 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             domain,
             audit,
             clock,
+            repositories.sandboxWalletProviders,
+          );
+          // A new Wallet Providers list is rewritten into every hosted issuer at once (ADR 0020 §4).
+          publications.onPublished = async (channel) => {
+            if (channel === "lote:WalletProviders")
+              await issuerService.refreshWalletProviders();
+          };
+          const walletProviders = new SandboxWalletProviderService(
+            sandbox,
+            repositories.sandboxCertificates,
+            repositories.sandboxWalletProviders,
+            domain,
+            publications,
+            audit,
+            clock,
           );
           const metadata = new SandboxMetadataService(
             repositories.sandboxIssuers,
@@ -488,6 +517,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             publications,
             verifier,
             issuer: issuerService,
+            walletProviders,
             metadata,
             register: new SandboxRegister(
               repositories.sandboxCertificates,
@@ -550,6 +580,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             sandboxRegister: pki.register,
             ...(pki.verifier ? { sandboxVerifier: pki.verifier } : {}),
             sandboxIssuer: pki.issuer,
+            sandboxWalletProviders: pki.walletProviders,
             sandboxMetadata: pki.metadata,
           }
         : {}),

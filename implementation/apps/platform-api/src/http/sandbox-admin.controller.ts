@@ -15,7 +15,13 @@ import { z } from "zod";
 import type { PlatformConfig } from "../config.js";
 import type { SandboxAdminService } from "../modules/sandbox/admin.service.js";
 import type { SandboxService } from "../modules/sandbox/sandbox.service.js";
-import { CONFIG_TOKEN, SANDBOX_ADMIN, SANDBOX_SERVICE } from "../tokens.js";
+import type { SandboxWalletProviderService } from "../modules/sandbox/wallet-provider.service.js";
+import {
+  CONFIG_TOKEN,
+  SANDBOX_ADMIN,
+  SANDBOX_SERVICE,
+  SANDBOX_WALLET_PROVIDERS,
+} from "../tokens.js";
 import { assertUuidPathParam, constantTimeEquals, Public } from "./auth.js";
 import { SANDBOX_PORTAL_SECRET_HEADER, SANDBOX_SESSION_HEADER } from "./sandbox.controllers.js";
 
@@ -137,5 +143,63 @@ export class SandboxAdminController {
     const { context, admin } = await this.auth(secret, session);
     if (organisation) assertUuidPathParam("organisation", organisation);
     return admin.auditTrail(context, organisation || undefined);
+  }
+}
+
+const refuseSchema = z.object({ reason: z.string().trim().min(3).max(200) }).strict();
+
+/** The operator's decisions on Wallet Provider anchors (ADR 0020 §3), under `/admin`. */
+@ApiExcludeController()
+@Public()
+@Controller("sandbox/v1/admin/wallet-provider-anchors")
+export class SandboxAdminWalletProviderController {
+  constructor(
+    @Inject(CONFIG_TOKEN) private readonly config: PlatformConfig,
+    @Inject(SANDBOX_SERVICE) private readonly sandbox: SandboxService | undefined,
+    @Inject(SANDBOX_WALLET_PROVIDERS)
+    private readonly walletProviders: SandboxWalletProviderService | undefined,
+  ) {}
+
+  private async auth(secret: string | undefined, session: string | undefined) {
+    const expected = this.config.SANDBOX_PORTAL_SECRET;
+    if (!this.sandbox || !this.walletProviders || !expected)
+      throw PlatformError.notFound("Route");
+    if (!secret || !constantTimeEquals(secret, expected)) throw PlatformError.unauthenticated();
+    if (!session) throw PlatformError.unauthenticated();
+    return { context: await this.sandbox.authenticate(session), wp: this.walletProviders };
+  }
+
+  @Get()
+  async list(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+  ) {
+    const { context, wp } = await this.auth(secret, session);
+    return { anchors: await wp.all(context) };
+  }
+
+  @Post(":anchorId/approve")
+  @HttpCode(204)
+  async approve(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("anchorId") anchorId: string,
+  ) {
+    const { context, wp } = await this.auth(secret, session);
+    assertUuidPathParam("anchorId", anchorId);
+    await wp.approve(context, anchorId);
+  }
+
+  @Post(":anchorId/refuse")
+  @HttpCode(204)
+  async refuse(
+    @Headers(SANDBOX_PORTAL_SECRET_HEADER) secret: string | undefined,
+    @Headers(SANDBOX_SESSION_HEADER) session: string | undefined,
+    @Param("anchorId") anchorId: string,
+    @Body() body: unknown,
+  ) {
+    const { context, wp } = await this.auth(secret, session);
+    assertUuidPathParam("anchorId", anchorId);
+    await wp.refuse(context, anchorId, refuseSchema.parse(body ?? {}).reason);
   }
 }

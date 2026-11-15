@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { PlatformError } from "@edtp/shared";
 import {
   Controller,
@@ -136,6 +137,52 @@ export class SandboxPublicController {
     }
     res.setHeader("content-type", "application/json");
     res.send(JSON.stringify(json));
+  }
+
+  /**
+   * "Use your wallet with the sandbox" (ADR 0020 §6): which lists a wallet must load to trust the
+   * sandbox, and the list signer's pin. The sandbox cannot configure anyone's wallet; it can say,
+   * unambiguously, what to configure. Built from the request's own public base, so every URL is the
+   * one this sandbox serves.
+   */
+  @Get("wallets")
+  @Header("content-type", "text/plain; charset=utf-8")
+  wallets() {
+    const { domain, publications } = this.on();
+    const base = publications.publicBase();
+    const signer = domain.certificate("lote-signer");
+    const pin = createHash("sha256").update(signer).digest("base64url");
+    const list = (file: string, what: string) => `  ${base}/lote/${file}\n      ${what}`;
+    return [
+      "Use your wallet with the EDTP EUDI ecosystem sandbox (TEST ONLY)",
+      "",
+      "The sandbox is a separate test trust domain. No wallet trusts it unless it is configured to.",
+      "A wallet that should work with the sandbox loads these four ETSI TS 119 602 lists instead of",
+      "the EU ones, for the same purposes:",
+      "",
+      list(
+        "WRPACProviders.jwt",
+        "Access CAs: which Relying Party access certificates to accept",
+      ),
+      list("WRPRCProviders.jwt", "Registration certificate providers"),
+      list("PIDProviders.jwt", "PID Providers: which PIDs to accept"),
+      list(
+        "WalletProviders.jwt",
+        "Wallet Providers: whose wallet attestations the sandbox's issuers accept",
+      ),
+      "",
+      "Every list is signed (JAdES compact, x5c) by the sandbox's list signer:",
+      `  ${base}/ca/lote-signer.cer`,
+      `  SHA-256 of its DER, base64url: ${pin}`,
+      "",
+      "Wallet Providers: to have the sandbox's issuers accept your wallets, register a Wallet Provider",
+      "service in the portal and upload the public certificate your wallet attestations chain to (a",
+      "CA) or are signed with. The operator approves it before it reaches the list. Your attestations",
+      "must carry an x5c chain; the client attestation and the key attestation are both checked.",
+      "",
+      "Results obtained with a wallet are that wallet's results. The sandbox makes no claim of",
+      "conformance for any wallet, and its own build is a MODIFIED wallet, not the Reference Wallet.",
+    ].join("\n");
   }
 
   @Get("cps")

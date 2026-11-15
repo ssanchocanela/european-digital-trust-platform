@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { SandboxCertificateRepository } from "@edtp/persistence";
+import type {
+  SandboxCertificateRepository,
+  SandboxWalletProviderRepository,
+} from "@edtp/persistence";
 import {
   hexToSerial,
   issueCrl,
@@ -21,13 +24,14 @@ import type { SandboxUrls } from "./urls.js";
  * | `crl:<ca>` | 24 h (EN 319 411-1 CSS-6.3.9-05) | revoked access certificates of that CA |
  * | `status:<signing key>` | 24 h, cache 1 h | revoked registration certificates it signed |
  * | `lote:<kind>` | 7 days (at most 6 months, TS 119 602) | the trust domain's listed CAs |
+ * | `lote:WalletProviders` | 7 days | the operator's Wallet Provider anchors and participants' approved ones (ADR 0020) |
  *
  * Each publication is kept with its sequence number — the CRL number and the LoTE sequence number are
  * that sequence — so the history the ARF asks for (`AS-WP-31-014`, `TLPub_08`) is a query.
  */
 export const CRL_CHANNELS = ["access-ca", "access-ca-untrusted"] as const;
 export const STATUS_CHANNELS = ["registrar-signing", "registrar-untrusted-signing"] as const;
-export const LOTE_KINDS: readonly ListKind[] = ["WRPAC", "WRPRC", "PID"];
+export const LOTE_KINDS: readonly ListKind[] = ["WRPAC", "WRPRC", "PID", "WalletProviders"];
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -66,7 +70,12 @@ export class SandboxPublicationService {
     private readonly urls: SandboxUrls,
     private readonly clock: Clock,
     private readonly logger: Logger,
+    /** Participants' approved Wallet Provider anchors (ADR 0020). */
+    private readonly walletProviders?: SandboxWalletProviderRepository,
   ) {}
+
+  /** Called after a channel is published, e.g. to rewrite the hosted issuers' Wallet Provider lists. */
+  onPublished?: (channel: string) => Promise<unknown>;
 
   private async build(channel: string): Promise<Built> {
     const [family, name] = channel.split(":") as [string, string];
@@ -129,39 +138,10 @@ export class SandboxPublicationService {
         informationUri: this.urls.information,
         email: OPERATOR_EMAIL,
       };
-      const ca = kind === "WRPAC" ? "access-ca" : kind === "WRPRC" ? "registrar" : "pid-ca";
-      const entities = [
-        {
-          ...own,
-          anchors: [
-            {
-              serviceName:
-                this.domain
-                  .x509(ca)
-                  .subject.split("\n")
-                  .find((l) => l.startsWith("CN="))
-                  ?.slice(3) ?? ca,
-              certificate: this.domain.certificate(ca),
-            },
-          ],
-        },
-        // The PID list also carries the sign-in anchors, so a sandbox wallet can hold the PID it
-        // signs in with (ADR 0014 Decision 5). Participants' anchors are added in S5.
-        ...(kind === "PID" && this.domain.pidSignInAnchors.length
-          ? [
-              {
-                name: "PID Providers trusted for sandbox sign-in — carried for TEST use, not operated by the sandbox",
-                tradeName: "Sign-in PID Providers",
-                informationUri: this.urls.information,
-                email: OPERATOR_EMAIL,
-                anchors: this.domain.pidSignInAnchors.map((a) => ({
-                  serviceName: a.name,
-                  certificate: a.certificate,
-                })),
-              },
-            ]
-          : []),
-      ];
+      const entities =
+        kind === "WalletProviders"
+          ? await this.walletProviderEntities()
+          : this.caEntities(kind, own);
       return {
         contentHash: hash(
           entities.map((e) => [e.name, e.anchors.map((a) => a.certificate.toString("base64"))]),
@@ -184,6 +164,87 @@ export class SandboxPublicationService {
       };
     }
     throw new Error(`unknown channel ${channel}`);
+  }
+
+  /**
+   * The Wallet Providers list (ADR 0020 §4): the anchors the operator placed — the EU development
+   * Wallet Providers, so the sandbox build keeps working — and one entity per organisation with
+   * approved anchors. No sandbox CA: the sandbox is not a Wallet Provider.
+   */
+  private async walletProviderEntities() {
+    const operator = this.domain.walletProviderAnchors.length
+      ? [
+          {
+            name: "EUDI development Wallet Providers — carried for TEST use, not operated by the sandbox",
+            tradeName: "EUDI development Wallet Providers",
+            informationUri: this.urls.information,
+            email: OPERATOR_EMAIL,
+            anchors: this.domain.walletProviderAnchors.map((a) => ({
+              serviceName: a.name,
+              certificate: a.certificate,
+            })),
+          },
+        ]
+      : [];
+    const byOrganisation = new Map<string, { serviceName: string; certificate: Buffer }[]>();
+    for (const a of this.walletProviders
+      ? await this.walletProviders.listed(this.clock.now())
+      : []) {
+      const anchors = byOrganisation.get(a.organisation) ?? [];
+      anchors.push({
+        serviceName: a.subject.slice(0, 200),
+        certificate: Buffer.from(a.certificateDer, "base64"),
+      });
+      byOrganisation.set(a.organisation, anchors);
+    }
+    const participants = [...byOrganisation.entries()].map(([organisation, anchors]) => ({
+      name: `${organisation} — sandbox participant, not verified (TEST)`,
+      tradeName: organisation,
+      informationUri: this.urls.registryEntry(organisation),
+      email: OPERATOR_EMAIL,
+      anchors,
+    }));
+    return [...operator, ...participants];
+  }
+
+  private caEntities(
+    kind: ListKind,
+    own: { name: string; tradeName: string; informationUri: string; email: string },
+  ) {
+    const ca = kind === "WRPAC" ? "access-ca" : kind === "WRPRC" ? "registrar" : "pid-ca";
+    const entities = [
+      {
+        ...own,
+        anchors: [
+          {
+            serviceName:
+              this.domain
+                .x509(ca)
+                .subject.split("\n")
+                .find((l) => l.startsWith("CN="))
+                ?.slice(3) ?? ca,
+            certificate: this.domain.certificate(ca),
+          },
+        ],
+      },
+      // The PID list also carries the sign-in anchors, so a sandbox wallet can hold the PID it
+      // signs in with (ADR 0014 Decision 5). Participants' anchors are added in S5.
+      ...(kind === "PID" && this.domain.pidSignInAnchors.length
+        ? [
+            {
+              name: "PID Providers trusted for sandbox sign-in — carried for TEST use, not operated by the sandbox",
+              tradeName: "Sign-in PID Providers",
+              informationUri: this.urls.information,
+              email: OPERATOR_EMAIL,
+              anchors: this.domain.pidSignInAnchors.map((a) => ({
+                serviceName: a.name,
+                certificate: a.certificate,
+              })),
+            },
+          ]
+        : []),
+    ];
+    return entities;
   }
 
   /** Publish `channel` if its content changed or its current publication nears its next update. */
@@ -215,6 +276,16 @@ export class SandboxPublicationService {
       return false;
     }
     this.logger.info("sandbox publication", { channel, sequence });
+    if (this.onPublished) {
+      try {
+        await this.onPublished(channel);
+      } catch (error) {
+        this.logger.warn("sandbox post-publication step failed", {
+          channel,
+          errorName: error instanceof Error ? error.name : "unknown",
+        });
+      }
+    }
     return true;
   }
 
@@ -240,6 +311,11 @@ export class SandboxPublicationService {
     if (now - this.lastSweep < 5 * 60_000) return;
     this.lastSweep = now;
     await this.publishAll();
+  }
+
+  /** The public base every list and certificate names. */
+  publicBase(): string {
+    return this.urls.base;
   }
 
   async latest(channel: string) {

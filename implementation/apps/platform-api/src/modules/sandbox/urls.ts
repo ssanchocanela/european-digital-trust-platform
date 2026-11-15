@@ -22,6 +22,7 @@ export const LOTE_FILE: Readonly<Record<ListKind, string>> = {
   PID: "PIDProviders.jwt",
   WRPAC: "WRPACProviders.jwt",
   WRPRC: "WRPRCProviders.jwt",
+  WalletProviders: "WalletProviders.jwt",
 };
 
 export function sandboxUrls(base: string): SandboxUrls {

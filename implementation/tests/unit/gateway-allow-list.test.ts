@@ -155,6 +155,8 @@ describe("the sandbox's public reads (S4)", () => {
       "/sandbox/public/lote/PIDProviders.jwt",
       "/sandbox/public/lote/WRPACProviders.jwt",
       "/sandbox/public/lote/WRPRCProviders.jwt",
+      "/sandbox/public/lote/WalletProviders.jwt",
+      "/sandbox/public/wallets",
       "/sandbox/public/status/registrar-signing",
       "/sandbox/public/status/unavailable",
       "/sandbox/public/crl/access-ca.crl",
@@ -172,6 +174,8 @@ describe("the sandbox's public reads (S4)", () => {
   it("refuses anything else under the sandbox, the portal's API above all", () => {
     for (const path of [
       "/sandbox/public/lote/EAAProviders.jwt",
+      "/sandbox/public/lote/WalletProvidersProviders.jwt",
+      "/sandbox/public/wallets/x",
       "/sandbox/public/ca/../../etc/passwd",
       "/sandbox/public/ca/lote-signer.key",
       "/sandbox/v1/me",

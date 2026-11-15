@@ -1,8 +1,7 @@
 # ADR 0018 — Sandbox sign-in by the Access identity; the PID becomes optional
 
 - **Status:** ACCEPTED, 14 November 2026, by the user, the day it was drafted, and built the same day
-  (PR #50). The user decided the direction: signing in with a PID must not be mandatory. **Not deployed
-  yet:** the sandbox VM still runs the ADR 0015 sign-in until the user confirms a deployment.
+  (PR #50). The user decided the direction: signing in with a PID must not be mandatory. **Deployed** on the sandbox VM on 14 November 2026, with the user's confirmation (image `c72d9bd8ebec`).
 - **Date:** 14 November 2026
 - **Amends:**
   - [ADR 0015](0015-sandbox-sign-in-by-pid.md): Decisions 1, 4, 5 and 7 change; Decisions 2 and 3 keep

@@ -9,6 +9,7 @@ import {
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import {
+  type AdminAnchorRow,
   type AuditRow,
   adminAudit,
   adminInvitations,
@@ -17,6 +18,7 @@ import {
   adminOverview,
   adminPeople,
   adminSuspendConfirm,
+  adminWalletProviders,
   type InvitationRow,
   type OrganisationDetail,
   type OrganisationRow,
@@ -49,8 +51,10 @@ import {
   servicesSection,
   type VerifierView,
   verifierSection,
+  type WalletProviderAnchorView,
   waiting,
   walletPage,
+  walletProviderPage,
   walletStep,
 } from "./pages.js";
 import { offeredFile, openFile, readWalletOffer } from "./wallet.js";
@@ -79,6 +83,8 @@ export interface PortalOptions {
   readonly requireAccess?: boolean;
   /** Where an operator places the sandbox wallet build and its `wallet.json` (wallet.ts). */
   readonly walletDir?: string;
+  /** The sandbox's public base (`…/sandbox/public`), for links to its lists and guide (ADR 0020). */
+  readonly publicBaseUrl?: string;
 }
 
 export const SESSION_COOKIE = "__Host-sbx-session";
@@ -614,6 +620,76 @@ export function createApp(options: PortalOptions): express.Express {
     );
   });
 
+  // --- Wallet Provider anchors (ADR 0020) ----------------------------------------------------------
+
+  app.post("/org/:id/services/:sid/wallet-provider-anchors", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { id, sid } = req.params;
+    if (!uuid.safeParse(id).success || !uuid.safeParse(sid).success) return void notFound(res);
+    const certificatePem =
+      typeof req.body?.certificatePem === "string" ? req.body.certificatePem : "";
+    const result = await api.call(
+      "POST",
+      `organisations/${id}/services/${sid}/wallet-provider-anchors`,
+      { session: token, body: { certificatePem } },
+    );
+    if (result.status === 201) return void res.redirect(303, `/org/${id}/services/${sid}`);
+    if (result.status === 401) return void res.redirect(303, "/");
+    await renderService(
+      res,
+      token,
+      id,
+      sid,
+      String(result.body.message ?? "The certificate was refused."),
+    );
+  });
+
+  app.post("/org/:id/services/:sid/wallet-provider-anchors/:aid/withdraw", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const { id, sid, aid } = req.params;
+    if (![id, sid, aid].every((v) => uuid.safeParse(v).success)) return void notFound(res);
+    const result = await api.call(
+      "POST",
+      `organisations/${id}/services/${sid}/wallet-provider-anchors/${aid}/withdraw`,
+      { session: token },
+    );
+    if (result.status === 401) return void res.redirect(303, "/");
+    if (result.status !== 204) {
+      return renderService(res, token, id, sid, "That anchor could not be withdrawn.");
+    }
+    res.redirect(303, `/org/${id}/services/${sid}`);
+  });
+
+  app.get("/admin/wallet-providers", (req, res) =>
+    adminGet(req, res, "wallet-provider-anchors", (b) =>
+      adminWalletProviders(b.anchors as AdminAnchorRow[]),
+    ),
+  );
+  for (const action of ["approve", "refuse"] as const) {
+    app.post(`/admin/wallet-providers/:aid/${action}`, async (req, res) => {
+      const token = requireSession(req, res);
+      if (!token) return;
+      if (!uuid.safeParse(req.params.aid).success) return void notFound(res);
+      const reason = typeof req.body?.reason === "string" ? req.body.reason : "";
+      const result = await api.call(
+        "POST",
+        `admin/wallet-provider-anchors/${req.params.aid}/${action}`,
+        { session: token, ...(action === "refuse" ? { body: { reason } } : {}) },
+      );
+      if (result.status === 401) return void res.redirect(303, "/");
+      if (result.status === 204) return void res.redirect(303, "/admin/wallet-providers");
+      if (result.status === 404) return void notFound(res);
+      res
+        .status(409)
+        .type("html")
+        .send(
+          message("Not possible", String(result.body.message ?? "That decision was refused.")),
+        );
+    });
+  }
+
   // --- organisations -------------------------------------------------------------------------
 
   const requireSession = (req: Request, res: Response): string | undefined => {
@@ -822,6 +898,33 @@ export function createApp(options: PortalOptions): express.Express {
       return;
     }
     const role = String(service.body.role);
+    if (role === "wallet_provider") {
+      const anchors = await api.call(
+        "GET",
+        `organisations/${org}/services/${sid}/wallet-provider-anchors`,
+        { session: token },
+      );
+      const membership = await api.call("GET", `organisations/${org}`, { session: token });
+      res
+        .status(error ? 400 : 200)
+        .type("html")
+        .send(
+          walletProviderPage({
+            orgId: org,
+            service: service.body as unknown as ServiceSummary,
+            anchors:
+              anchors.status === 200
+                ? (anchors.body as unknown as WalletProviderAnchorView[])
+                : [],
+            owner: membership.body.role === "owner",
+            ...(options.publicBaseUrl
+              ? { guideUrl: `${options.publicBaseUrl.replace(/\/+$/, "")}/wallets` }
+              : {}),
+            ...(error ? { error } : {}),
+          }),
+        );
+      return;
+    }
     const certificates = await api.call(
       "GET",
       `organisations/${org}/certificates?service=${sid}`,
@@ -896,7 +999,10 @@ export function createApp(options: PortalOptions): express.Express {
     const result = await api.call("POST", `organisations/${req.params.id}/services`, {
       session: token,
       body: {
-        role: b.role === "pid_provider" ? "pid_provider" : "service_provider",
+        role:
+          b.role === "pid_provider" || b.role === "wallet_provider"
+            ? b.role
+            : "service_provider",
         tradeName: String(b.tradeName ?? ""),
         description: [{ lang: "en", value: String(b.description ?? "") }],
         supportUri: String(b.supportUri ?? ""),

@@ -51,7 +51,7 @@ opening up requires. Within a track, the first bullet is the smallest useful ste
   investigation of what a wallet build checks for each (as CLAUDE.md §1 did for EAAs, finding B7).
 - **mdoc** (`mso_mdoc`) for the PID and then for EAAs: v1.1 item G-9.
 
-### R3 — Testing wallets, not only services
+### R3 — Testing wallets, not only services ([ADR 0022](../adr/0022-sandbox-testing-wallets.md), proposed)
 
 - **A wallet tester.** The sandbox acts as a Relying Party or an issuer and deliberately misbehaves:
   - a defective access or registration certificate, as v1 already does;

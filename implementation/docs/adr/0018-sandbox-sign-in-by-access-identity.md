@@ -113,7 +113,9 @@ ADR 0015 made a PID presentation the only way into the sandbox. Deploying the sa
 
 - The operator's duties stay where they are: `sandbox-operator-cli.js` on the VM, and the Access
   policy in Cloudflare.
-- No operator role is created in the portal by this ADR.
+- No operator role is created in the portal by this ADR. *Amended by
+  [ADR 0019](0019-sandbox-operator-section.md), 15 November 2026:* the portal gains an operator
+  section for the addresses in `SANDBOX_OPERATOR_EMAILS`.
 
 ### 7. Without Access, on a laptop
 

@@ -172,3 +172,33 @@ describe("the composed sandbox: who is at the portal (ADR 0018)", () => {
     expect((await repo.findSession(otherSession))?.endedAt).toBeDefined();
   });
 });
+
+describe("the composed sandbox: the operator's section (ADR 0019)", () => {
+  it("answers a signed-in person who is not an operator 404 on every admin route", async () => {
+    const headers = {
+      "x-edtp-sandbox-portal-secret": SECRET,
+      "content-type": "application/json",
+    };
+    let entered = (await (
+      await fetch(`${base}/sandbox/v1/access/enter`, { method: "POST", headers })
+    ).json()) as { outcome: string; sessionToken?: string };
+    if (entered.outcome === "needs_profile") {
+      entered = (await (
+        await fetch(`${base}/sandbox/v1/access/profile`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ displayName: "Dev" }),
+        })
+      ).json()) as { outcome: string; sessionToken?: string };
+    }
+    const session = { ...headers, "x-edtp-sandbox-session": String(entered.sessionToken) };
+    for (const path of ["overview", "organisations", "people", "invitations", "audit"]) {
+      const res = await fetch(`${base}/sandbox/v1/admin/${path}`, { headers: session });
+      expect(res.status, path).toBe(404);
+    }
+    const me = (await (await fetch(`${base}/sandbox/v1/me`, { headers: session })).json()) as {
+      person: { operator: boolean };
+    };
+    expect(me.person.operator).toBe(false);
+  });
+});

@@ -8,6 +8,22 @@ import {
 } from "@edtp/sandbox-pki";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import {
+  type AuditRow,
+  adminAudit,
+  adminInvitations,
+  adminOrganisation,
+  adminOrganisations,
+  adminOverview,
+  adminPeople,
+  adminSuspendConfirm,
+  type InvitationRow,
+  type OrganisationDetail,
+  type OrganisationRow,
+  type Overview,
+  type PersonRow,
+  type Quotas,
+} from "./admin-pages.js";
 import type { SandboxApi } from "./api.js";
 import {
   type CertificateSummary,
@@ -243,6 +259,7 @@ export function createApp(options: PortalOptions): express.Express {
           displayName: string;
           email?: string;
           pidPresented?: boolean;
+          operator?: boolean;
         };
         const memberships =
           (me.body.memberships as { organisationId: string; role: string }[]) ?? [];
@@ -250,7 +267,11 @@ export function createApp(options: PortalOptions): express.Express {
           dashboard(
             person.displayName,
             memberships.map((m) => ({ id: m.organisationId, role: m.role })),
-            { pidPresented: Boolean(person.pidPresented), email: person.email ?? "" },
+            {
+              pidPresented: Boolean(person.pidPresented),
+              email: person.email ?? "",
+              operator: Boolean(person.operator),
+            },
           ),
         );
         return;
@@ -487,6 +508,111 @@ export function createApp(options: PortalOptions): express.Express {
   };
   app.get("/pid/return", completePid);
   app.get("/pid/wait", completePid);
+
+  // --- the operator's section (ADR 0019) ---------------------------------------------------------
+  //
+  // The platform decides who is an operator and answers anyone else 404; the portal only renders.
+
+  const notFound = (res: Response) =>
+    res.status(404).type("html").send(message("Not found", "There is nothing here."));
+
+  const adminGet = async (
+    req: Request,
+    res: Response,
+    path: string,
+    render: (body: Record<string, unknown>) => string,
+  ) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    const result = await api.call("GET", `admin/${path}`, { session: token });
+    if (result.status === 401) return void res.redirect(303, "/");
+    if (result.status !== 200) return void notFound(res);
+    res.type("html").send(render(result.body));
+  };
+
+  app.get("/admin", (req, res) =>
+    adminGet(req, res, "overview", (b) => adminOverview(b as unknown as Overview)),
+  );
+  app.get("/admin/organisations", (req, res) =>
+    adminGet(req, res, "organisations", (b) =>
+      adminOrganisations(b.organisations as OrganisationRow[], b.quotas as Quotas),
+    ),
+  );
+  app.get("/admin/organisations/:id", (req, res) => {
+    if (!uuid.safeParse(req.params.id).success) return void notFound(res);
+    return adminGet(req, res, `organisations/${req.params.id}`, (b) =>
+      adminOrganisation(b as unknown as OrganisationDetail),
+    );
+  });
+  app.get("/admin/organisations/:id/suspend", (req, res) => {
+    if (!uuid.safeParse(req.params.id).success) return void notFound(res);
+    return adminGet(req, res, `organisations/${req.params.id}`, (b) =>
+      adminSuspendConfirm((b as unknown as OrganisationDetail).organisation),
+    );
+  });
+  app.post("/admin/organisations/:id/suspend", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    if (!uuid.safeParse(req.params.id).success) return void notFound(res);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason : "";
+    const result = await api.call("POST", `admin/organisations/${req.params.id}/suspend`, {
+      session: token,
+      body: { reason },
+    });
+    if (result.status === 200)
+      return void res.redirect(303, `/admin/organisations/${req.params.id}`);
+    if (result.status === 401) return void res.redirect(303, "/");
+    if (result.status === 400) {
+      return adminGet(req, res, `organisations/${req.params.id}`, (b) =>
+        adminSuspendConfirm(
+          (b as unknown as OrganisationDetail).organisation,
+          "Give a reason of 3 to 200 characters.",
+        ),
+      );
+    }
+    notFound(res);
+  });
+  app.get("/admin/people", (req, res) =>
+    adminGet(req, res, "people", (b) => adminPeople(b.people as PersonRow[])),
+  );
+  app.post("/admin/people/:id/end-sessions", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    if (!uuid.safeParse(req.params.id).success) return void notFound(res);
+    const result = await api.call("POST", `admin/people/${req.params.id}/end-sessions`, {
+      session: token,
+    });
+    if (result.status === 200) return void res.redirect(303, "/admin/people");
+    if (result.status === 401) return void res.redirect(303, "/");
+    notFound(res);
+  });
+  app.get("/admin/invitations", (req, res) =>
+    adminGet(req, res, "invitations", (b) =>
+      adminInvitations(b.invitations as InvitationRow[]),
+    ),
+  );
+  app.post("/admin/invitations/:id/revoke", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token) return;
+    if (!uuid.safeParse(req.params.id).success) return void notFound(res);
+    const result = await api.call("POST", `admin/invitations/${req.params.id}/revoke`, {
+      session: token,
+    });
+    if (result.status === 204) return void res.redirect(303, "/admin/invitations");
+    if (result.status === 401) return void res.redirect(303, "/");
+    notFound(res);
+  });
+  app.get("/admin/audit", (req, res) => {
+    const organisation =
+      typeof req.query.organisation === "string" ? req.query.organisation : "";
+    if (organisation && !uuid.safeParse(organisation).success) return void notFound(res);
+    return adminGet(
+      req,
+      res,
+      `audit${organisation ? `?organisation=${organisation}` : ""}`,
+      (b) => adminAudit(b.records as AuditRow[], Boolean(organisation)),
+    );
+  });
 
   // --- organisations -------------------------------------------------------------------------
 

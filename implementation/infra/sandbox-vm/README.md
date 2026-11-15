@@ -78,6 +78,12 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
    - **`EDTP sandbox portal`** on `sandbox.murcata.es`, the whole hostname:
      - one-time PIN;
      - a policy listing the invited participants' e-mail addresses (ADR 0017 §2).
+   - **`EDTP sandbox admin`** on `sandbox.murcata.es`, path `admin` (ADR 0019):
+     - one-time PIN;
+     - a policy listing only the operators, the same addresses as `SANDBOX_OPERATOR_EMAILS`.
+
+     A path-specific application takes precedence over the hostname's, so a participant stops at
+     Access.
 
    **Check it from outside, logged out.** `curl -sI https://sandbox.murcata.es/` and
    `curl -sI https://sandbox-ssh.murcata.es/` must each redirect to `*.cloudflareaccess.com`. Only
@@ -107,6 +113,8 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
    - `SANDBOX_ACCESS_TEAM_DOMAIN` and `SANDBOX_ACCESS_AUDIENCE` (ADR 0018): the Zero Trust team domain,
      and the "EDTP sandbox portal" application's AUD tag (Access → Applications → the application →
      Overview). Neither is a secret. Without them the platform refuses to start the sandbox.
+   - `SANDBOX_OPERATOR_EMAILS` (ADR 0019): the operators' addresses, comma-separated. They must match
+     the `EDTP sandbox admin` Access application.
    - **Copy `SANDBOX_KEYSTORE_KEY` into the operator's password manager now.** It is in no backup.
 
 7. **The trust domain**, fresh: the first deployment is not a migration of the laptop's.

@@ -208,6 +208,7 @@ export class SandboxController {
         displayName: context.person.displayName,
         email: context.person.email,
         pidPresented: Boolean(context.person.subject),
+        operator: this.sandbox?.isOperator(context) ?? false,
       },
       memberships: context.memberships.map((m) => ({
         organisationId: m.tenantId,

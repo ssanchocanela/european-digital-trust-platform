@@ -180,6 +180,23 @@ const schema = z.object({
   ),
   SANDBOX_ACCESS_DEV_IDENTITY: unsetIfEmpty(z.string().email().optional()),
   /**
+   * The sandbox's operators (ADR 0019): the addresses, comma-separated, whose verified Access
+   * identity opens the portal's operator section. Not a secret. Empty: nobody is an operator.
+   */
+  SANDBOX_OPERATOR_EMAILS: z
+    .string()
+    .default("")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    )
+    .refine(
+      (list) => list.every((e) => /^[^\s@]+@[^\s@]+$/.test(e)),
+      "must be e-mail addresses",
+    ),
+  /**
    * The sandbox's PKI (S3, ADR 0014): the trust domain created by `sandbox-pki init` — `keys/` sealed
    * under `SANDBOX_KEYSTORE_KEY`, `certs/`, and optional `pid-sign-in-anchors/` — and the public base
    * address its certificates and lists name. All three or none; without them, no certificate is

@@ -8,6 +8,7 @@ export * from "./repositories/listing.repository.js";
 export * from "./repositories/policy.repository.js";
 export * from "./repositories/registration.repository.js";
 export * from "./repositories/sandbox.repository.js";
+export * from "./repositories/sandbox-admin.repository.js";
 export * from "./repositories/sandbox-certificate.repository.js";
 export * from "./repositories/sandbox-issuer.repository.js";
 export * from "./repositories/sandbox-verifier.repository.js";

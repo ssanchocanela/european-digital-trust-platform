@@ -161,7 +161,8 @@ plans built from today's steps are in use.
 2. **The protocol-level defects** (§6): a separate ADR.
 3. **Whether reports may be published** by the participant on the sandbox, for example a public page per
    wallet build. Not in v1: reports are private to the organisation that ran them.
-4. **Exposing the CI API.** The routes are `/v1/tenants/{tenantId}/sandbox/wallet-tests[...]`. They
+4. **Exposing the CI API** — *decided by the user, 15 November 2026: expose it, behind an Access
+   service token, as proposed below.* The routes are `/v1/tenants/{tenantId}/sandbox/wallet-tests[...]`. They
    take an organisation API key, which acts as a member of its organisation, never as a person or an
    operator. To reach them from outside, two things are needed:
    - a gateway rule on `sandbox-platform.murcata.es` for exactly those paths;

@@ -84,6 +84,19 @@ pki() { docker run --rm -i -v /var/lib/edtp-sandbox/pki:/pki -v "$PWD/work:/work
 
      A path-specific application takes precedence over the hostname's, so a participant stops at
      Access.
+   - **`EDTP sandbox CI`** on `sandbox-platform.murcata.es`, path `v1` (ADR 0022 Open 4):
+     - **one policy only, Service Auth**, naming the service tokens of the participants allowed to run
+       wallet tests from CI. There is no login and no e-mail policy;
+     - one service token per participant (Access → Service credentials), handed to them out of band.
+       Their CI sends `CF-Access-Client-Id` and `CF-Access-Client-Secret` with every request, plus
+       the organisation's API key as `Authorization: Bearer`.
+
+     The wallets' own paths on that hostname (`/sandbox/public/…`) stay public: the application covers
+     `/v1` only. **Create it before deploying a gateway with `GATEWAY_SANDBOX_CI_API=on`.** Check it
+     from outside: `curl -sI https://sandbox-platform.murcata.es/v1/tenants/x/sandbox/wallet-tests`
+     must answer from Access (`403`, or a redirect to `*.cloudflareaccess.com`), and
+     `https://sandbox-platform.murcata.es/sandbox/public/lote/PIDProviders.jwt` must still answer
+     `200`.
 
    **Check it from outside, logged out.** `curl -sI https://sandbox.murcata.es/` and
    `curl -sI https://sandbox-ssh.murcata.es/` must each redirect to `*.cloudflareaccess.com`. Only

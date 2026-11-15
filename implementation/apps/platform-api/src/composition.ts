@@ -23,6 +23,7 @@ import {
   ListingRepository,
   PolicyRepository,
   RegistrationRepository,
+  SandboxAdminRepository,
   SandboxCertificateRepository,
   SandboxIssuerRepository,
   SandboxRepository,
@@ -54,6 +55,7 @@ import {
   CloudflareAccessVerifier,
   DevelopmentAccessIdentity,
 } from "./modules/sandbox/access-identity.js";
+import { SandboxAdminService } from "./modules/sandbox/admin.service.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
 import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "./modules/sandbox/metadata.service.js";
@@ -100,6 +102,7 @@ export interface Dependencies {
     readonly webhookEndpoints: WebhookEndpointRepository;
     readonly listing: ListingRepository;
     readonly sandbox: SandboxRepository;
+    readonly sandboxAdmin: SandboxAdminRepository;
     readonly sandboxCertificates: SandboxCertificateRepository;
     readonly sandboxVerifiers: SandboxVerifierRepository;
     readonly sandboxIssuers: SandboxIssuerRepository;
@@ -125,6 +128,8 @@ export interface Dependencies {
     readonly issuances: IssuanceService;
     /** Present only when the sandbox is configured (`SANDBOX_PORTAL_SECRET`). */
     readonly sandbox?: SandboxService;
+    /** The operator's section (ADR 0019); present with the sandbox. */
+    readonly sandboxAdmin?: SandboxAdminService;
     /** Present only when the sandbox's PKI is configured (S3). */
     readonly sandboxCertificates?: SandboxCertificateService;
     readonly sandboxPublications?: SandboxPublicationService;
@@ -177,6 +182,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     issuance: new IssuanceRepository(db),
     listing: new ListingRepository(db),
     sandbox: new SandboxRepository(db),
+    sandboxAdmin: new SandboxAdminRepository(db),
     sandboxCertificates: new SandboxCertificateRepository(db),
     sandboxVerifiers: new SandboxVerifierRepository(db),
     sandboxIssuers: new SandboxIssuerRepository(db),
@@ -377,6 +383,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             signInPolicyId: config.SANDBOX_SIGN_IN_POLICY_ID,
             participantTrustSources: config.SANDBOX_PARTICIPANT_TRUST_SOURCES,
             portalPublicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
+            operatorEmails: config.SANDBOX_OPERATOR_EMAILS,
           },
           repositories.sandbox,
           repositories.policies,
@@ -522,6 +529,19 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
       webhooks,
       issuances,
       ...(sandbox ? { sandbox } : {}),
+      ...(sandbox && config.SANDBOX_OPERATOR_TENANT_ID
+        ? {
+            sandboxAdmin: new SandboxAdminService(
+              sandbox,
+              repositories.sandboxAdmin,
+              repositories.sandbox,
+              pki?.certificates,
+              audit,
+              clock,
+              asId<"TenantId">(config.SANDBOX_OPERATOR_TENANT_ID),
+            ),
+          }
+        : {}),
       ...(engineTenants ? { engineTenants } : {}),
       ...(pki
         ? {

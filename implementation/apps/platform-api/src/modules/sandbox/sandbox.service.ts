@@ -48,6 +48,8 @@ export interface SandboxSettings {
   readonly participantTrustSources: readonly string[];
   /** The portal origin the wallet returns to after a same-device presentation. */
   readonly portalPublicUrl: string;
+  /** The operators' normalised addresses (ADR 0019 §1). Held by configuration, never granted. */
+  readonly operatorEmails?: readonly string[];
 }
 
 /** The result claim the sign-in policy's `PseudonymousSubject` derivation must write. */
@@ -184,6 +186,12 @@ export class SandboxService {
       await this.repository.endSession(sessionToken, this.clock.now());
       throw PlatformError.unauthenticated();
     }
+  }
+
+  /** ADR 0019 §1: an operator is a person whose verified address is on the configured list. */
+  isOperator(context: SignedInContext): boolean {
+    const email = context.person.email;
+    return email.length > 0 && (this.settings.operatorEmails ?? []).includes(email);
   }
 
   // --- invitations ------------------------------------------------------------------------------

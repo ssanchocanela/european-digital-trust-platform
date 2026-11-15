@@ -20,6 +20,7 @@ import {
 } from "./http/listing.controllers.js";
 import { SandboxController } from "./http/sandbox.controllers.js";
 import { SandboxAccessGuard } from "./http/sandbox-access.guard.js";
+import { SandboxAdminController } from "./http/sandbox-admin.controller.js";
 import { SandboxCertificatesController } from "./http/sandbox-certificates.controller.js";
 import { SandboxIssuerController } from "./http/sandbox-issuer.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
@@ -47,6 +48,7 @@ import {
   REGISTERED_CONNECTORS,
   REGISTERED_EVALUATORS,
   REGISTRATION_SERVICE,
+  SANDBOX_ADMIN,
   SANDBOX_CERTIFICATES,
   SANDBOX_ISSUER,
   SANDBOX_PUBLIC,
@@ -85,6 +87,7 @@ export class AppModule {
         HostedVerifierController,
         EngineAttributesController,
         SandboxController,
+        SandboxAdminController,
         SandboxPublicController,
         SandboxCertificatesController,
         SandboxVerifierController,
@@ -118,6 +121,7 @@ export class AppModule {
         { provide: SANDBOX_CERTIFICATES, useValue: deps.services.sandboxCertificates },
         { provide: SANDBOX_VERIFIER, useValue: deps.services.sandboxVerifier },
         { provide: SANDBOX_ISSUER, useValue: deps.services.sandboxIssuer },
+        { provide: SANDBOX_ADMIN, useValue: deps.services.sandboxAdmin },
         {
           provide: SANDBOX_PUBLIC,
           useValue:

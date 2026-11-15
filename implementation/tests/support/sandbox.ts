@@ -9,6 +9,7 @@ import type {
   AccessIdentity,
   AccessIdentityVerifier,
 } from "../../apps/platform-api/src/modules/sandbox/access-identity.js";
+import { SandboxAdminService } from "../../apps/platform-api/src/modules/sandbox/admin.service.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
 import { SandboxIssuerService } from "../../apps/platform-api/src/modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "../../apps/platform-api/src/modules/sandbox/metadata.service.js";
@@ -71,6 +72,8 @@ export async function wireSandbox(
     /** The Wallet Provider anchors a hosted issuer loads; and the list id that makes it require them. */
     walletProviderAnchors?: { name: string; certificate: Buffer }[];
     walletProviderTrustListId?: string;
+    /** Operators' addresses (ADR 0019). */
+    operatorEmails?: readonly string[];
   } = {},
 ) {
   const operator = await seedTenant(harness, {
@@ -110,6 +113,7 @@ export async function wireSandbox(
       signInPolicyId: operator.policyId,
       participantTrustSources: [`${PUBLIC_BASE}/lote/PIDProviders.jwt`],
       portalPublicUrl: "https://portal.sandbox.test",
+      operatorEmails: options.operatorEmails ?? [],
     },
     harness.deps.repositories.sandbox,
     harness.deps.repositories.policies,
@@ -258,8 +262,19 @@ export async function wireSandbox(
       )
     : undefined;
 
+  const admin = new SandboxAdminService(
+    sandbox,
+    harness.deps.repositories.sandboxAdmin,
+    harness.deps.repositories.sandbox,
+    certificates,
+    harness.deps.services.audit,
+    harness.clock,
+    asId<"TenantId">(operator.tenantId),
+  );
+
   return {
     sandbox,
+    admin,
     domain,
     urls,
     publications,

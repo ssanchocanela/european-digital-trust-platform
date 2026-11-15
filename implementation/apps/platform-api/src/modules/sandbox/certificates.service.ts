@@ -462,7 +462,15 @@ export class SandboxCertificateService {
    * `AS-MS-31-025`/`-026` (`RPACANot_06`/`RPACANot_07`) and TS 119 411-8 REV-6.3.9-02..04.
    * Revocation is final; so is the suspension, in v1. Returns what it did.
    */
-  async suspendOrganisation(localIdentifier: string, reason: string) {
+  /**
+   * Suspend an organisation and revoke every certificate it holds (specification J9). `actor` names
+   * who did it in the audit record: the command-line tool, or an operator's person id (ADR 0019).
+   */
+  async suspendOrganisation(
+    localIdentifier: string,
+    reason: string,
+    actor = "sandbox-operator",
+  ) {
     const organisation = await this.people.findOrganisationByLocalIdentifier(localIdentifier);
     if (!organisation) throw PlatformError.notFound("Organisation");
     const at = this.clock.now();
@@ -476,7 +484,7 @@ export class SandboxCertificateService {
     }
     await this.audit.record({
       tenantId: organisation.tenantId,
-      actor: "sandbox-operator",
+      actor,
       action: "sandbox.organisation.suspended",
       subjectType: "sandbox_organisation",
       subjectId: organisation.localIdentifier,

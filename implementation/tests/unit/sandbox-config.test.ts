@@ -99,4 +99,15 @@ describe("sandbox configuration", () => {
       loadConfig({ ...base, ...sandbox, SANDBOX_ACCESS_AUDIENCE: "short" }),
     ).toThrow();
   });
+
+  it("reads the operators as normalised addresses, and refuses something that is not one (ADR 0019)", () => {
+    expect(
+      loadConfig({ ...base, ...sandbox, SANDBOX_OPERATOR_EMAILS: " Op@Example.test , b@x.test" })
+        .SANDBOX_OPERATOR_EMAILS,
+    ).toEqual(["op@example.test", "b@x.test"]);
+    expect(loadConfig({ ...base, ...sandbox }).SANDBOX_OPERATOR_EMAILS).toEqual([]);
+    expect(() =>
+      loadConfig({ ...base, ...sandbox, SANDBOX_OPERATOR_EMAILS: "not an address" }),
+    ).toThrow();
+  });
 });

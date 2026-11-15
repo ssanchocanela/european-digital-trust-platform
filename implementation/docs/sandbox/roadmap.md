@@ -1,6 +1,7 @@
 # The EUDI ecosystem sandbox — roadmap after v1
 
-- **Status:** PROPOSED, 15 November 2026, for the user's approval. Nothing below is built. Each track
+- **Status:** PROPOSED 15 November 2026; **the order of the tracks approved by the user the same day**
+  (decision 1 below). Nothing below is built. Each track
   becomes a milestone, with its own PR and STOP, and an ADR where the decision is not obvious, as
   S0–S6 were.
 - **Why now:** v1 is deployed and in use by invited participants: the Relying Party and PID Provider
@@ -114,8 +115,8 @@ opening up requires. Within a track, the first bullet is the smallest useful ste
 
 ## What needs the user's decision first
 
-1. **The order of the tracks.** Proposed: R1 → R7 (erasure only) → R3 → R2 → R6 → R4 → R5, with R8
-   running alongside from the start, because opening up waits on it.
+1. **The order of the tracks** — **decided 15 November 2026: as proposed.** R1 → R7 (erasure only) →
+   R3 → R2 → R6 → R4 → R5, with R8 running alongside from the start, because opening up waits on it.
 2. **Who the first outside participants are.** That decides whether R6 is needed soon or late.
 3. **Whether the sandbox should check wallets' behaviour (R3) at all,** or leave that to official
    conformance tooling. A tester is valuable, and it is also the place where it is easiest to imply

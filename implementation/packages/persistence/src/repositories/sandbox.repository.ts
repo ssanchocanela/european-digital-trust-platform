@@ -146,6 +146,42 @@ export class SandboxRepository {
       .where(eq(sandboxPeople.id, id));
   }
 
+  /**
+   * Erase a person (ADR 0021 §2), in one transaction: the invitations addressed to them — which no
+   * foreign key ties to the person — then the person, whose memberships, sessions, sign-in attempts
+   * and the invitations they created go with them by cascade. Returns false if there was no such
+   * person.
+   */
+  async erasePerson(id: PersonId): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const [person] = await tx
+        .select({ email: sandboxPeople.email })
+        .from(sandboxPeople)
+        .where(eq(sandboxPeople.id, id));
+      if (!person) return false;
+      if (person.email) {
+        await tx.delete(sandboxInvitations).where(eq(sandboxInvitations.email, person.email));
+      }
+      await tx.delete(sandboxPeople).where(eq(sandboxPeople.id, id));
+      return true;
+    });
+  }
+
+  /** Make an existing member an owner (ADR 0021 §4). False when they are not a member. */
+  async makeOwner(tenantId: TenantId, personId: PersonId): Promise<boolean> {
+    const rows = await this.db
+      .update(sandboxMemberships)
+      .set({ role: "owner" })
+      .where(
+        and(
+          eq(sandboxMemberships.tenantId, tenantId),
+          eq(sandboxMemberships.personId, personId),
+        ),
+      )
+      .returning({ personId: sandboxMemberships.personId });
+    return rows.length === 1;
+  }
+
   // --- organisations ---------------------------------------------------------------------------
 
   /**

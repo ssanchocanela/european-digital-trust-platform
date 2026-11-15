@@ -227,6 +227,18 @@ engine is S5 work (plan).
 5. Point the wallet at the sandbox's four lists: `/sandbox/public/wallets` says which, with the list
    signer's pin.
 
+### J11 — Leaving ([ADR 0021](../adr/0021-sandbox-erasure-of-a-person.md))
+
+- **A person deletes their own account** from the dashboard. A confirmation page says what goes, what
+  happens to each organisation, and how long backups keep the data. Typing their own address confirms.
+- **The last owner of an organisation with other members is refused** until they make another member
+  an owner. Owners can do that from the members table.
+- **An organisation whose only member leaves is suspended,** not deleted.
+- **The operator erases a person** on a request received another way, with a reason, and may override
+  the last-owner refusal; the organisation is then suspended.
+- **Afterwards:** the audit trail keeps an id that points at nobody. The operator removes the address
+  from the Access policy.
+
 ### J9 — Operator
 
 *Built in the portal's `/admin` section by [ADR 0019](../adr/0019-sandbox-operator-section.md), 15 November

@@ -190,6 +190,8 @@ services:
       GATEWAY_ATTESTATION_SKEW_DELAY_MS: "3000"
       # Sandbox issuers' metadata, signed in front of the engine (ADR 0016).
       GATEWAY_SANDBOX_SIGNED_METADATA: "on"
+      # The wallet test API for CI (ADR 0022 Open 4), behind the "EDTP sandbox CI" Access application.
+      GATEWAY_SANDBOX_CI_API: "on"
     ports:
       - "127.0.0.1:3010:3010"
       - "127.0.0.1:3011:3011"

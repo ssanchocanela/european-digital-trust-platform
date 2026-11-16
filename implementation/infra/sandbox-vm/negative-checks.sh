@@ -28,6 +28,8 @@ platform_paths=(/v1/tenants /v1/presentations /v1/me /health /openapi /sandbox/v
   /sandbox/v1/organisations /sandbox/v1/sign-in-attempts /sandbox/v1/access/enter
   /sandbox/public/../v1/tenants /internal/engine/x/attributes)
 portal_paths=(/ /wallet /org/x /pid/return /admin /admin/people)
+# The wallet test API for CI (ADR 0022 Open 4): the one /v1 path family the gateway lets through.
+ci_paths=(/v1/tenants/00000000-0000-4000-8000-000000000001/sandbox/wallet-tests)
 
 failures=0 silent=0 total=0
 count() { # <code> <ok-pattern>
@@ -64,9 +66,30 @@ locked() { # <path...>: the portal must not answer without Access
     fi
   done
 }
+ci_locked() { # <path...>: publicly, Cloudflare Access answers; on loopback, the platform wants a key
+  for path in "$@"; do
+    total=$((total + 1))
+    if [ "$LOCAL" = 1 ]; then
+      code="$("${CURL[@]}" -s -o /dev/null -w '%{http_code}' --max-time 15 "$PLATFORM$path" || true)"
+      printf '    %s  ci-api%s (loopback, no API key: must be 401)\n' "$code" "$path"
+      count "$code" '^401$'
+    else
+      out="$("${CURL[@]}" -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 15 "$PLATFORM$path" || true)"
+      code="${out%% *}" location="${out#* }"
+      printf '    %s  ci-api%s -> %s\n' "$code" "$path" "${location:-(none)}"
+      # A service-auth-only Access application refuses with 403; one with a login redirects to it.
+      if [ "$code" = 403 ] || { [[ "$code" =~ ^30[127]$ ]] && [[ "$location" =~ ^https://[a-z0-9-]+\.cloudflareaccess\.com/ ]]; }; then
+        :
+      else
+        count "$code" '^$'
+      fi
+    fi
+  done
+}
 probe engine "$ENGINE" "${engine_paths[@]}"
 probe platform "$PLATFORM" "${platform_paths[@]}"
 locked "${portal_paths[@]}"
+ci_locked "${ci_paths[@]}"
 if [ "$failures" -gt 0 ]; then echo "NEGATIVE CHECKS FAILED: $failures of $total answered other than required."; exit 1; fi
 if [ "$silent" -gt 0 ]; then echo "NEGATIVE CHECKS INCOMPLETE: $silent of $total did not answer."; exit 2; fi
 echo "Negative checks passed: all $total as required."

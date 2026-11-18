@@ -44,7 +44,15 @@ probe() { # <label> <base> <path...>: each must be 404
     total=$((total + 1))
     code="$("${CURL[@]}" -s -o /dev/null -w '%{http_code}' --path-as-is --max-time 15 "$base$path" || true)"
     printf '    %s  %s%s\n' "$code" "$label" "$path"
-    count "$code" '^404$'
+    # Publicly, every platform /v1 path sits behind the "EDTP sandbox CI" Access application (ADR 0022
+    # Open 4), which refuses it with 403 before the gateway sees it: more closed than a 404, not less.
+    # The platform itself never answers 403 to an unauthenticated /v1 request (it says 401), so a 403
+    # there is Access. On loopback, the gateway's own 404 is still required.
+    if [ "$LOCAL" = 0 ] && [ "$label" = platform ] && [[ "$path" == /v1/* ]]; then
+      count "$code" '^(404|403)$'
+    else
+      count "$code" '^404$'
+    fi
   done
 }
 locked() { # <path...>: the portal must not answer without Access

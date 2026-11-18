@@ -41,7 +41,7 @@ opening up requires. Within a track, the first bullet is the smallest useful ste
 - **Before building:** read in the engine's source which wallet-attestation formats it checks
   (ADR 0020 Open 1).
 
-### R2 — More attestations than the PID
+### R2 — More attestations than the PID ([ADR 0023](../adr/0023-sandbox-eaa-providers.md), proposed)
 
 - **EAA Providers**, non-qualified first: a participant defines a credential type and a `vct`, gets
   an attestation-signing certificate from a sandbox CA, and issues from a hosted issuer. The engine

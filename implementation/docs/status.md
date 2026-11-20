@@ -8,6 +8,36 @@ linked rather than repeated.
 
 ---
 
+## 20 November 2026 — **R2 built: non-qualified EAA Providers (ADR 0023), not deployed, no wallet run**
+
+**Accepted and built in one PR**, so the ADR cannot reach `main` without its code.
+
+- **What exists in the code:**
+  - an `eaa_provider` role (migration 0021);
+  - credential types a participant defines: flat claims, immutable versions, a `vct` the sandbox
+    assigns under `<public base>/vct/…`, SD-JWT VC Type Metadata served there;
+  - the sandbox EAA CA, its untrusted twin and a fifth list, `EAAProviders.jwt`, with identifiers of
+    the sandbox's own (no EU list of this kind exists);
+  - the hosted issuer for EAA Providers (EAA-00, EAA-01, EAA-02), one engine credential configuration per
+    type version, and offers whose values are checked against the type and never stored;
+  - registration certificates with `Non_Q_EAA_Provider` and the provided `vct`s; the register lists them;
+  - Relying Parties may request a registered EAA type; the hosted verifier loads the EAA list;
+  - an `eaa-issuance` wallet test plan;
+  - portal pages for all of it.
+- **Found in source on acceptance, and recorded:** wallet-core 0.30.2 **drops** any `eaaProviders` or
+  `pubEaaProviders` list location it is given (interop finding C16). So WD-1 had to be app code, and
+  **WD-9 has never had an effect**, F2 included. `build.sh` now warns about WD-9.
+- **WD-1 is built for `--profile sandbox` and `sandbox-strict`**, and was compiled against the pinned
+  libraries on 20 November. No APK carrying it exists yet: the user runs `build.sh` (the keystore
+  password is theirs).
+- **Deploying it** needs the user's confirmation, as always. `deploy.sh` now runs `cli.js extend`
+  before switching, which creates the EAA CA and its twin in the sandbox's key store, adding to it and
+  touching nothing that exists. Until then the EAA list is not published and EAA issuers refuse.
+- **Not done:** a wallet run of any EAA step; QEAA, PuB-EAA and mdoc (later, in R2's own terms).
+
+**Next action:** the user reviews and merges the PR. After that, with confirmation, deploy it, then
+build the sandbox wallet with WD-1 and run EAA-00 end to end.
+
 ## 18 November 2026 — **R1, erasure and R3 deployed; the sandbox went offline for 16 minutes and recovered**
 
 **What runs on the sandbox VM now:** image `1d6fba673806`. Every item below was verified inside the

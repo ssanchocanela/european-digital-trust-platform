@@ -56,7 +56,8 @@ Without that, every new type would need a new wallet build, which would make the
   - its registration certificate's `entitlement` is `https://uri.etsi.org/19475/Entitlement/Non_Q_EAA_Provider`,
     the spelling the pinned wallet compares against (`IssuerEntitlements.NON_Q_EAA`, interop finding
     C14), and it lists the provided attestations;
-  - which claims are selectively disclosable;
+  - *(amended on acceptance)* no per-claim choice of selective disclosure: every claim is issued
+    selectively disclosable, the platform's rule for every type since interop finding A32;
   - a validity period for issued credentials.
 - **The `vct` is assigned by the sandbox, never typed:**
   `https://sandbox-platform.murcata.es/sandbox/public/vct/{organisation}/{type}`. The sandbox serves

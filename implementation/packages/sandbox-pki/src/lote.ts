@@ -22,6 +22,8 @@ import type { Signer } from "./x509.js";
  */
 
 interface KindProfile {
+  /** Why the scheme name says what it says: an EU list type reused, or the sandbox's own type. */
+  readonly typeOrigin?: "eu" | "sandbox";
   readonly loteType: string;
   readonly statusDetermination: string;
   readonly schemeRules: string;
@@ -30,6 +32,14 @@ interface KindProfile {
 }
 
 const ETSI = "http://uri.etsi.org/19602";
+/**
+ * The sandbox's own identifiers, for the list ETSI TS 119 602 has no EU type for: non-qualified EAA
+ * providers (ADR 0023). Names, not locations: nothing is served at them. The sandbox wallet build
+ * selects the list's services by `SANDBOX_EAA_SERVICE_TYPE` (WD-1, `tools/test-wallet/deviations/wd-1.kt`),
+ * and does not check the list type.
+ */
+const SANDBOX_19602 = "https://sandbox.murcata.es/19602";
+export const SANDBOX_EAA_SERVICE_TYPE = `${SANDBOX_19602}/SvcType/EAA`;
 
 export const LOTE_PROFILES: Readonly<Record<ListKind, KindProfile>> = {
   PID: {
@@ -64,6 +74,14 @@ export const LOTE_PROFILES: Readonly<Record<ListKind, KindProfile>> = {
     // (`docs/interop-findings.md` A36).
     serviceType: `${ETSI}/SvcType/WalletSolution`,
     subject: "wallet providers",
+  },
+  EAA: {
+    typeOrigin: "sandbox",
+    loteType: `${SANDBOX_19602}/LoTEType/EAAProvidersList`,
+    statusDetermination: `${SANDBOX_19602}/EAAProvidersList/StatusDetn`,
+    schemeRules: `${SANDBOX_19602}/EAAProvidersList/schemerules`,
+    serviceType: SANDBOX_EAA_SERVICE_TYPE,
+    subject: "non-qualified EAA providers",
   },
 };
 
@@ -141,8 +159,11 @@ export function buildLote(input: LoteInput): Record<string, unknown> {
           SchemeOperatorElectronicAddress: operator.electronic,
         },
         SchemeName: en(
-          `EDTP Sandbox TEST list of ${profile.subject} — NOT a notified list, NOT the EU list; ` +
-            "it reuses the EU list type so a test wallet can read it",
+          profile.typeOrigin === "sandbox"
+            ? `EDTP Sandbox TEST list of ${profile.subject} — NOT a notified list; ` +
+                "there is no EU list of this type, and its type and service identifiers are the sandbox's own"
+            : `EDTP Sandbox TEST list of ${profile.subject} — NOT a notified list, NOT the EU list; ` +
+                "it reuses the EU list type so a test wallet can read it",
         ),
         SchemeInformationURI: enUri(input.informationUrl),
         StatusDeterminationApproach: profile.statusDetermination,

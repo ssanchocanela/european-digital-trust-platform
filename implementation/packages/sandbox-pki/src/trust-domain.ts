@@ -30,9 +30,10 @@ export const SANDBOX_ORGANISATION = "EDTP Sandbox - TEST ONLY";
 /** ETSI TS 119 602 §6.8: the list signer's C and O match the scheme territory and operator. */
 export const SANDBOX_TERRITORY = "EU";
 
-/** The sandbox's four lists. `WalletProviders` carries no sandbox CA: its entries are the EU
- * development Wallet Providers the operator places, and participants' approved anchors (ADR 0020). */
-export type ListKind = "WRPAC" | "WRPRC" | "PID" | "WalletProviders";
+/** The sandbox's five lists. `WalletProviders` carries no sandbox CA: its entries are the EU
+ * development Wallet Providers the operator places, and participants' approved anchors (ADR 0020).
+ * `EAA` carries the sandbox EAA CA, for non-qualified EAAs (ADR 0023). */
+export type ListKind = "WRPAC" | "WRPRC" | "PID" | "WalletProviders" | "EAA";
 
 export interface DomainMember {
   /** The key's name in the store, and the certificate's file name. */
@@ -42,6 +43,11 @@ export interface DomainMember {
   readonly listedOn?: ListKind;
   /** A root CA (self-signed, `keyCertSign` and `cRLSign`), or a leaf issued by `issuer`. */
   readonly kind: "root" | "leaf";
+  /**
+   * Set on members added after the domain was first created. A running sandbox may not have them
+   * yet: `extendTrustDomain` creates them, and nothing else. The ADR that added them.
+   */
+  readonly addedBy?: string;
   readonly issuer?: string;
 }
 
@@ -93,6 +99,20 @@ export const TRUST_DOMAIN: readonly DomainMember[] = [
   },
   // Self-signed and pinned in the wallet build, as the existing EDTP TEST list signer is.
   { name: "lote-signer", commonName: "EDTP Sandbox LoTE Signer - TEST ONLY", kind: "root" },
+  // Non-qualified EAAs (ADR 0023): the CA on the EAA list, and its untrusted twin for EAA-01.
+  {
+    name: "eaa-ca",
+    commonName: "EDTP Sandbox EAA CA - TEST ONLY",
+    kind: "root",
+    listedOn: "EAA",
+    addedBy: "ADR 0023",
+  },
+  {
+    name: "eaa-ca-untrusted",
+    commonName: "EDTP Sandbox Untrusted EAA CA - TEST ONLY",
+    kind: "root",
+    addedBy: "ADR 0023",
+  },
 ];
 
 export const nameOf = (commonName: string): NameAttribute[] => [
@@ -105,6 +125,28 @@ const DAY = 86_400_000;
 /** Two years, ADR 0014 Decision 2. */
 export const ROOT_VALIDITY_DAYS = 730;
 export const SIGNING_LEAF_VALIDITY_DAYS = 365;
+
+function issueRoot(member: DomainMember, signer: Signer, now: Date): Buffer {
+  const subject = nameOf(member.commonName);
+  const isCa = member.name !== "lote-signer";
+  return issueCertificate(
+    {
+      serial: randomSerial(),
+      issuer: subject,
+      subject,
+      notBefore: now,
+      notAfter: new Date(now.getTime() + ROOT_VALIDITY_DAYS * DAY),
+      subjectPublicKey: signer.publicKey,
+      extensions: [
+        basicConstraints(isCa, isCa ? 0 : undefined),
+        keyUsage(isCa ? ["keyCertSign", "cRLSign"] : ["digitalSignature"]),
+        subjectKeyIdentifier(signer.publicKey),
+        certificatePolicies([{ policy: SANDBOX_POLICY_OID }]),
+      ],
+    },
+    signer,
+  );
+}
 
 export interface IssuedMember {
   readonly member: DomainMember;
@@ -136,24 +178,7 @@ export async function createTrustDomain(
     const subject = nameOf(member.commonName);
     let certificate: Buffer;
     if (member.kind === "root") {
-      const isCa = member.name !== "lote-signer";
-      certificate = issueCertificate(
-        {
-          serial: randomSerial(),
-          issuer: subject,
-          subject,
-          notBefore: now,
-          notAfter: new Date(now.getTime() + ROOT_VALIDITY_DAYS * DAY),
-          subjectPublicKey: signer.publicKey,
-          extensions: [
-            basicConstraints(isCa, isCa ? 0 : undefined),
-            keyUsage(isCa ? ["keyCertSign", "cRLSign"] : ["digitalSignature"]),
-            subjectKeyIdentifier(signer.publicKey),
-            certificatePolicies([{ policy: SANDBOX_POLICY_OID }]),
-          ],
-        },
-        signer,
-      );
+      certificate = issueRoot(member, signer, now);
     } else {
       const issuerMember = TRUST_DOMAIN.find((m) => m.name === member.issuer);
       const issuerSigner = member.issuer ? signers.get(member.issuer) : undefined;
@@ -180,6 +205,43 @@ export async function createTrustDomain(
     }
     certificates.set(member.name, certificate);
     issued.push({ member, certificate });
+  }
+  return issued;
+}
+
+/**
+ * Add the members a running sandbox does not have yet (those with `addedBy`), and nothing else.
+ *
+ * A member is created only when **neither** its key nor its certificate exists. A key without a
+ * certificate, or the reverse, is refused: it means a half-finished earlier run or a damaged store,
+ * and generating over it would replace an anchor wallets may already hold. Members without `addedBy`
+ * are never created here: a sandbox missing one of those was never initialised (`init`).
+ */
+export async function extendTrustDomain(
+  store: SandboxKeyStore,
+  hasCertificate: (name: string) => Promise<boolean>,
+  now: Date,
+): Promise<IssuedMember[]> {
+  const issued: IssuedMember[] = [];
+  for (const member of TRUST_DOMAIN) {
+    const key = await store.has(member.name);
+    const cert = await hasCertificate(member.name);
+    if (key && cert) continue;
+    if (key !== cert) {
+      throw new Error(
+        `trust-domain member ${member.name} has a ${key ? "key without a certificate" : "certificate without a key"}; refusing to regenerate it`,
+      );
+    }
+    if (!member.addedBy) {
+      throw new Error(
+        `trust-domain member ${member.name} is missing: this sandbox was never initialised (run init)`,
+      );
+    }
+    if (member.kind !== "root") {
+      throw new Error(`extending the domain with a leaf (${member.name}) is not supported`);
+    }
+    const signer = await store.create(member.name);
+    issued.push({ member, certificate: issueRoot(member, signer, now) });
   }
   return issued;
 }

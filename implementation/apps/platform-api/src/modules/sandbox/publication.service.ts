@@ -25,13 +25,20 @@ import type { SandboxUrls } from "./urls.js";
  * | `status:<signing key>` | 24 h, cache 1 h | revoked registration certificates it signed |
  * | `lote:<kind>` | 7 days (at most 6 months, TS 119 602) | the trust domain's listed CAs |
  * | `lote:WalletProviders` | 7 days | the operator's Wallet Provider anchors and participants' approved ones (ADR 0020) |
+ * | `lote:EAA` | 7 days | the sandbox EAA CA (ADR 0023), once `cli.js extend` has created it |
  *
  * Each publication is kept with its sequence number — the CRL number and the LoTE sequence number are
  * that sequence — so the history the ARF asks for (`AS-WP-31-014`, `TLPub_08`) is a query.
  */
 export const CRL_CHANNELS = ["access-ca", "access-ca-untrusted"] as const;
 export const STATUS_CHANNELS = ["registrar-signing", "registrar-untrusted-signing"] as const;
-export const LOTE_KINDS: readonly ListKind[] = ["WRPAC", "WRPRC", "PID", "WalletProviders"];
+export const LOTE_KINDS: readonly ListKind[] = [
+  "WRPAC",
+  "WRPRC",
+  "PID",
+  "WalletProviders",
+  "EAA",
+];
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -211,7 +218,14 @@ export class SandboxPublicationService {
     kind: ListKind,
     own: { name: string; tradeName: string; informationUri: string; email: string },
   ) {
-    const ca = kind === "WRPAC" ? "access-ca" : kind === "WRPRC" ? "registrar" : "pid-ca";
+    const ca =
+      kind === "WRPAC"
+        ? "access-ca"
+        : kind === "WRPRC"
+          ? "registrar"
+          : kind === "EAA"
+            ? "eaa-ca"
+            : "pid-ca";
     const entities = [
       {
         ...own,
@@ -297,9 +311,15 @@ export class SandboxPublicationService {
     ];
   }
 
+  /** Whether the domain holds what a channel is built from (the EAA CA may not exist yet). */
+  private available(channel: string): boolean {
+    return channel !== "lote:EAA" || this.domain.has("eaa-ca");
+  }
+
   async publishAll(): Promise<number> {
     let published = 0;
     for (const channel of SandboxPublicationService.channels()) {
+      if (!this.available(channel)) continue;
       if (await this.publishIfNeeded(channel)) published += 1;
     }
     return published;

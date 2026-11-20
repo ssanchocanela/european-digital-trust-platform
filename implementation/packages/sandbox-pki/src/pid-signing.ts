@@ -78,8 +78,20 @@ export function issuePidSigningCertificate(input: IssuePidSigningInput): {
   readonly der: Buffer;
   readonly serial: Buffer;
 } {
-  const { now } = input;
-  const expired = input.variant === "PID-02";
+  return issueAttestationSigningCertificate({ ...input, expired: input.variant === "PID-02" });
+}
+
+/**
+ * An attestation-signing certificate of a participant's service: a PID Provider's (above) or a
+ * non-qualified EAA Provider's (`eaa-signing.ts`). One profile for both; only the issuing CA differs.
+ */
+export function issueAttestationSigningCertificate(
+  input: Omit<IssuePidSigningInput, "variant"> & { readonly expired: boolean },
+): {
+  readonly der: Buffer;
+  readonly serial: Buffer;
+} {
+  const { now, expired } = input;
   const serial = randomSerial();
   const der = issueCertificate(
     {

@@ -1,10 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
-import { mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createTrustDomain,
+  extendTrustDomain,
   FileKeyStore,
   SANDBOX_POLICY_OID,
   TRUST_DOMAIN,
@@ -65,6 +73,8 @@ describe("createTrustDomain", () => {
       "access-ca-untrusted",
       "registrar-untrusted",
       "pid-ca-untrusted",
+      "eaa-ca",
+      "eaa-ca-untrusted",
     ]) {
       expect(byName.get(ca)?.ca, ca).toBe(true);
       expect(byName.get(ca)?.subject).toContain("TEST ONLY");
@@ -108,12 +118,13 @@ describe("createTrustDomain", () => {
     expect(text).toContain(`Policy: ${SANDBOX_POLICY_OID}`);
   });
 
-  it("lists only the three trusted CAs, one per domain, and never an untrusted one", () => {
+  it("lists only the four trusted CAs, one per domain, and never an untrusted one", () => {
     const listed = TRUST_DOMAIN.filter((m) => m.listedOn).map((m) => [m.name, m.listedOn]);
     expect(listed).toEqual([
       ["access-ca", "WRPAC"],
       ["registrar", "WRPRC"],
       ["pid-ca", "PID"],
+      ["eaa-ca", "EAA"],
     ]);
   });
 
@@ -122,5 +133,49 @@ describe("createTrustDomain", () => {
     const store = new FileKeyStore(dir, sealing);
     await createTrustDomain(store, now);
     await expect(createTrustDomain(store, now)).rejects.toThrow(/refusing to regenerate/);
+  });
+});
+
+describe("extendTrustDomain (ADR 0023)", () => {
+  /** A domain as created before ADR 0023: every member without `addedBy`. */
+  async function olderDomain() {
+    const dir = mkdtempSync(join(tmpdir(), "sbx-td-"));
+    const store = new FileKeyStore(dir, sealing);
+    const certs = new Set<string>();
+    const issued = await createTrustDomain(store, now);
+    for (const i of issued) {
+      if (i.member.addedBy) {
+        // Undo what a pre-ADR-0023 init would not have created.
+        rmSync(join(dir, `${i.member.name}.key`));
+      } else certs.add(i.member.name);
+    }
+    return { store, certs };
+  }
+
+  it("adds only the members added later, and is then a no-op", async () => {
+    const { store, certs } = await olderDomain();
+    const has = async (n: string) => certs.has(n);
+    const added = await extendTrustDomain(store, has, now);
+    expect(added.map((a) => a.member.name)).toEqual(["eaa-ca", "eaa-ca-untrusted"]);
+    for (const a of added) {
+      certs.add(a.member.name);
+      const x = new X509Certificate(a.certificate);
+      expect(x.ca).toBe(true);
+      expect(x.subject).toContain("TEST ONLY");
+    }
+    expect(await extendTrustDomain(store, has, now)).toEqual([]);
+  });
+
+  it("refuses a key without a certificate, and a missing original member", async () => {
+    const { store, certs } = await olderDomain();
+    await store.create("eaa-ca");
+    await expect(extendTrustDomain(store, async (n) => certs.has(n), now)).rejects.toThrow(
+      /key without a certificate/,
+    );
+    const { store: other, certs: otherCerts } = await olderDomain();
+    otherCerts.delete("pid-ca");
+    await expect(extendTrustDomain(other, async (n) => otherCerts.has(n), now)).rejects.toThrow(
+      /pid-ca has a key without a certificate/,
+    );
   });
 });

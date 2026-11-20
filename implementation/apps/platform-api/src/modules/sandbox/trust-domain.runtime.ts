@@ -56,8 +56,14 @@ export class SandboxTrustDomain {
   static async load(directory: string, sealingKey: Buffer): Promise<SandboxTrustDomain> {
     const certificates = new Map<string, Buffer>();
     for (const member of TRUST_DOMAIN) {
-      const pem = await readFile(join(directory, "certs", `${member.name}.pem`), "utf8");
-      certificates.set(member.name, new X509Certificate(pem).raw);
+      const path = join(directory, "certs", `${member.name}.pem`);
+      // A member added later (ADR 0023's EAA CAs) may not exist yet on a running sandbox:
+      // `cli.js extend` creates it. Until then, what needs it refuses with a conflict.
+      const pem = await readFile(path, "utf8").catch((error: unknown) => {
+        if (member.addedBy) return undefined;
+        throw error;
+      });
+      if (pem) certificates.set(member.name, new X509Certificate(pem).raw);
     }
     const anchors = await SandboxTrustDomain.readAnchors(
       join(directory, "pid-sign-in-anchors"),
@@ -81,6 +87,11 @@ export class SandboxTrustDomain {
     walletProviderAnchors: readonly { name: string; certificate: Buffer }[] = [],
   ): SandboxTrustDomain {
     return new SandboxTrustDomain(store, certificates, pidSignInAnchors, walletProviderAnchors);
+  }
+
+  /** Whether the running domain has this member (a member added later may be missing). */
+  has(name: string): boolean {
+    return this.certificates.has(name);
   }
 
   certificate(name: string): Buffer {

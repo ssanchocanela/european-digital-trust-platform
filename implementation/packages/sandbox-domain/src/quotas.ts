@@ -11,11 +11,18 @@ export const SANDBOX_QUOTAS = {
   servicesPerOrganisation: 10,
   /** Hosted verifiers, one engine tenant each (specification §8.3: 3). */
   hostedVerifiersPerOrganisation: 3,
-  /** Hosted issuers, one engine tenant each (specification §8.3: 1). */
+  /**
+   * Hosted issuers, one engine tenant each (specification §8.3: 1), counted per role since ADR 0023:
+   * an organisation may run one PID issuer and one EAA issuer.
+   */
   hostedIssuersPerOrganisation: 1,
+  /** Credential types one EAA Provider service defines (ADR 0023 Open 5). */
+  credentialTypesPerService: 10,
+  /** Versions of one credential type (ADR 0023 Open 5). */
+  versionsPerCredentialType: 20,
   /** Certificates issued for one service, take-away and hosted alike. */
   certificatesPerServicePerDay: 100,
-  /** PID offers made by one hosted issuer. */
+  /** Offers made by one hosted issuer, PID or EAA. */
   offersPerServicePerDay: 100,
   /** Presentation runs started by one hosted verifier. */
   runsPerServicePerDay: 200,

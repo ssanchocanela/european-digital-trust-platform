@@ -116,6 +116,8 @@ export const PLATFORM_RULES: readonly Rule[] = [
         "|status/(registrar(-untrusted)?-signing|unavailable)" +
         "|ca/(access-ca|registrar|pid-ca|eaa-ca)(-untrusted)?\\.cer" +
         "|ca/(lote-signer|report-signer|registrar(-untrusted)?-signing)\\.cer" +
+        // SD-JWT VC Type Metadata at a sandbox EAA's vct (ADR 0023): the same shape the route accepts.
+        "|vct/[a-z0-9-]{1,40}/[a-z][a-z0-9-]{2,39}" +
         "|cps" +
         `|wrp(/check-intended-use|/${ID}(/services/${ID})?)?` +
         ")$",

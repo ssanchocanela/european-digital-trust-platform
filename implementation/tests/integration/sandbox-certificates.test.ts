@@ -237,7 +237,7 @@ describe("registration certificates", () => {
   for (const variant of WRPRC_VARIANTS) {
     const info = WRPRC_VARIANT_INFO[variant];
     it(`issues ${variant} (${info.title}) failing exactly the check it is built to fail`, async () => {
-      const role = info.appliesTo === "pid_provider" ? "pid_provider" : "service_provider";
+      const role = info.appliesTo === "provider" ? "pid_provider" : "service_provider";
       let serviceId: string;
       let intendedUseId: string | undefined;
       if (role === "service_provider") ({ serviceId, intendedUseId } = await rpWithUse());

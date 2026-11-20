@@ -28,7 +28,10 @@ import {
   SandboxCertificatesController,
   SandboxWalletProviderController,
 } from "./http/sandbox-certificates.controller.js";
-import { SandboxIssuerController } from "./http/sandbox-issuer.controller.js";
+import {
+  SandboxCredentialTypeController,
+  SandboxIssuerController,
+} from "./http/sandbox-issuer.controller.js";
 import { SandboxPublicController } from "./http/sandbox-public.controller.js";
 import { SandboxVerifierController } from "./http/sandbox-verifier.controller.js";
 import {
@@ -60,6 +63,7 @@ import {
   REGISTRATION_SERVICE,
   SANDBOX_ADMIN,
   SANDBOX_CERTIFICATES,
+  SANDBOX_CREDENTIAL_TYPES,
   SANDBOX_ERASURE,
   SANDBOX_ISSUER,
   SANDBOX_PUBLIC,
@@ -109,6 +113,7 @@ export class AppModule {
         SandboxCertificatesController,
         SandboxVerifierController,
         SandboxIssuerController,
+        SandboxCredentialTypeController,
       ],
       providers: [
         { provide: CONFIG_TOKEN, useValue: deps.config },
@@ -142,6 +147,7 @@ export class AppModule {
         { provide: SANDBOX_WALLET_PROVIDERS, useValue: deps.services.sandboxWalletProviders },
         { provide: SANDBOX_ERASURE, useValue: deps.services.sandboxErasure },
         { provide: SANDBOX_WALLET_TESTS, useValue: deps.services.sandboxWalletTests },
+        { provide: SANDBOX_CREDENTIAL_TYPES, useValue: deps.services.sandboxCredentialTypes },
         {
           provide: SANDBOX_PUBLIC,
           useValue:
@@ -154,6 +160,9 @@ export class AppModule {
                   domain: deps.sandboxTrustDomain,
                   ...(deps.services.sandboxMetadata
                     ? { metadata: deps.services.sandboxMetadata }
+                    : {}),
+                  ...(deps.services.sandboxCredentialTypes
+                    ? { credentialTypes: deps.services.sandboxCredentialTypes }
                     : {}),
                 }
               : undefined,

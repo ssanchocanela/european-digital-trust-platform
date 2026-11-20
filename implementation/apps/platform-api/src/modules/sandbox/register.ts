@@ -1,11 +1,9 @@
 import type { RegisteredCredential } from "@edtp/domain";
-import type { SandboxCertificateRepository } from "@edtp/persistence";
-import {
-  credentialMeta,
-  ENTITLEMENT_PID_PROVIDER,
-  ENTITLEMENT_SERVICE_PROVIDER,
-  signCompactJws,
-} from "@edtp/sandbox-pki";
+import type {
+  SandboxCertificateRepository,
+  SandboxCredentialTypeRepository,
+} from "@edtp/persistence";
+import { credentialMeta, providerEntitlement, signCompactJws } from "@edtp/sandbox-pki";
 import type { Clock } from "@edtp/shared";
 import { PID_TYPE_SD_JWT } from "./certificates.service.js";
 import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
@@ -33,10 +31,19 @@ export class SandboxRegister {
     private readonly domain: SandboxTrustDomain,
     private readonly urls: SandboxUrls,
     private readonly clock: Clock,
+    /** EAA Providers' credential types, which their entries list as provided (ADR 0023). */
+    private readonly credentialTypes?: SandboxCredentialTypeRepository,
   ) {}
 
   private async entries() {
     const register = await this.repository.register();
+    const eaaTypes = new Map<string, string[]>();
+    for (const t of this.credentialTypes ? await this.credentialTypes.latestAll() : []) {
+      eaaTypes.set(t.relyingPartyServiceId, [
+        ...(eaaTypes.get(t.relyingPartyServiceId) ?? []),
+        t.vct,
+      ]);
+    }
     return register.map((org) => ({
       identifier: [{ identifier: org.localIdentifier, type: "urn:edtp:sandbox:identifier" }],
       country: org.country,
@@ -55,10 +62,21 @@ export class SandboxRegister {
           supportURI: s.supportUri,
           srvDescription: s.description.map((d) => ({ lang: d.lang, content: d.value })),
           entitlements: [
-            s.role === "pid_provider" ? ENTITLEMENT_PID_PROVIDER : ENTITLEMENT_SERVICE_PROVIDER,
+            providerEntitlement(
+              s.role === "pid_provider" || s.role === "eaa_provider"
+                ? s.role
+                : "service_provider",
+            ),
           ],
           providesAttestations:
-            s.role === "pid_provider" ? [{ format: "dc+sd-jwt", type: PID_TYPE_SD_JWT }] : [],
+            s.role === "pid_provider"
+              ? [{ format: "dc+sd-jwt", type: PID_TYPE_SD_JWT }]
+              : s.role === "eaa_provider"
+                ? (eaaTypes.get(s.relyingPartyServiceId) ?? []).map((type) => ({
+                    format: "dc+sd-jwt",
+                    type,
+                  }))
+                : [],
           intendedUses: s.intendedUses.map((u) => ({
             intendedUseIdentifier: u.intendedUseIdentifier,
             purpose: (u.purpose as { lang: string; value: string }[]).map((p) => ({

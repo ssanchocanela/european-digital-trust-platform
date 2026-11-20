@@ -2,10 +2,11 @@ import { X509Certificate } from "node:crypto";
 import { decodeCompactJws, verifyEs256, x5cCertificates } from "./jws.js";
 import type { WrpacCheck } from "./wrpac.js";
 import {
-  ENTITLEMENT_PID_PROVIDER,
+  providerEntitlement,
   type RegisteredCredential,
   WRPRC_TYP,
   type WrprcCheck,
+  type WrprcKind,
 } from "./wrprc.js";
 import { readKeyUsage } from "./x509.js";
 
@@ -113,7 +114,7 @@ export interface WrprcContext {
   readonly trustedRegistrar: X509Certificate;
   readonly accessCertificate: X509Certificate;
   readonly at: Date;
-  readonly kind: "service_provider" | "pid_provider";
+  readonly kind: WrprcKind;
   readonly statusOf: (uri: string, index: number) => "valid" | "revoked" | "unreachable";
   /** What a presentation would request: checked against `credentials` (RPRC_21). */
   readonly requested?: readonly RequestedClaim[];
@@ -197,11 +198,11 @@ export function validateWrprc(
       detail: over.map((o) => o.path.join(".")).join(" "),
     });
   }
-  if (context.kind === "pid_provider") {
+  if (context.kind !== "service_provider") {
     const entitlements = (p.entitlements as string[] | undefined) ?? [];
     results.push({
       check: "entitlement",
-      passed: entitlements.includes(ENTITLEMENT_PID_PROVIDER),
+      passed: entitlements.includes(providerEntitlement(context.kind)),
     });
     if (context.issuedType) {
       const provided = (

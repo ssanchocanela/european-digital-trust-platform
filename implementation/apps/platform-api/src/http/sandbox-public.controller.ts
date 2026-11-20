@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { CREDENTIAL_TYPE_SLUG } from "@edtp/sandbox-domain";
 import { LOTE_PROFILES, SANDBOX_EAA_SERVICE_TYPE } from "@edtp/sandbox-pki";
 import { PlatformError } from "@edtp/shared";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@nestjs/common";
 import { ApiExcludeController } from "@nestjs/swagger";
 import type { Response } from "express";
+import type { SandboxCredentialTypeService } from "../modules/sandbox/credential-types.service.js";
 import type { SandboxMetadataService } from "../modules/sandbox/metadata.service.js";
 import type { SandboxPublicationService } from "../modules/sandbox/publication.service.js";
 import type { SandboxRegister } from "../modules/sandbox/register.js";
@@ -28,6 +30,8 @@ export interface SandboxPublicDependencies {
   readonly domain: SandboxTrustDomain;
   /** Signed metadata for sandbox issuers (S5b), when hosted issuers are configured. */
   readonly metadata?: SandboxMetadataService;
+  /** EAA credential types, for their Type Metadata (ADR 0023). */
+  readonly credentialTypes?: SandboxCredentialTypeService;
 }
 
 const CA_FILES = new Set([
@@ -209,6 +213,25 @@ export class SandboxPublicController {
       "Results obtained with a wallet are that wallet's results. The sandbox makes no claim of",
       "conformance for any wallet, and its own build is a MODIFIED wallet, not the Reference Wallet.",
     ].join("\n");
+  }
+
+  /**
+   * SD-JWT VC Type Metadata at a sandbox EAA's vct (ADR 0023 §2). The pinned wallet does not read it;
+   * other wallets may. Both segments are matched before any lookup.
+   */
+  @Get("vct/:organisation/:slug")
+  async vct(
+    @Param("organisation") organisation: string,
+    @Param("slug") slug: string,
+    @Res() res: Response,
+  ) {
+    const types = this.on().credentialTypes;
+    if (!types || !/^[a-z0-9-]{1,40}$/.test(organisation) || !CREDENTIAL_TYPE_SLUG.test(slug)) {
+      throw PlatformError.notFound("Credential type");
+    }
+    res.setHeader("content-type", "application/json");
+    res.setHeader("cache-control", "public, max-age=300");
+    res.send(JSON.stringify(await types.metadata(organisation, slug)));
   }
 
   @Get("cps")

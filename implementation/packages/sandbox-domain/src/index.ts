@@ -3,6 +3,7 @@
  * It fills the platform's own model — a sandbox organisation is a platform `Tenant` — rather than
  * duplicating it.
  */
+export * from "./credential-types.js";
 export * from "./people.js";
 export * from "./quotas.js";
 export * from "./wallet-testing.js";

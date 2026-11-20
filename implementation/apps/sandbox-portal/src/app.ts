@@ -5,6 +5,7 @@ import {
   WRPAC_VARIANTS,
   WRPRC_VARIANT_INFO,
   WRPRC_VARIANTS,
+  wrprcVariantAppliesTo,
 } from "@edtp/sandbox-pki";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
@@ -1214,10 +1215,9 @@ export function createApp(options: PortalOptions): express.Express {
       `organisations/${org}/certificates?service=${sid}`,
       { session: token },
     );
-    const wrprcVariants = WRPRC_VARIANTS.filter((v) => {
-      const a = WRPRC_VARIANT_INFO[v].appliesTo;
-      return a === "both" || a === role;
-    }).map((v) => ({ id: v, ...WRPRC_VARIANT_INFO[v] }));
+    const wrprcVariants = WRPRC_VARIANTS.filter((v) => wrprcVariantAppliesTo(v, role)).map(
+      (v) => ({ id: v, ...WRPRC_VARIANT_INFO[v] }),
+    );
     // The hosted verifier (S4) or the hosted issuer (S5), when the platform offers it: a 404 from
     // its route means it is not configured on this deployment, and the section is left out.
     let hostedHtml: string | undefined;

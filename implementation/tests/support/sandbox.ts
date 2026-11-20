@@ -11,6 +11,7 @@ import type {
 } from "../../apps/platform-api/src/modules/sandbox/access-identity.js";
 import { SandboxAdminService } from "../../apps/platform-api/src/modules/sandbox/admin.service.js";
 import { SandboxCertificateService } from "../../apps/platform-api/src/modules/sandbox/certificates.service.js";
+import { SandboxCredentialTypeService } from "../../apps/platform-api/src/modules/sandbox/credential-types.service.js";
 import { SandboxErasureService } from "../../apps/platform-api/src/modules/sandbox/erasure.service.js";
 import { SandboxIssuerService } from "../../apps/platform-api/src/modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "../../apps/platform-api/src/modules/sandbox/metadata.service.js";
@@ -159,12 +160,14 @@ export async function wireSandbox(
     urls,
     harness.deps.services.audit,
     harness.clock,
+    harness.deps.repositories.sandboxCredentialTypes,
   );
   const register = new SandboxRegister(
     harness.deps.repositories.sandboxCertificates,
     domain,
     urls,
     harness.clock,
+    harness.deps.repositories.sandboxCredentialTypes,
   );
 
   let people = 0;
@@ -215,6 +218,8 @@ export async function wireSandbox(
       portalPublicUrl: "https://portal.sandbox.test",
       pidListRef: urls.lote("PID"),
       pidTrustListId: "sbx-pid-providers",
+      eaaListRef: urls.lote("EAA"),
+      eaaTrustListId: "sbx-eaa-providers",
     },
     sandbox,
     certificates,
@@ -230,6 +235,7 @@ export async function wireSandbox(
     harness.deps.hostedFormReturns,
     harness.deps.services.audit,
     harness.clock,
+    harness.deps.repositories.sandboxCredentialTypes,
   );
 
   const issuer = harness.issuer
@@ -239,6 +245,7 @@ export async function wireSandbox(
             ? { walletProviderTrustListId: options.walletProviderTrustListId }
             : {}),
           metadataDnsName: VERIFIER_DNS,
+          publicBase: PUBLIC_BASE,
         },
         sandbox,
         harness.deps.repositories.sandbox,
@@ -254,8 +261,19 @@ export async function wireSandbox(
         harness.deps.services.audit,
         harness.clock,
         harness.deps.repositories.sandboxWalletProviders,
+        harness.deps.repositories.sandboxCredentialTypes,
       )
     : undefined;
+  const credentialTypes = new SandboxCredentialTypeService(
+    sandbox,
+    harness.deps.repositories.sandbox,
+    harness.deps.repositories.sandboxCertificates,
+    harness.deps.repositories.sandboxCredentialTypes,
+    issuer,
+    urls,
+    harness.deps.services.audit,
+    harness.clock,
+  );
   if (issuer) {
     publications.onPublished = async (channel) => {
       if (channel === "lote:WalletProviders") await issuer.refreshWalletProviders();
@@ -325,6 +343,7 @@ export async function wireSandbox(
     register,
     verifier,
     issuer,
+    credentialTypes,
     metadata,
     createdEngineTenants,
     signUp,

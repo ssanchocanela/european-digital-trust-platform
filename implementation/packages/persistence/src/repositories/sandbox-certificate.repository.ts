@@ -17,7 +17,11 @@ import {
  * Every read of an organisation's data names its tenant; the public reads (revocations, the register)
  * read only what is public by nature.
  */
-export type SandboxServiceRole = "service_provider" | "pid_provider" | "wallet_provider";
+export type SandboxServiceRole =
+  | "service_provider"
+  | "pid_provider"
+  | "wallet_provider"
+  | "eaa_provider";
 
 export interface SandboxServiceRecord {
   readonly relyingPartyServiceId: string;
@@ -37,7 +41,7 @@ export interface SandboxCertificateRecord {
   readonly tenantId: TenantId;
   readonly relyingPartyServiceId: string;
   readonly intendedUseId?: string;
-  readonly kind: "WRPAC" | "WRPRC" | "PID_SIGNING";
+  readonly kind: "WRPAC" | "WRPRC" | "PID_SIGNING" | "EAA_SIGNING";
   readonly variant: string;
   readonly issuerKey: string;
   readonly serialHex?: string;

@@ -10,13 +10,19 @@ import type { EudiVerifierProvisioningPort } from "@edtp/eudi-verifier-port";
 import type {
   IssuanceRepository,
   SandboxCertificateRepository,
+  SandboxCredentialTypeRecord,
+  SandboxCredentialTypeRepository,
   SandboxIssuerRepository,
   SandboxRepository,
   SandboxWalletProviderRepository,
 } from "@edtp/persistence";
+import { type SandboxCredentialTypeDefinition, shapeClaimValues } from "@edtp/sandbox-domain";
 import {
   basicConstraints,
+  EAA_VARIANT_INFO,
+  type EaaVariant,
   issueCertificate,
+  issueEaaSigningCertificate,
   issuePidSigningCertificate,
   keyUsage,
   OID,
@@ -61,7 +67,17 @@ export interface IssuerSettings {
    * its metadata (S5b). The same host the hosted verifier's certificates name.
    */
   readonly metadataDnsName?: string;
+  /** The sandbox's public base: where the EAA "Rulebook" (the wallet guide) is published (ADR 0023). */
+  readonly publicBase?: string;
 }
+
+/** The hosted issuer's role: a PID Provider (S5) or a non-qualified EAA Provider (ADR 0023). */
+type ProviderRole = "pid_provider" | "eaa_provider";
+type SigningVariant = PidSigningVariant | EaaVariant;
+
+const isEaaVariant = (v: string): v is EaaVariant => v in EAA_VARIANT_INFO;
+const variantInfo = (v: string) =>
+  isEaaVariant(v) ? EAA_VARIANT_INFO[v] : PID_VARIANT_INFO[v as PidSigningVariant];
 
 /** PID Rulebook, as pinned in CLAUDE.md §2. */
 const RULEBOOK_COMMIT = "36f8adcf914ac06cac18d685add04e0a8a06d685";
@@ -142,6 +158,8 @@ export class SandboxIssuerService {
     private readonly clock: Clock,
     /** Participants' approved anchors (ADR 0020). Absent: the operator's files only. */
     private readonly walletProviders?: SandboxWalletProviderRepository,
+    /** EAA Providers' credential types (ADR 0023). Absent: no EAA issuers. */
+    private readonly credentialTypes?: SandboxCredentialTypeRepository,
   ) {}
 
   /**
@@ -199,45 +217,55 @@ export class SandboxIssuerService {
     const membership = await this.sandbox.activeMembershipIn(context, orgId);
     const service = await this.sandboxCertificates.service(membership.tenantId, serviceId);
     if (!service) throw PlatformError.notFound("Service");
-    if (service.role !== "pid_provider") {
+    if (service.role !== "pid_provider" && service.role !== "eaa_provider") {
       throw PlatformError.conflict(
         "sandbox_not_a_pid_provider",
-        "Only a PID Provider service has a hosted issuer.",
+        "Only a PID Provider or an EAA Provider service has a hosted issuer.",
       );
     }
     const organisation = await this.people.findOrganisation(membership.tenantId);
     const platform = await this.sandboxCertificates.organisationIdOf(membership.tenantId);
     if (!organisation || !platform) throw PlatformError.notFound("Organisation");
-    return { tenantId: membership.tenantId, service, organisation, platform };
+    const role: ProviderRole = service.role;
+    return { tenantId: membership.tenantId, service, organisation, platform, role };
   }
 
   /** A signing certificate of the chosen variant, for a key generated for the engine. */
   private async signingCertificate(
     tenantId: TenantId,
     serviceId: string,
-    variant: PidSigningVariant,
+    variant: SigningVariant,
     subject: { legalName: string; tradeName: string; country: string; localIdentifier: string },
   ) {
-    const info = PID_VARIANT_INFO[variant];
+    const info = variantInfo(variant);
     const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
     const now = this.clock.now();
-    const { der, serial } = issuePidSigningCertificate({
-      variant,
-      subject,
-      subjectPublicKey: publicKey,
-      issuer: {
-        name: this.domain.name(info.issuer),
-        signer: await this.domain.signer(info.issuer),
-      },
-      now,
-    });
+    const issuer = {
+      name: this.domain.name(info.issuer),
+      signer: await this.domain.signer(info.issuer),
+    };
+    const { der, serial } = isEaaVariant(variant)
+      ? issueEaaSigningCertificate({
+          variant,
+          subject,
+          subjectPublicKey: publicKey,
+          issuer,
+          now,
+        })
+      : issuePidSigningCertificate({
+          variant,
+          subject,
+          subjectPublicKey: publicKey,
+          issuer,
+          now,
+        });
     const x = new X509Certificate(der);
     const id = newUuid();
     await this.sandboxCertificates.createCertificate({
       id,
       tenantId,
       relyingPartyServiceId: serviceId,
-      kind: "PID_SIGNING",
+      kind: isEaaVariant(variant) ? "EAA_SIGNING" : "PID_SIGNING",
       variant,
       issuerKey: info.issuer,
       serialHex: serialToHex(serial),
@@ -326,22 +354,36 @@ export class SandboxIssuerService {
     orgId: string,
     serviceId: string,
     input: {
-      readonly signingVariant: PidSigningVariant;
+      readonly signingVariant: SigningVariant;
       readonly registrationVariant: WrprcVariant;
       /** The access certificate that signs the metadata (S5b). AC-00 unless stated. */
       readonly accessVariant?: WrpacVariant;
     },
   ) {
-    const { tenantId, service, organisation, platform } = await this.providerOf(
+    const { tenantId, service, organisation, platform, role } = await this.providerOf(
       context,
       orgId,
       serviceId,
     );
+    if (isEaaVariant(input.signingVariant) !== (role === "eaa_provider")) {
+      throw PlatformError.conflict(
+        "sandbox_variant_not_applicable",
+        role === "eaa_provider"
+          ? "An EAA Provider's issuer signs with an EAA-0n variant."
+          : "A PID Provider's issuer signs with a PID-0n variant.",
+      );
+    }
+    if (role === "eaa_provider" && (!this.credentialTypes || !this.domain.has("eaa-ca"))) {
+      throw PlatformError.conflict(
+        "sandbox_eaa_unavailable",
+        "EAA issuers are not available on this sandbox yet: its EAA CA has not been created.",
+      );
+    }
     const rcInfo = WRPRC_VARIANT_INFO[input.registrationVariant];
     if (rcInfo.appliesTo === "service_provider") {
       throw PlatformError.conflict(
         "sandbox_variant_not_applicable",
-        `${input.registrationVariant} applies to a Relying Party, not to a PID Provider.`,
+        `${input.registrationVariant} applies to a Relying Party, not to a provider.`,
       );
     }
     if (!this.settings.metadataDnsName) {
@@ -359,7 +401,10 @@ export class SandboxIssuerService {
     const now = this.clock.now();
     const existing = await this.repository.issuer(tenantId, serviceId);
     if (!existing) {
-      assertQuota("hostedIssuersPerOrganisation", await this.repository.countIssuers(tenantId));
+      assertQuota(
+        "hostedIssuersPerOrganisation",
+        await this.repository.countIssuers(tenantId, role),
+      );
     }
     const engineTenantRef = existing?.engineTenantRef ?? EngineTenantService.newRef("sbx-iss");
     if (!existing) {
@@ -371,7 +416,10 @@ export class SandboxIssuerService {
       }
       await this.engineTenants.create(
         engineTenantRef,
-        `Sandbox PID issuer: ${service.serviceTradeName}`.slice(0, 100),
+        `Sandbox ${role === "eaa_provider" ? "EAA" : "PID"} issuer: ${service.serviceTradeName}`.slice(
+          0,
+          100,
+        ),
       );
       await this.loadWalletProviders(engineTenantRef);
     }
@@ -438,19 +486,22 @@ export class SandboxIssuerService {
     });
 
     if (!existing) {
-      const { credentialTypeId, issuancePolicyId } = await this.createTypeAndPolicy(
-        tenantId,
-        providerId,
-        service.serviceTradeName,
-        organisation.country,
-      );
+      // A PID issuer has one type and policy; an EAA issuer's types carry their own (ADR 0023).
+      const pid =
+        role === "pid_provider"
+          ? await this.createTypeAndPolicy(
+              tenantId,
+              providerId,
+              service.serviceTradeName,
+              organisation.country,
+            )
+          : undefined;
       await this.repository.createIssuer({
         relyingPartyServiceId: serviceId,
         tenantId,
         engineTenantRef,
         attestationProviderId: providerId,
-        credentialTypeId,
-        issuancePolicyId,
+        ...(pid ?? {}),
         signingCertificateId: signing.id,
         registrationCertificateId: wrprc.id,
         accessCertificateId: access.id,
@@ -470,7 +521,11 @@ export class SandboxIssuerService {
     const issuer = await this.repository.issuer(tenantId, serviceId);
     if (!issuer) throw PlatformError.internal("sandbox_issuer_missing");
     // Write the configuration to the engine now, with the new key, so the next offer uses it.
-    await this.issuances.provisionPolicy(tenantId, issuer.issuancePolicyId);
+    if (issuer.issuancePolicyId) {
+      await this.issuances.provisionPolicy(tenantId, issuer.issuancePolicyId);
+    } else {
+      await this.provisionEaaTypes(tenantId, serviceId, issuer.attestationProviderId);
+    }
     await this.audit.record({
       tenantId,
       actor: "sandbox",
@@ -556,12 +611,199 @@ export class SandboxIssuerService {
     return { credentialTypeId: createdType.id, issuancePolicyId: policy.id };
   }
 
-  async view(context: SignedInContext, orgId: string, serviceId: string) {
-    const { tenantId } = await this.providerOf(context, orgId, serviceId);
+  // --- EAA types (ADR 0023) ---------------------------------------------------------------------
+
+  /**
+   * Make every type's latest version issuable on this service's hosted issuer: a platform credential
+   * type and issuance policy per version, the first time, then the engine configuration rewritten with
+   * the issuer's current signing key. Older versions keep what they were provisioned with.
+   */
+  private async provisionEaaTypes(tenantId: TenantId, serviceId: string, providerId: string) {
+    if (!this.credentialTypes) return;
+    const all = await this.credentialTypes.ofService(tenantId, serviceId);
+    const latest = all.filter((t, i) => all.findIndex((x) => x.slug === t.slug) === i);
+    for (const t of latest) await this.provisionVersion(tenantId, providerId, t);
+  }
+
+  /** A new type version, created after the issuer was configured: issuable at once. */
+  async provisionType(
+    tenantId: TenantId,
+    serviceId: string,
+    record: SandboxCredentialTypeRecord,
+  ) {
     const issuer = await this.repository.issuer(tenantId, serviceId);
-    if (!issuer) return { configured: false as const };
+    if (!issuer) return; // configured later: `configure` provisions it then
+    await this.provisionVersion(tenantId, issuer.attestationProviderId, record);
+  }
+
+  private async provisionVersion(
+    tenantId: TenantId,
+    providerId: string,
+    record: SandboxCredentialTypeRecord,
+  ) {
+    let policyId = record.issuancePolicyId;
+    if (!policyId) {
+      const created = await this.createEaaTypeAndPolicy(tenantId, providerId, record);
+      await this.credentialTypes?.setProvisioned(tenantId, record.id, created);
+      policyId = created.issuancePolicyId;
+    }
+    await this.issuances.provisionPolicy(tenantId, policyId);
+  }
+
+  private async createEaaTypeAndPolicy(
+    tenantId: TenantId,
+    providerId: string,
+    record: SandboxCredentialTypeRecord,
+  ) {
+    const now = this.clock.now();
+    const definition = record.definition as SandboxCredentialTypeDefinition;
+    const english = definition.display.find((d) => d.lang === "en") ?? definition.display[0];
+    const label = `${english?.value ?? record.slug}`.slice(0, 120);
+    const type = {
+      attestationProviderId: providerId,
+      name: `Sandbox TEST EAA — ${label} v${record.version}`.slice(0, 200),
+      format: "dc+sd-jwt" as const,
+      vct: record.vct,
+      // The sandbox's own "Rulebook" (ADR 0023 §3): its anchors are the sandbox EAA CA, published on
+      // the EAA list. Named for what it is; it is not an EUDI catalogue Rulebook.
+      rulebook: {
+        identifier: "urn:edtp:sandbox:rulebook:non-qualified-eaa",
+        version: "ADR 0023",
+        ...(this.settings.publicBase
+          ? { publicationUri: `${this.settings.publicBase.replace(/\/+$/, "")}/wallets` }
+          : {}),
+        anchorSource: "RULEBOOK_AND_PUBLISHED_LIST" as const,
+      },
+      claims: definition.claims.map((c) => ({
+        path: [c.name],
+        display: c.display,
+        mandatory: c.mandatory,
+        valueType: c.valueType,
+      })),
+      display: definition.display.map((d) => ({
+        lang: d.lang,
+        value: `${d.value} (sandbox TEST)`.slice(0, 200),
+      })),
+      validitySeconds: definition.validitySeconds,
+      statusMechanism: "TOKEN_STATUS_LIST" as const,
+      requiresKeyBinding: true,
+    };
+    validateCredentialType(type);
+    const createdType = await this.issuance.createCredentialType({ tenantId, type, at: now });
+    const policy = await this.issuance.createPolicy({
+      tenantId,
+      credentialTypeId: createdType.id,
+      name: `Sandbox EAA ${record.slug} v${record.version}`.slice(0, 200),
+      at: now,
+    });
+    const body = {
+      credentialTypeId: createdType.id,
+      purpose: [{ lang: "en", value: "Issue a synthetic TEST EAA in the EDTP sandbox" }],
+      eligibilityRule: { evaluator: "AlwaysEligible", parameters: {} },
+      authenticSource: { connector: "operator-form", parameters: {} },
+      holderBinding: "KEY_BOUND" as const,
+      flow: "PRE_AUTHORIZED_CODE" as const,
+      credentialValiditySeconds: definition.validitySeconds,
+      statusPolicy: { statusListEnabled: true, suspensionAllowed: false },
+      retentionPolicy: defaultRetentionPolicy(),
+    };
+    const storedType = await this.issuance.findCredentialType(tenantId, createdType.id);
+    if (!storedType) throw PlatformError.internal("sandbox_credential_type_missing");
+    validateIssuancePolicyVersion(body, {
+      credentialType: storedType,
+      registeredEvaluators: ["AlwaysEligible"],
+      registeredConnectors: ["operator-form"],
+      at: now,
+    });
+    await this.issuance.createVersion({
+      tenantId,
+      policyId: policy.id,
+      body,
+      publish: true,
+      at: now,
+    });
+    return { credentialTypeId: createdType.id, issuancePolicyId: policy.id };
+  }
+
+  /**
+   * An offer for a synthetic EAA of one of the service's types, with the values the participant typed.
+   * The values are content: checked against the type, handed to the issuance service, and out of scope
+   * when this returns (CLAUDE.md §5).
+   */
+  async offerEaa(
+    context: SignedInContext,
+    orgId: string,
+    serviceId: string,
+    typeVersionId: string,
+    values: Readonly<Record<string, unknown>>,
+  ) {
+    const { tenantId, role } = await this.providerOf(context, orgId, serviceId);
+    if (role !== "eaa_provider" || !this.credentialTypes) {
+      throw PlatformError.conflict(
+        "sandbox_not_an_eaa_provider",
+        "Only an EAA Provider issues EAAs.",
+      );
+    }
+    const issuer = await this.repository.issuer(tenantId, serviceId);
+    if (!issuer)
+      throw PlatformError.conflict(
+        "sandbox_issuer_not_configured",
+        "Configure the hosted EAA issuer first.",
+      );
+    const record = await this.credentialTypes.byId(tenantId, typeVersionId);
+    if (!record || record.relyingPartyServiceId !== serviceId) {
+      throw PlatformError.notFound("Credential type");
+    }
+    if (!record.issuancePolicyId)
+      await this.provisionVersion(tenantId, issuer.attestationProviderId, record);
+    const provisioned = await this.credentialTypes.byId(tenantId, typeVersionId);
+    if (!provisioned?.issuancePolicyId)
+      throw PlatformError.internal("sandbox_type_not_provisioned");
+    const supplied = shapeClaimValues(
+      record.definition as SandboxCredentialTypeDefinition,
+      values,
+    );
+    assertQuota(
+      "offersPerServicePerDay",
+      await this.repository.countIssuancesSince(
+        tenantId,
+        serviceId,
+        quotaWindowStart(this.clock.now()),
+      ),
+    );
+    const view = await this.issuances.create({
+      tenantId,
+      policyId: provisioned.issuancePolicyId,
+      subjectReference: `sandbox-form-${newUuid()}`,
+      suppliedAttributes: supplied,
+      businessReference: "sandbox-eaa",
+    });
+    const id = newUuid();
+    await this.repository.createIssuance({
+      id,
+      tenantId,
+      relyingPartyServiceId: serviceId,
+      issuanceId: view.issuanceId,
+      signingCertificateId: issuer.signingCertificateId,
+      registrationCertificateId: issuer.registrationCertificateId,
+      credentialTypeVersionId: record.id,
+      createdAt: this.clock.now(),
+    });
+    return {
+      id,
+      offerUri: view.interaction?.uri,
+      expiresAt: view.expiresAt,
+      ...(view.warnings ? { warnings: view.warnings } : {}),
+    };
+  }
+
+  async view(context: SignedInContext, orgId: string, serviceId: string) {
+    const { tenantId, role } = await this.providerOf(context, orgId, serviceId);
+    const issuer = await this.repository.issuer(tenantId, serviceId);
+    if (!issuer) return { configured: false as const, role };
     return {
       configured: true as const,
+      role,
       configuredAt: issuer.configuredAt,
       signingCertificate: await this.describe(tenantId, issuer.signingCertificateId),
       registrationCertificate: await this.certificates.describeById(
@@ -575,7 +817,7 @@ export class SandboxIssuerService {
   private async describe(tenantId: TenantId, id: string) {
     const record = await this.sandboxCertificates.certificate(tenantId, id);
     if (!record) throw PlatformError.notFound("Certificate");
-    const info = PID_VARIANT_INFO[record.variant as PidSigningVariant];
+    const info = variantInfo(record.variant);
     return {
       id: record.id,
       kind: record.kind,
@@ -612,11 +854,12 @@ export class SandboxIssuerService {
   ) {
     const { tenantId } = await this.providerOf(context, orgId, serviceId);
     const issuer = await this.repository.issuer(tenantId, serviceId);
-    if (!issuer)
+    if (!issuer?.issuancePolicyId)
       throw PlatformError.conflict(
         "sandbox_issuer_not_configured",
-        "Configure the hosted issuer first.",
+        "Configure the hosted PID issuer first.",
       );
+    const issuancePolicyId = issuer.issuancePolicyId;
     assertQuota(
       "offersPerServicePerDay",
       await this.repository.countIssuancesSince(
@@ -627,7 +870,7 @@ export class SandboxIssuerService {
     );
     const view = await this.issuances.create({
       tenantId,
-      policyId: issuer.issuancePolicyId,
+      policyId: issuancePolicyId,
       subjectReference: `sandbox-form-${newUuid()}`,
       suppliedAttributes: {
         given_name: values.givenName,

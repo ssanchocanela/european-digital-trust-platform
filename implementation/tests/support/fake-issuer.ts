@@ -22,6 +22,7 @@ export class FakeIssuer implements EudiIssuerPort, EudiIssuerProvisioningPort {
     engineTenantRef: string;
     signingKeyBindingRef: string;
     registrationCertificate: boolean;
+    vct?: string;
   }[] = [];
   readonly offers: { engineTenantRef: string; claimCount: number }[] = [];
   readonly statusUpdates: { ref: string; status: CredentialStatus }[] = [];
@@ -78,6 +79,7 @@ export class FakeIssuer implements EudiIssuerPort, EudiIssuerProvisioningPort {
       signingKeyBindingRef: input.plan.providerContext.signingKeyBindingRef,
       registrationCertificate:
         input.plan.providerContext.registrationCertificateJwt !== undefined,
+      ...(input.plan.credential.vct ? { vct: input.plan.credential.vct } : {}),
     });
   }
 

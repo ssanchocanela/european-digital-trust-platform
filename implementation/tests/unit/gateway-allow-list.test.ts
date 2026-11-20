@@ -157,6 +157,10 @@ describe("the sandbox's public reads (S4)", () => {
       "/sandbox/public/lote/WRPACProviders.jwt",
       "/sandbox/public/lote/WRPRCProviders.jwt",
       "/sandbox/public/lote/WalletProviders.jwt",
+      "/sandbox/public/lote/EAAProviders.jwt",
+      "/sandbox/public/ca/eaa-ca.cer",
+      "/sandbox/public/vct/sb-es-000001/membership-card",
+      "/sandbox/public/ca/eaa-ca-untrusted.cer",
       "/sandbox/public/ca/report-signer.cer",
       "/sandbox/public/wallets",
       "/sandbox/public/status/registrar-signing",
@@ -175,7 +179,9 @@ describe("the sandbox's public reads (S4)", () => {
 
   it("refuses anything else under the sandbox, the portal's API above all", () => {
     for (const path of [
-      "/sandbox/public/lote/EAAProviders.jwt",
+      "/sandbox/public/lote/QEAAProviders.jwt",
+      "/sandbox/public/vct/sb-es-000001/Membership",
+      "/sandbox/public/vct/sb-es-000001/x/y",
       "/sandbox/public/lote/WalletProvidersProviders.jwt",
       "/sandbox/public/wallets/x",
       "/sandbox/public/ca/../../etc/passwd",

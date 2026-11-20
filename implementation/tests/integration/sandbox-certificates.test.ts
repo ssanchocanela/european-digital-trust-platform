@@ -237,7 +237,7 @@ describe("registration certificates", () => {
   for (const variant of WRPRC_VARIANTS) {
     const info = WRPRC_VARIANT_INFO[variant];
     it(`issues ${variant} (${info.title}) failing exactly the check it is built to fail`, async () => {
-      const role = info.appliesTo === "pid_provider" ? "pid_provider" : "service_provider";
+      const role = info.appliesTo === "provider" ? "pid_provider" : "service_provider";
       let serviceId: string;
       let intendedUseId: string | undefined;
       if (role === "service_provider") ({ serviceId, intendedUseId } = await rpWithUse());
@@ -313,8 +313,9 @@ describe("registration certificates", () => {
 
 describe("publications", () => {
   it("publishes every channel once, and nothing again until content changes", async () => {
-    // Two CRLs, two status lists, four lists (WRPAC, WRPRC, PID, WalletProviders — ADR 0020).
-    expect(await s.publications.publishAll()).toBe(8);
+    // Two CRLs, two status lists, five lists (WRPAC, WRPRC, PID, WalletProviders — ADR 0020 —
+    // and EAA, ADR 0023).
+    expect(await s.publications.publishAll()).toBe(9);
     expect(await s.publications.publishAll()).toBe(0);
     const lote = decodeCompactJws((await s.publications.latest("lote:WRPAC"))?.body ?? "");
     expect(JSON.stringify(lote.payload)).toContain(

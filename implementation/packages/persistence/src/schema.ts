@@ -1271,8 +1271,9 @@ export const sandboxIssuers = pgTable(
       .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
     engineTenantRef: text("engine_tenant_ref").notNull(),
     attestationProviderId: uuid("attestation_provider_id").notNull(),
-    credentialTypeId: uuid("credential_type_id").notNull(),
-    issuancePolicyId: uuid("issuance_policy_id").notNull(),
+    /** The PID issuer's type and policy. Empty for an EAA issuer, which issues several (ADR 0023). */
+    credentialTypeId: uuid("credential_type_id"),
+    issuancePolicyId: uuid("issuance_policy_id"),
     signingCertificateId: uuid("signing_certificate_id")
       .notNull()
       .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
@@ -1315,9 +1316,45 @@ export const sandboxIssuances = pgTable(
       .references(() => sandboxCertificates.id, { onDelete: "restrict" }),
     createdAt: ts("created_at").notNull(),
     revokedAt: ts("revoked_at"),
+    /** The EAA type version issued (ADR 0023); empty for a PID. */
+    credentialTypeVersionId: uuid("credential_type_version_id"),
   },
   (t) => [
     uniqueIndex("sandbox_issuances_issuance_key").on(t.issuanceId),
     index("sandbox_issuances_tenant_idx").on(t.tenantId),
+  ],
+);
+
+/**
+ * Credential types an EAA Provider service defines (ADR 0023 §2). One row per immutable version; all
+ * versions of a type share the vct the sandbox assigned. `definition` is names, display texts and
+ * value types — never a value.
+ */
+export const sandboxCredentialTypes = pgTable(
+  "sandbox_credential_types",
+  {
+    id: uuid("id").primaryKey(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => sandboxOrganisations.tenantId, { onDelete: "cascade" }),
+    relyingPartyServiceId: uuid("relying_party_service_id")
+      .notNull()
+      .references(() => sandboxServices.relyingPartyServiceId, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    version: integer("version").notNull(),
+    vct: text("vct").notNull(),
+    definition: jsonb("definition").notNull(),
+    credentialTypeId: uuid("credential_type_id"),
+    issuancePolicyId: uuid("issuance_policy_id"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("sandbox_credential_types_version_key").on(
+      t.relyingPartyServiceId,
+      t.slug,
+      t.version,
+    ),
+    index("sandbox_credential_types_tenant_idx").on(t.tenantId),
+    index("sandbox_credential_types_vct_idx").on(t.vct),
   ],
 );

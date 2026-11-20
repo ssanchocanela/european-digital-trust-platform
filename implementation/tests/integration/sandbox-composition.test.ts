@@ -96,7 +96,7 @@ describe("the composed sandbox", () => {
   });
 
   it("refuses unknown public names and the portal API without its secret", async () => {
-    expect((await fetch(`${base}/sandbox/public/lote/EAAProviders.jwt`)).status).toBe(404);
+    expect((await fetch(`${base}/sandbox/public/lote/QEAAProviders.jwt`)).status).toBe(404);
     // The signed-metadata route is served (S5b), and refuses an engine tenant no sandbox issuer has.
     const metadata = await fetch(
       `${base}/sandbox/public/issuer-metadata/sbx-iss-000000000000`,
@@ -268,7 +268,7 @@ describe("the composed sandbox: wallet tests for continuous integration (ADR 002
     const api = { authorization: `Bearer ${key.key}`, "content-type": "application/json" };
     const root = `${base}/v1/tenants/${org.tenantId}/sandbox/wallet-tests`;
     const listed = (await (await fetch(root, { headers: api })).json()) as { plans: unknown[] };
-    expect(listed.plans).toHaveLength(3);
+    expect(listed.plans).toHaveLength(4); // with the EAA plan (ADR 0023)
     const started = await fetch(root, {
       method: "POST",
       headers: api,

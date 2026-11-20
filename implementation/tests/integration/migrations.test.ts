@@ -108,6 +108,7 @@ describe("migrations", () => {
         "engine_tenant_credentials",
         // Sandbox S2 — people (ADR 0015)
         "sandbox_certificates",
+        "sandbox_credential_types",
         "sandbox_invitations",
         "sandbox_issuances",
         "sandbox_issuers",

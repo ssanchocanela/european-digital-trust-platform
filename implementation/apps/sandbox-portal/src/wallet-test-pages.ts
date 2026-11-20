@@ -77,7 +77,7 @@ ${
 <label for="platform">Platform (e.g. Android 15, Pixel 8)</label><input id="platform" name="platform" required maxlength="100">
 <p class="muted">Declared by you, and shown as declared: the sandbox does not check it.</p>
 <button>Start the plan</button></form>`
-    : "<p>Register a Relying Party service with an intended use, or a PID Provider service, first.</p>"
+    : "<p>Register a Relying Party service with an intended use, a PID Provider service, or an EAA Provider service, first.</p>"
 }
 <p><a href="/org/${org}">Back to the organisation</a></p>`,
     { signedIn: true },

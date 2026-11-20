@@ -46,6 +46,17 @@ docker pull -q "$target" >/dev/null
 EDTP_BACKUP_HOLDS_LOCK=1 infra/sandbox-vm/nightly-backup.sh "pre-deploy-$tag" >/dev/null ||
   { say "refused: the pre-deployment backup failed"; notify high "EDTP sandbox: deploy of $tag refused, backup failed."; exit 1; }
 
+# Members added to the trust domain since it was created (ADR 0023: the EAA CAs), created by the
+# new image's own tool before it starts. Additive only: it refuses rather than touch an existing key.
+# The sealing key is read from .env into this one container's environment, never printed.
+if ! docker run --rm -v /var/lib/edtp-sandbox/pki:/pki \
+  -e SANDBOX_KEYSTORE_KEY="$(sed -n 's/^SANDBOX_KEYSTORE_KEY=//p' .env)" \
+  "$target" node packages/sandbox-pki/dist/cli.js extend --dir /pki | sed 's/^/    /'; then
+  say "refused: extending the trust domain failed"
+  notify high "EDTP sandbox: deploy of $tag refused, trust-domain extension failed."
+  exit 1
+fi
+
 switch_to() {
   sed -i "s|^EDTP_IMAGE=.*|EDTP_IMAGE=$1|" .env
   "${C[@]}" up -d >/dev/null 2>&1

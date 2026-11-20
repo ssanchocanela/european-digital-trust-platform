@@ -8,6 +8,74 @@ linked rather than repeated.
 
 ---
 
+## 20 November 2026 — **R2 built: non-qualified EAA Providers (ADR 0023), not deployed, no wallet run**
+
+**Accepted and built in one PR**, so the ADR cannot reach `main` without its code.
+
+- **What exists in the code:**
+  - an `eaa_provider` role (migration 0021);
+  - credential types a participant defines: flat claims, immutable versions, a `vct` the sandbox
+    assigns under `<public base>/vct/…`, SD-JWT VC Type Metadata served there;
+  - the sandbox EAA CA, its untrusted twin and a fifth list, `EAAProviders.jwt`, with identifiers of
+    the sandbox's own (no EU list of this kind exists);
+  - the hosted issuer for EAA Providers (EAA-00, EAA-01, EAA-02), one engine credential configuration per
+    type version, and offers whose values are checked against the type and never stored;
+  - registration certificates with `Non_Q_EAA_Provider` and the provided `vct`s; the register lists them;
+  - Relying Parties may request a registered EAA type; the hosted verifier loads the EAA list;
+  - an `eaa-issuance` wallet test plan;
+  - portal pages for all of it.
+- **Found in source on acceptance, and recorded:** wallet-core 0.30.2 **drops** any `eaaProviders` or
+  `pubEaaProviders` list location it is given (interop finding C16). So WD-1 had to be app code, and
+  **WD-9 has never had an effect**, F2 included. `build.sh` now warns about WD-9.
+- **WD-1 is built for `--profile sandbox` and `sandbox-strict`**, and was compiled against the pinned
+  libraries on 20 November. No APK carrying it exists yet: the user runs `build.sh` (the keystore
+  password is theirs).
+- **Deploying it** needs the user's confirmation, as always. `deploy.sh` now runs `cli.js extend`
+  before switching, which creates the EAA CA and its twin in the sandbox's key store, adding to it and
+  touching nothing that exists. Until then the EAA list is not published and EAA issuers refuse.
+- **Not done:** a wallet run of any EAA step; QEAA, PuB-EAA and mdoc (later, in R2's own terms).
+
+**Next action:** the user reviews and merges the PR. After that, with confirmation, deploy it, then
+build the sandbox wallet with WD-1 and run EAA-00 end to end.
+
+## 18 November 2026 — **R1, erasure and R3 deployed; the sandbox went offline for 16 minutes and recovered**
+
+**What runs on the sandbox VM now:** image `1d6fba673806`. Every item below was verified inside the
+running image after its deployment.
+
+- **R1, Wallet Providers bring their wallets** ([ADR 0020](adr/0020-sandbox-wallet-provider-role.md), #56):
+  - a `wallet_provider` service uploads its public CA, and the operator approves it in `/admin`;
+  - a fourth list, `WalletProviders.jwt`, is published, and the hosted PID issuers reload it;
+  - `/sandbox/public/wallets` tells any wallet which four lists to load;
+  - the `EDTP-EGRESS` rules confine the containers' outbound traffic (`interop-findings.md` A37).
+- **Erasure of a person** ([ADR 0021](adr/0021-sandbox-erasure-of-a-person.md)):
+  - #57 was merged carrying only its ADR, so the image deployed on 15 November did **not** contain
+    erasure, although it was reported live;
+  - the code was re-sent as #59, deployed and checked in the image. The lesson is in the session
+    memory: verify what a merge contains before deploying.
+- **R3, testing wallets** ([ADR 0022](adr/0022-sandbox-testing-wallets.md), #60, #61, #62):
+  - plans of existing runs for one declared wallet build;
+  - the server's and the tester's observations, kept apart;
+  - signed reports, with no verdict words, which a test enforces;
+  - the CI API at `/v1/tenants/{id}/sandbox/wallet-tests`, reachable from outside only through a
+    path-specific Access application (Service Auth) plus the organisation's API key.
+- **The incident, 18 November, 09:31–09:47 UTC:**
+  - creating the `EDTP sandbox CI` Access application made every public `/v1` path answer `403`;
+  - the scheduled checks expected `404`, read it as an exposure and stopped the tunnel, as designed;
+  - fixed in #63: Access's `403` on public platform `/v1` paths is accepted, and loopback still
+    requires `404`;
+  - recovered through a one-address SSH rule on the Hetzner firewall, removed afterwards (0 inbound
+    rules).
+- **The sandbox wallet build** (`EDTP Sandbox wallet`, release, our key, `wd-2,3,4,6,7,8`, the
+  sandbox's lists) was built on 15 November and handed to the user for their phone. It is not
+  published on `/wallet`, because the EUPL reading is still pending.
+- **Still to do:**
+  - any recorded wallet run;
+  - the nightly dump, off until the user says;
+  - the roadmap from R2 on.
+
+---
+
 ## 15 November 2026 — **the sandbox deployed with sign-in by Access and the operator's section, and used in a browser**
 
 - **Deployed on the sandbox VM, with the user's confirmation:**

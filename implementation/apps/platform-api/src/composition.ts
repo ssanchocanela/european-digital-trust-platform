@@ -25,6 +25,7 @@ import {
   RegistrationRepository,
   SandboxAdminRepository,
   SandboxCertificateRepository,
+  SandboxCredentialTypeRepository,
   SandboxIssuerRepository,
   SandboxRepository,
   SandboxVerifierRepository,
@@ -59,6 +60,7 @@ import {
 } from "./modules/sandbox/access-identity.js";
 import { SandboxAdminService } from "./modules/sandbox/admin.service.js";
 import { SandboxCertificateService } from "./modules/sandbox/certificates.service.js";
+import { SandboxCredentialTypeService } from "./modules/sandbox/credential-types.service.js";
 import { SandboxErasureService } from "./modules/sandbox/erasure.service.js";
 import { SandboxIssuerService } from "./modules/sandbox/issuer.service.js";
 import { SandboxMetadataService } from "./modules/sandbox/metadata.service.js";
@@ -90,6 +92,8 @@ const ENGINE_TENANT_SESSION_TTL_SECONDS = 120;
 
 /** The engine-held copy of the sandbox PID list, on every sandbox engine tenant. */
 const SANDBOX_PID_TRUST_LIST_ID = "sbx-pid-providers";
+/** The sandbox EAA list on every sandbox verifier's engine tenant (ADR 0023 §5). */
+const SANDBOX_EAA_TRUST_LIST_ID = "sbx-eaa-providers";
 
 export interface Dependencies {
   readonly config: PlatformConfig;
@@ -113,6 +117,7 @@ export interface Dependencies {
     readonly sandboxCertificates: SandboxCertificateRepository;
     readonly sandboxVerifiers: SandboxVerifierRepository;
     readonly sandboxIssuers: SandboxIssuerRepository;
+    readonly sandboxCredentialTypes: SandboxCredentialTypeRepository;
   };
   readonly verifier: EudiVerifierPort;
   readonly provisioning: EudiVerifierProvisioningPort;
@@ -153,6 +158,8 @@ export interface Dependencies {
     readonly sandboxWalletTests?: SandboxWalletTestService;
     /** Signed metadata for sandbox issuers (S5b, ADR 0016). */
     readonly sandboxMetadata?: SandboxMetadataService;
+    /** EAA Providers' credential types (ADR 0023). */
+    readonly sandboxCredentialTypes?: SandboxCredentialTypeService;
     /** Present only when runtime engine tenants are configured (root client and sealing key). */
     readonly engineTenants?: EngineTenantService;
   };
@@ -201,6 +208,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
     sandboxCertificates: new SandboxCertificateRepository(db),
     sandboxVerifiers: new SandboxVerifierRepository(db),
     sandboxIssuers: new SandboxIssuerRepository(db),
+    sandboxCredentialTypes: new SandboxCredentialTypeRepository(db),
     webhookEndpoints: new WebhookEndpointRepository(db),
   };
 
@@ -209,9 +217,13 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
   const sandboxPidListRef = config.SANDBOX_PUBLIC_BASE_URL
     ? sandboxUrls(config.SANDBOX_PUBLIC_BASE_URL).lote("PID")
     : undefined;
+  const sandboxEaaListRef = config.SANDBOX_PUBLIC_BASE_URL
+    ? sandboxUrls(config.SANDBOX_PUBLIC_BASE_URL).lote("EAA")
+    : undefined;
   const issuerTrustLists = {
     ...config.ENGINE_ISSUER_TRUST_LISTS,
     ...(sandboxPidListRef ? { [sandboxPidListRef]: SANDBOX_PID_TRUST_LIST_ID } : {}),
+    ...(sandboxEaaListRef ? { [sandboxEaaListRef]: SANDBOX_EAA_TRUST_LIST_ID } : {}),
   };
 
   const engineCredentials = config.ENGINE_CREDENTIALS_KEY
@@ -450,6 +462,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             urls,
             audit,
             clock,
+            repositories.sandboxCredentialTypes,
           );
           const verifier =
             config.SANDBOX_VERIFIER_DNS_NAME && config.SANDBOX_PORTAL_PUBLIC_URL
@@ -459,6 +472,8 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
                     portalPublicUrl: config.SANDBOX_PORTAL_PUBLIC_URL,
                     pidListRef: urls.lote("PID"),
                     pidTrustListId: SANDBOX_PID_TRUST_LIST_ID,
+                    eaaListRef: urls.lote("EAA"),
+                    eaaTrustListId: SANDBOX_EAA_TRUST_LIST_ID,
                   },
                   sandbox,
                   certificates,
@@ -474,10 +489,12 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
                   hostedFormReturns,
                   audit,
                   clock,
+                  repositories.sandboxCredentialTypes,
                 )
               : undefined;
           const issuerService = new SandboxIssuerService(
             {
+              publicBase: urls.base,
               ...(config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID
                 ? { walletProviderTrustListId: config.ENGINE_WALLET_PROVIDER_TRUST_LIST_ID }
                 : {}),
@@ -499,6 +516,17 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             audit,
             clock,
             repositories.sandboxWalletProviders,
+            repositories.sandboxCredentialTypes,
+          );
+          const credentialTypes = new SandboxCredentialTypeService(
+            sandbox,
+            repositories.sandbox,
+            repositories.sandboxCertificates,
+            repositories.sandboxCredentialTypes,
+            issuerService,
+            urls,
+            audit,
+            clock,
           );
           // A new Wallet Providers list is rewritten into every hosted issuer at once (ADR 0020 §4).
           publications.onPublished = async (channel) => {
@@ -524,6 +552,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             domain,
             audit,
             clock,
+            credentialTypes,
           );
           const metadata = new SandboxMetadataService(
             repositories.sandboxIssuers,
@@ -545,7 +574,9 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
               domain,
               urls,
               clock,
+              repositories.sandboxCredentialTypes,
             ),
+            credentialTypes,
             certificates,
           };
         })()
@@ -612,6 +643,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             sandboxWalletProviders: pki.walletProviders,
             sandboxWalletTests: pki.walletTests,
             sandboxMetadata: pki.metadata,
+            sandboxCredentialTypes: pki.credentialTypes,
           }
         : {}),
     },

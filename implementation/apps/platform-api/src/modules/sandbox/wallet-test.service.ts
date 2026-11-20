@@ -13,6 +13,7 @@ import {
 } from "@edtp/sandbox-domain";
 import {
   basicConstraints,
+  EAA_VARIANT_INFO,
   issueCertificate,
   keyUsage,
   OID,
@@ -22,6 +23,7 @@ import {
 } from "@edtp/sandbox-pki";
 import { asId, type Clock, type CorrelationId, newUuid, PlatformError } from "@edtp/shared";
 import type { AuditService } from "../audit/audit.service.js";
+import type { SandboxCredentialTypeService } from "./credential-types.service.js";
 import type { SandboxIssuerService } from "./issuer.service.js";
 import type { SandboxService, SignedInContext } from "./sandbox.service.js";
 import type { SandboxTrustDomain } from "./trust-domain.runtime.js";
@@ -51,6 +53,32 @@ const PLAN_PID = {
   nationalities: ["ES"],
 } as const;
 
+const isEaaVariant = (v: string) => v in EAA_VARIANT_INFO;
+
+/** The type the EAA plan issues (ADR 0023 §7), and its synthetic values. */
+const PLAN_EAA_TYPE = {
+  slug: "edtp-wallet-test",
+  definition: {
+    display: [{ lang: "en", value: "EDTP wallet test card" }],
+    claims: [
+      {
+        name: "test_reference",
+        display: [{ lang: "en", value: "Test reference" }],
+        valueType: "string" as const,
+        mandatory: true,
+      },
+      {
+        name: "valid_from",
+        display: [{ lang: "en", value: "Valid from" }],
+        valueType: "date" as const,
+        mandatory: true,
+      },
+    ],
+    validitySeconds: 86_400,
+  },
+};
+const PLAN_EAA_VALUES = { test_reference: "WALLET-TEST", valid_from: "2026-01-01" } as const;
+
 const RELEASED: readonly ServerObservation[] = ["presented", "credential_collected"];
 const TESTER_SAYS_STOPPED = new Set([
   "refused_before_consent",
@@ -76,6 +104,8 @@ export class SandboxWalletTestService {
     private readonly domain: SandboxTrustDomain,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    /** For the EAA plan's test type (ADR 0023 §7). */
+    private readonly credentialTypes?: SandboxCredentialTypeService,
   ) {}
 
   /**
@@ -147,7 +177,9 @@ export class SandboxWalletTestService {
         "wallet_test_plan_not_for_this_service",
         plan.role === "pid_provider"
           ? "This plan runs on a PID Provider service."
-          : "This plan runs on a Relying Party service.",
+          : plan.role === "eaa_provider"
+            ? "This plan runs on an EAA Provider service."
+            : "This plan runs on a Relying Party service.",
       );
     }
     const run: WalletTestRun = {
@@ -220,7 +252,15 @@ export class SandboxWalletTestService {
       signingVariant: step.signingVariant,
       registrationVariant: "RC-00",
     });
-    const offer = await this.issuer.offer(context, orgId, serviceId, PLAN_PID);
+    const offer = isEaaVariant(step.signingVariant)
+      ? await this.issuer.offerEaa(
+          context,
+          orgId,
+          serviceId,
+          await this.planTestType(context, orgId, serviceId),
+          PLAN_EAA_VALUES,
+        )
+      : await this.issuer.offer(context, orgId, serviceId, PLAN_PID);
     await this.repository.startStep(run.id, stepIndex, offer.id, this.clock.now());
     return {
       stepIndex,
@@ -228,6 +268,17 @@ export class SandboxWalletTestService {
       walletUri: offer.offerUri,
       expiresAt: offer.expiresAt,
     };
+  }
+
+  /** The sandbox's EAA test type on the service, created the first time a plan needs it. */
+  private async planTestType(context: SignedInContext, orgId: string, serviceId: string) {
+    if (!this.credentialTypes) throw PlatformError.notFound("Route");
+    const existing = (await this.credentialTypes.list(context, orgId, serviceId)).find(
+      (t) => t.slug === PLAN_EAA_TYPE.slug,
+    );
+    const latest = existing?.versions[0];
+    if (latest) return latest.id;
+    return (await this.credentialTypes.create(context, orgId, serviceId, PLAN_EAA_TYPE)).id;
   }
 
   async observe(

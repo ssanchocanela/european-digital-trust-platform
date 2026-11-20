@@ -1,16 +1,17 @@
 import { asId, type TenantId } from "@edtp/shared";
 import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import type { Database } from "../db.js";
-import { sandboxIssuances, sandboxIssuers } from "../schema.js";
+import { sandboxIssuances, sandboxIssuers, sandboxServices } from "../schema.js";
 
-/** The sandbox's hosted PID issuers and their issuances (S5). Every read names the tenant. */
+/** The sandbox's hosted PID (S5) and EAA (ADR 0023) issuers and their issuances. Every read names the tenant. */
 export interface SandboxIssuerRecord {
   readonly relyingPartyServiceId: string;
   readonly tenantId: TenantId;
   readonly engineTenantRef: string;
   readonly attestationProviderId: string;
-  readonly credentialTypeId: string;
-  readonly issuancePolicyId: string;
+  /** A PID issuer's single type and policy; absent for an EAA issuer, whose types carry their own. */
+  readonly credentialTypeId?: string;
+  readonly issuancePolicyId?: string;
   readonly signingCertificateId: string;
   readonly registrationCertificateId: string;
   readonly accessCertificateId?: string;
@@ -27,6 +28,8 @@ export interface SandboxIssuanceRecord {
   readonly registrationCertificateId: string;
   readonly createdAt: Date;
   readonly revokedAt?: Date;
+  /** The EAA type version issued; absent for a PID. */
+  readonly credentialTypeVersionId?: string;
 }
 
 const toIssuer = (r: typeof sandboxIssuers.$inferSelect): SandboxIssuerRecord => ({
@@ -34,8 +37,8 @@ const toIssuer = (r: typeof sandboxIssuers.$inferSelect): SandboxIssuerRecord =>
   tenantId: asId<"TenantId">(r.tenantId),
   engineTenantRef: r.engineTenantRef,
   attestationProviderId: r.attestationProviderId,
-  credentialTypeId: r.credentialTypeId,
-  issuancePolicyId: r.issuancePolicyId,
+  ...(r.credentialTypeId ? { credentialTypeId: r.credentialTypeId } : {}),
+  ...(r.issuancePolicyId ? { issuancePolicyId: r.issuancePolicyId } : {}),
   signingCertificateId: r.signingCertificateId,
   registrationCertificateId: r.registrationCertificateId,
   ...(r.accessCertificateId ? { accessCertificateId: r.accessCertificateId } : {}),
@@ -52,6 +55,7 @@ const toIssuance = (r: typeof sandboxIssuances.$inferSelect): SandboxIssuanceRec
   registrationCertificateId: r.registrationCertificateId,
   createdAt: r.createdAt,
   ...(r.revokedAt ? { revokedAt: r.revokedAt } : {}),
+  ...(r.credentialTypeVersionId ? { credentialTypeVersionId: r.credentialTypeVersionId } : {}),
 });
 
 export class SandboxIssuerRepository {
@@ -74,11 +78,20 @@ export class SandboxIssuerRepository {
   }
 
   /** Hosted issuers of one organisation: each holds an engine tenant. */
-  async countIssuers(tenantId: TenantId): Promise<number> {
+  /** Hosted issuers of an organisation; of one role only when given (ADR 0023: one per role). */
+  async countIssuers(tenantId: TenantId, role?: string): Promise<number> {
     const [row] = await this.db
       .select({ n: sql<number>`count(*)::int` })
       .from(sandboxIssuers)
-      .where(eq(sandboxIssuers.tenantId, tenantId));
+      .innerJoin(
+        sandboxServices,
+        eq(sandboxServices.relyingPartyServiceId, sandboxIssuers.relyingPartyServiceId),
+      )
+      .where(
+        role
+          ? and(eq(sandboxIssuers.tenantId, tenantId), eq(sandboxServices.role, role))
+          : eq(sandboxIssuers.tenantId, tenantId),
+      );
     return row?.n ?? 0;
   }
 
@@ -106,6 +119,8 @@ export class SandboxIssuerRepository {
   ): Promise<void> {
     await this.db.insert(sandboxIssuers).values({
       ...record,
+      credentialTypeId: record.credentialTypeId ?? null,
+      issuancePolicyId: record.issuancePolicyId ?? null,
       accessCertificateId: record.accessCertificateId ?? null,
       accessKeyName: record.accessKeyName ?? null,
     });
@@ -167,6 +182,9 @@ export class SandboxIssuerRepository {
       signingCertificateId: record.signingCertificateId,
       registrationCertificateId: record.registrationCertificateId,
       createdAt: record.createdAt,
+      ...(record.credentialTypeVersionId
+        ? { credentialTypeVersionId: record.credentialTypeVersionId }
+        : {}),
     });
   }
 

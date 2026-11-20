@@ -89,11 +89,20 @@ describe("the words (ADR 0022 §1)", () => {
 });
 
 describe("the plans (ADR 0022 §2)", () => {
-  it("ship the three plans, with the registration defects on and off", () => {
+  it("ship the four plans, with the registration defects on and off and the EAA plan (ADR 0023)", () => {
     expect(WALLET_TEST_PLANS.map((p) => [p.id, p.steps.length])).toEqual([
       ["access-certificates", 7],
       ["registration-certificates", 23],
       ["issuance", 3],
+      ["eaa-issuance", 3],
     ]);
+  });
+
+  it("states ISSU_10's condition in every defective EAA step", () => {
+    const eaa = WALLET_TEST_PLANS.find((p) => p.id === "eaa-issuance");
+    for (const step of eaa?.steps.slice(1) ?? []) {
+      expect(step.asks).toContain("asks nothing of a wallet without the list");
+      expect(step.requirement).toContain("AS-AP-10-010");
+    }
   });
 });

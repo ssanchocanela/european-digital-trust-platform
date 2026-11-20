@@ -5,8 +5,10 @@ import type {
   RegistrationRepository,
   RunObservation,
   SandboxCertificateRepository,
+  SandboxCredentialTypeRepository,
   SandboxVerifierRepository,
 } from "@edtp/persistence";
+import type { SandboxCredentialTypeDefinition } from "@edtp/sandbox-domain";
 import {
   basicConstraints,
   issueCertificate,
@@ -62,6 +64,9 @@ export interface VerifierSettings {
   readonly pidListRef: string;
   /** The id of the engine-held list built from it, on every sandbox engine tenant. */
   readonly pidTrustListId: string;
+  /** The sandbox EAA list's reference and engine-held id (ADR 0023), when EAAs are enabled. */
+  readonly eaaListRef?: string;
+  readonly eaaTrustListId?: string;
 }
 
 const PID_VCT = "urn:eudi:pid:1";
@@ -85,7 +90,43 @@ export class SandboxVerifierService {
     private readonly returns: HostedFormReturns,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    /** Registered EAA types an intended use may request (ADR 0023 §5). Absent: the PID only. */
+    private readonly credentialTypes?: SandboxCredentialTypeRepository,
   ) {}
+
+  /**
+   * The sandbox EAA list on a verifier's engine tenant (ADR 0023 §5): the sandbox EAA CA. Upserted at
+   * every configuration, so verifiers created before ADR 0023 get it too. The tenant's list key
+   * already exists: the PID list made it.
+   */
+  private async loadEaaTrustList(engineTenantRef: string) {
+    const listId = this.settings.eaaTrustListId;
+    if (!listId || !this.domain.has("eaa-ca") || !this.provisioning.upsertIssuerTrustList)
+      return;
+    await this.provisioning.upsertIssuerTrustList(engineTenantRef, {
+      listId,
+      description: "EDTP Sandbox EAA Providers (TEST)",
+      issuers: [
+        {
+          name: "EDTP Sandbox EAA CA - TEST ONLY",
+          certificatePem: toPem(this.domain.certificate("eaa-ca"), "CERTIFICATE"),
+        },
+      ],
+    });
+  }
+
+  /** What an intended use's credential is: the PID, or a registered sandbox EAA type and its claims. */
+  private async credentialKind(vct: string) {
+    if (vct === PID_VCT) return { kind: "pid" as const };
+    const record = this.credentialTypes
+      ? await this.credentialTypes.latestByVct(vct)
+      : undefined;
+    if (!record || !this.settings.eaaListRef) return undefined;
+    const claims = (record.definition as SandboxCredentialTypeDefinition).claims.map(
+      (c) => c.name,
+    );
+    return { kind: "eaa" as const, claims };
+  }
 
   private async serviceOf(context: SignedInContext, orgId: string, serviceId: string) {
     const membership = await this.sandbox.activeMembershipIn(context, orgId);
@@ -188,10 +229,10 @@ export class SandboxVerifierService {
       if (!uses.some((x) => x.id === u.intendedUseId))
         throw PlatformError.notFound("Intended use");
       const applies = WRPRC_VARIANT_INFO[u.registrationVariant].appliesTo;
-      if (applies === "pid_provider") {
+      if (applies === "provider") {
         throw PlatformError.conflict(
           "sandbox_variant_not_applicable",
-          `${u.registrationVariant} is for PID Providers.`,
+          `${u.registrationVariant} is for PID and EAA Providers.`,
         );
       }
     }
@@ -205,6 +246,7 @@ export class SandboxVerifierService {
     }
     const engineTenantRef =
       verifier?.engineTenantRef ?? (await this.createEngineTenant(service.serviceTradeName));
+    await this.loadEaaTrustList(engineTenantRef);
 
     // A key for the engine, and an access certificate for it.
     const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
@@ -334,17 +376,27 @@ export class SandboxVerifierService {
     const use = uses.find((u) => u.id === intendedUseId);
     if (!use) throw PlatformError.notFound("Intended use");
     const credential = (use.registeredCredentials as DomainCredential[])[0];
-    if (
-      !credential ||
-      credential.format !== "dc+sd-jwt" ||
-      !(credential.vctValues ?? []).includes(PID_VCT)
-    ) {
+    const vct = credential?.format === "dc+sd-jwt" ? credential.vctValues?.[0] : undefined;
+    const kind = vct ? await this.credentialKind(vct) : undefined;
+    if (!credential || !vct || !kind) {
       throw PlatformError.conflict(
         "sandbox_policy_pid_only",
-        "The hosted verifier requests the PID in SD-JWT VC in v1.",
+        "The hosted verifier requests, in SD-JWT VC, the PID or an EAA type registered in the sandbox.",
       );
     }
     const paths = credential.claims as (string | number | null)[][];
+    if (kind.kind === "eaa") {
+      // Flat types: a path is one claim name of the type (ADR 0023 §2).
+      const unknown = paths.filter(
+        (p) => p.length !== 1 || typeof p[0] !== "string" || !kind.claims.includes(p[0]),
+      );
+      if (unknown.length > 0) {
+        throw PlatformError.validation(
+          "sandbox_claim_not_in_type",
+          `The type has no claim ${unknown.map((p) => p.join(".")).join(", ")}.`,
+        );
+      }
+    }
     const resultPolicy: ResultPolicy = {
       kind: "DERIVED_CLAIMS",
       derivations: paths.slice(0, 20).map((path) => ({
@@ -365,16 +417,22 @@ export class SandboxVerifierService {
       tenantId,
       policyId: policy.id,
       purpose: use.purpose as { lang: string; value: string }[],
-      credentialRequirements: [{ credentialType: PID_VCT, acceptedFormats: ["dc+sd-jwt"] }],
+      credentialRequirements: [{ credentialType: vct, acceptedFormats: ["dc+sd-jwt"] }],
       requestedClaims: paths.map((path) => ({ path })),
       resultPolicy,
       trustPolicy: {
         anchorSources: [
-          {
-            kind: "ETSI_TS_119_602_LOTE",
-            domain: "PID_PROVIDER",
-            ref: this.settings.pidListRef,
-          },
+          kind.kind === "pid"
+            ? {
+                kind: "ETSI_TS_119_602_LOTE",
+                domain: "PID_PROVIDER",
+                ref: this.settings.pidListRef,
+              }
+            : {
+                kind: "ETSI_TS_119_602_LOTE",
+                domain: "EAA_PROVIDER",
+                ref: this.settings.eaaListRef as string,
+              },
         ],
         statusCheckMode: "STRICT",
       },

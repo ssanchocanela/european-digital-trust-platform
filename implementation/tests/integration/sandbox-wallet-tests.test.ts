@@ -253,6 +253,54 @@ describe("a plan run on the hosted issuer", () => {
     expect(report.steps[1]).toMatchObject({ started: true, server: "pending" });
     expect(report.steps[1]?.title).toContain("PID-01");
   });
+  it("runs the EAA plan on an EAA Provider's issuer, with the sandbox's test type (ADR 0023 §7)", async () => {
+    const eaa = await s.certificates.createService(owner.context, owner.organisationId, {
+      role: "eaa_provider",
+      tradeName: "EAA Co",
+      ...SERVICE,
+    });
+    const serviceId = eaa.relyingPartyServiceId;
+    expect(
+      await errorCode(
+        s.walletTests.start(
+          owner.context,
+          owner.organisationId,
+          serviceId,
+          "issuance",
+          DECLARED,
+        ),
+      ),
+    ).toBe("wallet_test_plan_not_for_this_service");
+    const run = await s.walletTests.start(
+      owner.context,
+      owner.organisationId,
+      serviceId,
+      "eaa-issuance",
+      DECLARED,
+    );
+    for (const index of [0, 2]) {
+      const step = await s.walletTests.startStep(
+        owner.context,
+        owner.organisationId,
+        run.id,
+        index,
+        "QR",
+        newCorrelationId(),
+      );
+      expect(step.walletUri).toMatch(/^openid-credential-offer:/);
+    }
+    // The test type was created once, and reused.
+    const types = await s.credentialTypes.list(owner.context, owner.organisationId, serviceId);
+    expect(types.map((t) => [t.slug, t.versions.length])).toEqual([["edtp-wallet-test", 1]]);
+    const report = await s.walletTests.report(
+      owner.context,
+      owner.organisationId,
+      run.id,
+      newCorrelationId(),
+    );
+    expect(report.steps[2]?.title).toContain("EAA-02");
+    expect(report.steps[2]?.requirement).toContain("AS-AP-10-010");
+  });
 });
 
 describe("the signed report (ADR 0022 §4)", () => {

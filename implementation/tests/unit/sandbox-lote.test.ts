@@ -10,6 +10,7 @@ import {
   type IssuedMember,
   LOTE_PROFILES,
   type LoteInput,
+  SANDBOX_EAA_SERVICE_TYPE,
   signLote,
   verifyEs256,
 } from "@edtp/sandbox-pki";
@@ -133,5 +134,32 @@ describe("signLote", () => {
     );
     expect(verifyEs256(jws, signer.publicKey)).toBe(true);
     expect(signer.subject).toContain("LoTE Signer");
+  });
+});
+
+describe("the EAA list (ADR 0023)", () => {
+  it("uses the sandbox's own type and service identifiers, and says there is no EU list of its kind", () => {
+    const lote = buildLote({ ...base, kind: "EAA" }) as {
+      LoTE: {
+        ListAndSchemeInformation: Record<string, unknown>;
+        TrustedEntitiesList: {
+          TrustedEntityServices: { ServiceInformation: { ServiceTypeIdentifier: string } }[];
+        }[];
+      };
+    };
+    const info = lote.LoTE.ListAndSchemeInformation;
+    expect(info.LoTEType).toBe(LOTE_PROFILES.EAA.loteType);
+    expect(String(info.LoTEType)).not.toContain("uri.etsi.org");
+    expect(JSON.stringify(info.SchemeName)).toContain("there is no EU list of this type");
+    const types = lote.LoTE.TrustedEntitiesList.flatMap((e) =>
+      e.TrustedEntityServices.map((x) => x.ServiceInformation.ServiceTypeIdentifier),
+    );
+    expect(types.length).toBeGreaterThan(0);
+    for (const t of types) {
+      expect([
+        `${SANDBOX_EAA_SERVICE_TYPE}/Issuance`,
+        `${SANDBOX_EAA_SERVICE_TYPE}/Revocation`,
+      ]).toContain(t);
+    }
   });
 });

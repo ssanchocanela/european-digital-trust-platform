@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { CREDENTIAL_TYPE_SLUG } from "@edtp/sandbox-domain";
+import { LOTE_PROFILES, SANDBOX_EAA_SERVICE_TYPE } from "@edtp/sandbox-pki";
 import { PlatformError } from "@edtp/shared";
 import {
   Controller,
@@ -13,6 +15,7 @@ import {
 } from "@nestjs/common";
 import { ApiExcludeController } from "@nestjs/swagger";
 import type { Response } from "express";
+import type { SandboxCredentialTypeService } from "../modules/sandbox/credential-types.service.js";
 import type { SandboxMetadataService } from "../modules/sandbox/metadata.service.js";
 import type { SandboxPublicationService } from "../modules/sandbox/publication.service.js";
 import type { SandboxRegister } from "../modules/sandbox/register.js";
@@ -27,6 +30,8 @@ export interface SandboxPublicDependencies {
   readonly domain: SandboxTrustDomain;
   /** Signed metadata for sandbox issuers (S5b), when hosted issuers are configured. */
   readonly metadata?: SandboxMetadataService;
+  /** EAA credential types, for their Type Metadata (ADR 0023). */
+  readonly credentialTypes?: SandboxCredentialTypeService;
 }
 
 const CA_FILES = new Set([
@@ -36,6 +41,8 @@ const CA_FILES = new Set([
   "registrar-untrusted",
   "pid-ca",
   "pid-ca-untrusted",
+  "eaa-ca",
+  "eaa-ca-untrusted",
   "lote-signer",
   "registrar-signing",
   "registrar-untrusted-signing",
@@ -119,7 +126,7 @@ export class SandboxPublicController {
   @Get("ca/:file")
   ca(@Param("file") file: string, @Res() res: Response) {
     const name = file.replace(/\.cer$/, "");
-    if (!file.endsWith(".cer") || !CA_FILES.has(name))
+    if (!file.endsWith(".cer") || !CA_FILES.has(name) || !this.on().domain.has(name))
       throw PlatformError.notFound("Certificate");
     res.setHeader("content-type", "application/pkix-cert");
     res.setHeader("cache-control", "public, max-age=3600");
@@ -170,8 +177,8 @@ export class SandboxPublicController {
       "Use your wallet with the EDTP EUDI ecosystem sandbox (TEST ONLY)",
       "",
       "The sandbox is a separate test trust domain. No wallet trusts it unless it is configured to.",
-      "A wallet that should work with the sandbox loads these four ETSI TS 119 602 lists instead of",
-      "the EU ones, for the same purposes:",
+      "A wallet that should work with the sandbox loads these ETSI TS 119 602 lists instead of the",
+      "EU ones, for the same purposes:",
       "",
       list(
         "WRPACProviders.jwt",
@@ -183,6 +190,16 @@ export class SandboxPublicController {
         "WalletProviders.jwt",
         "Wallet Providers: whose wallet attestations the sandbox's issuers accept",
       ),
+      "",
+      "Non-qualified EAAs (ADR 0023). There is no EU list of EAA Providers, so this one is the",
+      "sandbox's own type. AS-AP-10-010 (ISSU_10) asks a wallet to validate an EAA's signature if it",
+      "has access to the provider's trust anchors; this list is that access:",
+      list("EAAProviders.jwt", "EAA Providers: which sandbox EAAs to accept"),
+      `      LoTEType            ${LOTE_PROFILES.EAA.loteType}`,
+      `      service types       ${SANDBOX_EAA_SERVICE_TYPE}/Issuance, …/Revocation`,
+      `      the EAAs it covers  every vct starting ${base}/vct/`,
+      "  Classify those vcts as non-qualified EAAs under one use case, and point that use case at",
+      "  this list. Every sandbox EAA type has its vct under that prefix.",
       "",
       "Every list is signed (JAdES compact, x5c) by the sandbox's list signer:",
       `  ${base}/ca/lote-signer.cer`,
@@ -196,6 +213,25 @@ export class SandboxPublicController {
       "Results obtained with a wallet are that wallet's results. The sandbox makes no claim of",
       "conformance for any wallet, and its own build is a MODIFIED wallet, not the Reference Wallet.",
     ].join("\n");
+  }
+
+  /**
+   * SD-JWT VC Type Metadata at a sandbox EAA's vct (ADR 0023 §2). The pinned wallet does not read it;
+   * other wallets may. Both segments are matched before any lookup.
+   */
+  @Get("vct/:organisation/:slug")
+  async vct(
+    @Param("organisation") organisation: string,
+    @Param("slug") slug: string,
+    @Res() res: Response,
+  ) {
+    const types = this.on().credentialTypes;
+    if (!types || !/^[a-z0-9-]{1,40}$/.test(organisation) || !CREDENTIAL_TYPE_SLUG.test(slug)) {
+      throw PlatformError.notFound("Credential type");
+    }
+    res.setHeader("content-type", "application/json");
+    res.setHeader("cache-control", "public, max-age=300");
+    res.send(JSON.stringify(await types.metadata(organisation, slug)));
   }
 
   @Get("cps")

@@ -3,6 +3,7 @@ import type { RegisteredCredential as DomainCredential } from "@edtp/domain";
 import type {
   SandboxCertificateRecord,
   SandboxCertificateRepository,
+  SandboxCredentialTypeRepository,
   SandboxRepository,
   SandboxServiceRole,
 } from "@edtp/persistence";
@@ -20,7 +21,9 @@ import {
   WRPAC_VARIANT_INFO,
   WRPRC_VARIANT_INFO,
   type WrpacVariant,
+  type WrprcKind,
   type WrprcVariant,
+  wrprcVariantAppliesTo,
 } from "@edtp/sandbox-pki";
 import { asId, type Clock, newUuid, PlatformError, type TenantId } from "@edtp/shared";
 import type { AuditService } from "../audit/audit.service.js";
@@ -75,7 +78,20 @@ export class SandboxCertificateService {
     private readonly urls: SandboxUrls,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    /** An EAA Provider's credential types, which its registration certificate lists (ADR 0023). */
+    private readonly credentialTypes?: SandboxCredentialTypeRepository,
   ) {}
+
+  /** What a provider service's registration certificate says it provides. */
+  private async providedTypes(tenantId: TenantId, serviceId: string, role: string) {
+    if (role === "pid_provider")
+      return [{ format: "dc+sd-jwt" as const, type: PID_TYPE_SD_JWT }];
+    if (role !== "eaa_provider" || !this.credentialTypes) return [];
+    const vcts = new Set(
+      (await this.credentialTypes.ofService(tenantId, serviceId)).map((t) => t.vct),
+    );
+    return [...vcts].map((type) => ({ format: "dc+sd-jwt" as const, type }));
+  }
 
   private async organisationOf(context: SignedInContext, tenantId: string) {
     const membership = this.sandbox.membershipIn(context, tenantId);
@@ -342,7 +358,7 @@ export class SandboxCertificateService {
     }
     await this.assertCertificateQuota(org.tenantId, serviceId);
     const info = WRPRC_VARIANT_INFO[input.variant];
-    if (info.appliesTo !== "both" && info.appliesTo !== service.role) {
+    if (!wrprcVariantAppliesTo(input.variant, service.role)) {
       throw PlatformError.conflict(
         "sandbox_variant_not_applicable",
         `${input.variant} does not apply to this kind of service.`,
@@ -367,7 +383,7 @@ export class SandboxCertificateService {
     if (input.variant !== "RC-01") {
       body = issueWrprc({
         variant: input.variant,
-        kind: service.role,
+        kind: service.role as WrprcKind,
         organisation: {
           legalName: org.legalName,
           tradeName: service.serviceTradeName,
@@ -390,10 +406,7 @@ export class SandboxCertificateService {
               },
             }
           : {}),
-        providesAttestations:
-          service.role === "pid_provider"
-            ? [{ format: "dc+sd-jwt", type: PID_TYPE_SD_JWT }]
-            : [],
+        providesAttestations: await this.providedTypes(org.tenantId, serviceId, service.role),
         urls: {
           registry: this.urls.registryEntry(org.organisation.localIdentifier),
           info: service.infoUri,
@@ -619,7 +632,10 @@ export class SandboxCertificateService {
         ? new X509Certificate(access.body)
         : syntheticBindingCertificate(this.domain),
       at: now,
-      kind: service?.role === "pid_provider" ? "pid_provider" : "service_provider",
+      kind:
+        service?.role === "pid_provider" || service?.role === "eaa_provider"
+          ? service.role
+          : "service_provider",
       statusOf: (uri) =>
         uri === this.urls.unavailableStatus
           ? "unreachable"
@@ -628,6 +644,13 @@ export class SandboxCertificateService {
             : "valid",
       ...(requested ? { requested } : {}),
       ...(service?.role === "pid_provider" ? { issuedType: PID_TYPE_SD_JWT } : {}),
+      ...(service?.role === "eaa_provider"
+        ? await this.providedTypes(
+            record.tenantId,
+            service.relyingPartyServiceId,
+            "eaa_provider",
+          ).then((types) => (types[0] ? { issuedType: types[0].type } : {}))
+        : {}),
     });
     // Without a correct access certificate the binding cannot be checked: leave it out, and say so.
     const fails = failedChecks(results).filter(

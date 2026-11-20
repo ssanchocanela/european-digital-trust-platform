@@ -65,8 +65,10 @@ describe("configuring the hosted verifier", () => {
     expect(s.createdEngineTenants).toHaveLength(1);
     const ref = s.createdEngineTenants[0] as string;
     expect(harness.verifier.trustListKeys).toEqual([ref]);
+    // The PID list, and the EAA list (ADR 0023) so an intended use may request a sandbox EAA.
     expect(harness.verifier.trustLists).toEqual([
       { engineTenantRef: ref, listId: "sbx-pid-providers", issuers: 1 },
+      { engineTenantRef: ref, listId: "sbx-eaa-providers", issuers: 1 },
     ]);
     // The operator's own instance imported one before; this tenant has exactly one.
     expect(harness.verifier.imports.filter((i) => i.engineTenantRef === ref)).toHaveLength(1);

@@ -162,7 +162,7 @@ describe("WRPRC variants", () => {
   for (const variant of WRPRC_VARIANTS) {
     const info = WRPRC_VARIANT_INFO[variant];
     if (variant === "RC-01") continue; // the absence of a certificate: covered below
-    const kind = info.appliesTo === "pid_provider" ? "pid_provider" : "service_provider";
+    const kind = info.appliesTo === "provider" ? "pid_provider" : "service_provider";
     it(`${variant} (${info.title}) fails exactly ${info.fails ?? "nothing"}`, async () => {
       const access = new X509Certificate((await wrpac("AC-00")).der);
       const compact = await wrprc(variant, kind);

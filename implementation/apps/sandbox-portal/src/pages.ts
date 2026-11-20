@@ -316,18 +316,27 @@ export interface ServiceSummary {
   readonly role: string;
 }
 
+const roleLabel = (role: string) =>
+  role === "pid_provider"
+    ? "PID Provider"
+    : role === "eaa_provider"
+      ? "EAA Provider"
+      : role === "wallet_provider"
+        ? "Wallet Provider"
+        : "Relying Party";
+
 export function servicesSection(orgId: string, services: readonly ServiceSummary[]): string {
   const id = escapeHtml(orgId);
   const rows = services
     .map(
       (s) =>
-        `<tr><td><a href="/org/${id}/services/${escapeHtml(s.relyingPartyServiceId)}">${escapeHtml(s.serviceIdentifier)}</a></td><td>${escapeHtml(s.serviceTradeName)}</td><td>${s.role === "pid_provider" ? "PID Provider" : s.role === "wallet_provider" ? "Wallet Provider" : "Relying Party"}</td></tr>`,
+        `<tr><td><a href="/org/${id}/services/${escapeHtml(s.relyingPartyServiceId)}">${escapeHtml(s.serviceIdentifier)}</a></td><td>${escapeHtml(s.serviceTradeName)}</td><td>${roleLabel(s.role)}</td></tr>`,
     )
     .join("");
   return `<h2>Services</h2>
 ${services.length ? `<table><tr><th>Id</th><th>Name</th><th>Role</th></tr>${rows}</table>` : "<p>None yet.</p>"}
 <form method="post" action="/org/${id}/services">
-<label for="role">Role</label><select id="role" name="role"><option value="service_provider">Relying Party (Service_Provider)</option><option value="pid_provider">PID Provider (PID_Provider)</option><option value="wallet_provider">Wallet Provider</option></select>
+<label for="role">Role</label><select id="role" name="role"><option value="service_provider">Relying Party (Service_Provider)</option><option value="pid_provider">PID Provider (PID_Provider)</option><option value="eaa_provider">EAA Provider, non-qualified (Non_Q_EAA_Provider)</option><option value="wallet_provider">Wallet Provider</option></select>
 <label for="tradeName">Service trade name</label><input id="tradeName" name="tradeName" required maxlength="200">
 <label for="description">Description (English)</label><input id="description" name="description" required maxlength="500">
 <label for="supportUri">Support address (https:// or mailto:)</label><input id="supportUri" name="supportUri" required maxlength="500">
@@ -376,10 +385,14 @@ export function servicePage(input: {
   readonly error?: string;
   /** The hosted verifier section, when the platform offers one (S4). */
   readonly verifierHtml?: string;
+  /** What an intended use may request: the PID and the sandbox's registered EAA types (ADR 0023). */
+  readonly credentialChoices?: readonly { readonly vct: string; readonly label: string }[];
 }): string {
   const org = escapeHtml(input.orgId);
   const svc = escapeHtml(input.service.relyingPartyServiceId);
-  const provider = input.service.role === "pid_provider";
+  const provider =
+    input.service.role === "pid_provider" || input.service.role === "eaa_provider";
+  const choices = input.credentialChoices ?? [{ vct: "urn:eudi:pid:1", label: "PID" }];
   const uses = input.service.intendedUses
     .map(
       (u) =>
@@ -395,15 +408,25 @@ export function servicePage(input: {
   return page(
     "Service",
     `<h1>${escapeHtml(input.service.serviceTradeName)} <code>${escapeHtml(input.service.serviceIdentifier)}</code></h1>
-<p>${provider ? "PID Provider: entitlement PID_Provider, provides <code>urn:eudi:pid:1</code> in SD-JWT VC." : "Relying Party: entitlement Service_Provider."}</p>
+<p>${
+      input.service.role === "pid_provider"
+        ? "PID Provider: entitlement PID_Provider, provides <code>urn:eudi:pid:1</code> in SD-JWT VC."
+        : input.service.role === "eaa_provider"
+          ? "Non-qualified EAA Provider: entitlement Non_Q_EAA_Provider, provides the credential types below in SD-JWT VC."
+          : "Relying Party: entitlement Service_Provider."
+    }</p>
 ${input.error ? `<p role="alert"><strong>${escapeHtml(input.error)}</strong></p>` : ""}
 ${
   provider
-    ? '<p class="muted">A PID Provider has no intended use (RPRC_05).</p>'
+    ? '<p class="muted">A provider has no intended use (RPRC_05).</p>'
     : `<h2>Intended uses</h2>${uses ? `<table><tr><th>Id</th><th>Purpose</th></tr>${uses}</table>` : "<p>None yet. A registration certificate is issued per intended use.</p>"}
 <form method="post" action="/org/${org}/services/${svc}/intended-uses">
 <label for="purpose">Purpose (English)</label><input id="purpose" name="purpose" required maxlength="500">
-<label for="claims">PID claims it may request, one claim path per line (dots between elements; <code>*</code> for any array element)</label>
+<label for="credentialType">Credential it requests</label><select id="credentialType" name="credentialType">${choices
+        .map((c) => `<option value="${escapeHtml(c.vct)}">${escapeHtml(c.label)}</option>`)
+        .join("")}</select>
+<p class="muted">The sandbox's EAA types are listed by name; their claims are on each provider's service page and in the register. An EAA type's claims are single names.</p>
+<label for="claims">Claims it may request, one claim path per line (dots between elements; <code>*</code> for any array element)</label>
 <textarea id="claims" name="claims" rows="5" required>given_name
 family_name
 birthdate</textarea>
@@ -482,6 +505,43 @@ export function parseClaimLines(text: string): (string | number | null)[][] {
         .split(".")
         .map((part) => (part === "*" ? null : /^\d+$/.test(part) ? Number(part) : part)),
     );
+}
+
+const CLAIM_VALUE_TYPES = new Set(["string", "number", "integer", "boolean", "date"]);
+
+/**
+ * An EAA type's claims from the form's lines, `name | Display label | type | required` (ADR 0023).
+ * Returns what was wrong, as a sentence, rather than throwing: the platform validates the rest.
+ */
+export function parseClaimDefinitions(text: string):
+  | {
+      name: string;
+      display: { lang: string; value: string }[];
+      valueType: string;
+      mandatory: boolean;
+    }[]
+  | string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const out = [];
+  for (const [i, line] of lines.entries()) {
+    const [name, label, type, req] = line.split("|").map((p) => p.trim());
+    if (!name || !label || !type) {
+      return `Line ${i + 1}: write name | Display label | type | required.`;
+    }
+    if (!CLAIM_VALUE_TYPES.has(type)) {
+      return `Line ${i + 1}: the type is one of string, number, integer, boolean, date.`;
+    }
+    out.push({
+      name,
+      display: [{ lang: "en", value: label }],
+      valueType: type,
+      mandatory: (req ?? "required").toLowerCase() !== "optional",
+    });
+  }
+  return out.length ? out : "Give at least one claim.";
 }
 
 // --- the hosted verifier and runs (S4) ---------------------------------------------------------
@@ -660,6 +720,7 @@ export function runsSection(
 
 export interface IssuerView {
   readonly configured: boolean;
+  readonly role?: string;
   readonly signingCertificate?: {
     id: string;
     variant: string;
@@ -679,9 +740,13 @@ export function issuerSection(input: {
   readonly wrprcVariants: readonly VariantOption[];
   /** The access certificate variants: the certificate that signs the issuer's metadata (S5b). */
   readonly accessVariants?: readonly VariantOption[];
+  /** An EAA Provider's types, latest version each, for its offer forms (ADR 0023). */
+  readonly eaaTypes?: readonly CredentialTypeView[];
 }): string {
   const org = escapeHtml(input.orgId);
   const svc = escapeHtml(input.serviceId);
+  const eaa = input.eaaTypes !== undefined;
+  const what = eaa ? "EAA" : "PID";
   const select = (name: string, variants: readonly VariantOption[]) =>
     `<select name="${escapeHtml(name)}">${variants
       .map(
@@ -692,7 +757,7 @@ export function issuerSection(input: {
   const i = input.issuer;
   const current = i.configured
     ? `<p>Signs now with <code>${escapeHtml(i.signingCertificate?.variant ?? "")}</code> ${escapeHtml(i.signingCertificate?.variantTitle ?? "")}; publishes registration certificate <a href="/org/${org}/certificates/${escapeHtml(i.registrationCertificate?.id ?? "")}"><code>${escapeHtml(i.registrationCertificate?.variant ?? "")}</code></a> as its issuer information.</p>`
-    : "<p>Not configured yet. The first configuration creates its engine tenant and its PID credential type.</p>";
+    : `<p>Not configured yet. The first configuration creates its engine tenant and ${eaa ? "makes each credential type issuable" : "its PID credential type"}.</p>`;
   const issuances = (i.issuances ?? [])
     .slice(0, 20)
     .map(
@@ -700,8 +765,38 @@ export function issuerSection(input: {
         `<tr><td><a href="/org/${org}/issuances/${escapeHtml(x.id)}">${escapeHtml(x.createdAt)}</a></td><td>${x.revokedAt ? "revoked" : ""}</td></tr>`,
     )
     .join("");
-  const offerForm = i.configured
-    ? `<h3>Issue a synthetic PID</h3>
+  const eaaOffers = (input.eaaTypes ?? [])
+    .map((t) => {
+      const v = t.versions[0];
+      if (!v) return "";
+      const fields = v.definition.claims
+        .map((c) => {
+          const id = `v_${escapeHtml(t.slug)}_${escapeHtml(c.name)}`;
+          const label = escapeHtml(c.display[0]?.value ?? c.name);
+          const input =
+            c.valueType === "boolean"
+              ? `<select id="${id}" name="v_${escapeHtml(c.name)}"><option value="">—</option><option value="true">true</option><option value="false">false</option></select>`
+              : `<input id="${id}" name="v_${escapeHtml(c.name)}" ${c.valueType === "date" ? 'type="date"' : c.valueType === "string" ? 'maxlength="200"' : 'inputmode="decimal" maxlength="30"'}${c.mandatory ? " required" : ""}>`;
+          return `<label for="${id}">${label} <code>${escapeHtml(c.name)}</code>${c.mandatory ? "" : " (optional)"}</label>${input}`;
+        })
+        .join("\n");
+      return `<h4>${escapeHtml(v.definition.display[0]?.value ?? t.slug)} <code>v${v.version}</code></h4>
+<form method="post" action="/org/${org}/services/${svc}/issuer/eaa-offers">
+<input type="hidden" name="typeVersionId" value="${escapeHtml(v.id)}">
+${fields}
+<label>Where is the wallet?<select name="interaction"><option value="SAME_DEVICE">On this device (a link)</option><option value="QR">On my phone (a QR code)</option></select></label>
+<button>Offer this EAA</button></form>`;
+    })
+    .join("");
+  const offerForm = !i.configured
+    ? ""
+    : eaa
+      ? `<h3>Issue a synthetic EAA</h3>
+<p><strong>Synthetic data only.</strong> Type values that belong to nobody. They are passed to the issuer
+and kept nowhere by the platform; the engine holds them for its session window only.</p>
+${eaaOffers || "<p>Define a credential type first.</p>"}
+${issuances ? `<h3>Issued</h3><table><tr><th>Offered</th><th></th></tr>${issuances}</table>` : ""}`
+      : `<h3>Issue a synthetic PID</h3>
 <p><strong>Synthetic data only.</strong> The sandbox cannot tell a real name from an invented one, so it
 relies on you: type values that belong to nobody. They are passed to the issuer and kept nowhere by the
 platform; the engine holds them for its session window only.</p>
@@ -713,14 +808,17 @@ platform; the engine holds them for its session window only.</p>
 <label for="nationalities">Nationalities (alpha-2, separated by spaces)</label><input id="nationalities" name="nationalities" required maxlength="20">
 <label>Where is the wallet?<select name="interaction"><option value="SAME_DEVICE">On this device (a link)</option><option value="QR">On my phone (a QR code)</option></select></label>
 <button>Offer the PID</button></form>
-${issuances ? `<h3>Issued</h3><table><tr><th>Offered</th><th></th></tr>${issuances}</table>` : ""}`
-    : "";
-  return `<h2>Hosted PID issuer</h2>
-<p class="muted">An issuer the sandbox runs for this service, signing PIDs with a certificate the sandbox PID
-CA issues — correct or defective. The sandbox signs this issuer's metadata with its access certificate
-(ADR 0016), so a wallet can authenticate it before asking for a PID. The issuance-side registration checks
-are exercised only by the <code>sandbox-strict</code> wallet build: the ordinary sandbox build carries WD-2,
-which switches them off.</p>
+${issuances ? `<h3>Issued</h3><table><tr><th>Offered</th><th></th></tr>${issuances}</table>` : ""}`;
+  return `<h2>Hosted ${what} issuer</h2>
+<p class="muted">An issuer the sandbox runs for this service, signing ${what}s with a certificate the sandbox
+${what} CA issues — correct or defective. The sandbox signs this issuer's metadata with its access certificate
+(ADR 0016), so a wallet can authenticate it before asking for a credential. The issuance-side registration
+checks are exercised only by the <code>sandbox-strict</code> wallet build: the ordinary sandbox build carries
+WD-2, which switches them off.${
+    eaa
+      ? " A wallet trusts a sandbox EAA only if it holds the sandbox EAA list (AS-AP-10-010, ISSU_10, is conditional on that): the sandbox wallet build does, through WD-1."
+      : ""
+  }</p>
 ${current}
 <form method="post" action="/org/${org}/services/${svc}/issuer">
 ${input.accessVariants ? `<label>Access certificate variant (signs the metadata) ${select("accessVariant", input.accessVariants)}</label>` : ""}
@@ -728,6 +826,65 @@ ${input.accessVariants ? `<label>Access certificate variant (signs the metadata)
 <label>Registration certificate variant ${select("registrationVariant", input.wrprcVariants)}</label>
 <button>${i.configured ? "Reconfigure" : "Configure"} the hosted issuer</button></form>
 ${offerForm}`;
+}
+
+export interface CredentialTypeView {
+  readonly slug: string;
+  readonly vct?: string;
+  readonly versions: readonly {
+    readonly id: string;
+    readonly version: number;
+    readonly vct: string;
+    readonly issuable: boolean;
+    readonly createdAt: string;
+    readonly definition: {
+      readonly display: readonly { lang: string; value: string }[];
+      readonly claims: readonly {
+        name: string;
+        display: readonly { lang: string; value: string }[];
+        valueType: string;
+        mandatory: boolean;
+      }[];
+      readonly validitySeconds: number;
+    };
+  }[];
+}
+
+/** An EAA Provider's credential types (ADR 0023 §2): what exists, and a form for a new version. */
+export function credentialTypesSection(input: {
+  readonly orgId: string;
+  readonly serviceId: string;
+  readonly types: readonly CredentialTypeView[];
+}): string {
+  const org = escapeHtml(input.orgId);
+  const svc = escapeHtml(input.serviceId);
+  const rows = input.types
+    .map((t) => {
+      const v = t.versions[0];
+      if (!v) return "";
+      const claims = v.definition.claims
+        .map(
+          (c) =>
+            `<code>${escapeHtml(c.name)}</code> ${escapeHtml(c.valueType)}${c.mandatory ? "" : "?"}`,
+        )
+        .join(", ");
+      return `<tr><td>${escapeHtml(v.definition.display[0]?.value ?? t.slug)}<br><code>${escapeHtml(t.slug)}</code> v${v.version}${t.versions.length > 1 ? ` (${t.versions.length} versions)` : ""}</td><td><code>${escapeHtml(v.vct)}</code></td><td>${claims}</td><td>${v.issuable ? "issuable" : "not yet: configure the issuer"}</td></tr>`;
+    })
+    .join("");
+  return `<h2>Credential types</h2>
+<p class="muted">The credentials this EAA Provider issues. The sandbox assigns each type's <code>vct</code>, under
+its own address, so one wallet build accepts every sandbox type (ADR 0023). A version never changes: to change a
+type, define it again under the same name, and it becomes the next version with the same <code>vct</code>.
+Every claim is issued selectively disclosable.</p>
+${rows ? `<table><tr><th>Type</th><th>vct</th><th>Claims</th><th></th></tr>${rows}</table>` : "<p>None yet.</p>"}
+<form method="post" action="/org/${org}/services/${svc}/credential-types">
+<label for="ct-slug">Name (3–40: lower-case letters, digits, hyphens)</label><input id="ct-slug" name="slug" required pattern="[a-z][a-z0-9-]{2,39}" maxlength="40">
+<label for="ct-display">Display name (English)</label><input id="ct-display" name="display" required maxlength="100">
+<label for="ct-validity">Valid for (days, 1–365)</label><input id="ct-validity" name="validityDays" type="number" min="1" max="365" value="365" required>
+<label for="ct-claims">Claims, one per line: <code>name | Display label | type | required</code>. Types: string, number, integer, boolean, date. Write <code>optional</code> instead of <code>required</code> for an optional claim.</label>
+<textarea id="ct-claims" name="claims" rows="5" required>member_number | Member number | string | required
+member_since | Member since | date | required</textarea>
+<button>Define this type</button></form>`;
 }
 
 export interface IssuanceStatusView {
@@ -755,15 +912,15 @@ export function issuancePage(orgId: string, view: IssuanceStatusView): string {
   const settled = ISSUANCE_TERMINAL.has(view.status);
   return page(
     "Issuance",
-    `<h1>Synthetic PID issuance</h1>
+    `<h1>Synthetic issuance</h1>
 <table>
 <tr><th>Signing certificate</th><td><code>${escapeHtml(view.signingCertificate.variant)}</code> ${escapeHtml(view.signingCertificate.variantTitle)} — ${escapeHtml(view.signingCertificate.requirement)}</td></tr>
 <tr><th>The platform's outcome</th><td><code>${escapeHtml(view.status)}</code>${view.failureCode ? ` — <code>${escapeHtml(view.failureCode)}</code>` : ""}${settled ? "" : " — not settled yet; this page refreshes"}</td></tr>
 ${view.revokedAt ? `<tr><th>Revoked</th><td>${escapeHtml(view.revokedAt)} — final</td></tr>` : ""}
 </table>
-<p class="muted">A PID issued under PID-01 or PID-02 is issued all the same: whether the wallet accepts it,
-and whether a verifier then does, is what the run tells you.</p>
-${view.revocable ? `<form method="post" action="/org/${org}/issuances/${escapeHtml(view.id)}/revoke"><button class="secondary">Revoke this PID (PID-03, final)</button></form>` : ""}
+<p class="muted">A credential issued under a defective signing certificate is issued all the same: whether the
+wallet accepts it, and whether a verifier then does, is what the run tells you.</p>
+${view.revocable ? `<form method="post" action="/org/${org}/issuances/${escapeHtml(view.id)}/revoke"><button class="secondary">Revoke this credential (final)</button></form>` : ""}
 <p><a href="/org/${org}">Back to the organisation</a></p>`,
     { signedIn: true, ...(settled ? {} : { refreshSeconds: 3 }) },
   );

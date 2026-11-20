@@ -21,6 +21,11 @@ export const WRPRC_POLICY_OID = "0.4.0.19475.3.1";
 const ENTITLEMENT = "https://uri.etsi.org/19475/Entitlement/";
 export const ENTITLEMENT_SERVICE_PROVIDER = `${ENTITLEMENT}Service_Provider`;
 export const ENTITLEMENT_PID_PROVIDER = `${ENTITLEMENT}PID_Provider`;
+/** The spelling the pinned wallet compares against (`IssuerEntitlements.NON_Q_EAA`; ADR 0023). */
+export const ENTITLEMENT_NON_Q_EAA_PROVIDER = `${ENTITLEMENT}Non_Q_EAA_Provider`;
+
+/** The roles a registration certificate is issued for. */
+export type WrprcKind = "service_provider" | "pid_provider" | "eaa_provider";
 
 export const WRPRC_VARIANTS = [
   "RC-00",
@@ -71,8 +76,11 @@ export interface WrprcVariantInfo {
    * exercises it only with its metadata signed (S5b, ADR 0016) and a wallet build without WD-2.
    */
   readonly issuanceSide?: boolean;
-  /** For which kind of certificate the variant makes sense. */
-  readonly appliesTo: "service_provider" | "pid_provider" | "both";
+  /**
+   * For which kind of certificate the variant makes sense: a Relying Party's, an Attestation
+   * Provider's (PID or EAA, ADR 0023), or both.
+   */
+  readonly appliesTo: "service_provider" | "provider" | "both";
 }
 
 export const WRPRC_VARIANT_INFO: Readonly<Record<WrprcVariant, WrprcVariantInfo>> = {
@@ -173,14 +181,14 @@ export const WRPRC_VARIANT_INFO: Readonly<Record<WrprcVariant, WrprcVariantInfo>
     appliesTo: "both",
   },
   "RC-11": {
-    title: "Wrong entitlement: a provider certificate without PID_Provider",
+    title: "Wrong entitlement: a provider certificate without its provider entitlement",
     signer: "registrar",
     fails: "entitlement",
     requirement: "No HLR — ARF §6.6.2.3 prose",
     walletCoreReason: "ENTITLEMENT_MISSING",
     registrationCheck: true,
     issuanceSide: true,
-    appliesTo: "pid_provider",
+    appliesTo: "provider",
   },
   "RC-12": {
     title: "Attestation type not registered",
@@ -189,7 +197,7 @@ export const WRPRC_VARIANT_INFO: Readonly<Record<WrprcVariant, WrprcVariantInfo>
     requirement: "AS-AP-44-007 (RPRC_23)",
     registrationCheck: true,
     issuanceSide: true,
-    appliesTo: "pid_provider",
+    appliesTo: "provider",
   },
   "RC-13": {
     title: "Validity longer than 12 months",
@@ -200,6 +208,24 @@ export const WRPRC_VARIANT_INFO: Readonly<Record<WrprcVariant, WrprcVariantInfo>
     appliesTo: "both",
   },
 };
+
+/** Whether a variant applies to a service of this role. */
+export const wrprcVariantAppliesTo = (variant: WrprcVariant, role: string): boolean => {
+  const a = WRPRC_VARIANT_INFO[variant].appliesTo;
+  return (
+    a === "both" ||
+    (a === "service_provider" && role === "service_provider") ||
+    (a === "provider" && (role === "pid_provider" || role === "eaa_provider"))
+  );
+};
+
+/** A provider's own entitlement (RC-11 gives it the Service_Provider one instead). */
+export const providerEntitlement = (kind: WrprcKind): string =>
+  kind === "pid_provider"
+    ? ENTITLEMENT_PID_PROVIDER
+    : kind === "eaa_provider"
+      ? ENTITLEMENT_NON_Q_EAA_PROVIDER
+      : ENTITLEMENT_SERVICE_PROVIDER;
 
 export interface LocalisedValue {
   readonly lang: string;
@@ -221,7 +247,7 @@ export interface ProvidedAttestation {
 
 export interface WrprcInput {
   readonly variant: WrprcVariant;
-  readonly kind: "service_provider" | "pid_provider";
+  readonly kind: WrprcKind;
   readonly organisation: {
     readonly legalName: string;
     readonly tradeName: string;
@@ -261,7 +287,7 @@ export interface WrprcInput {
 const unboundIdentifier = (localIdentifier: string) =>
   localIdentifier.replace(/-\d+$/, "-000000");
 export const UNREGISTERED_CLAIM = "_edtp_rc08_not_requested";
-export const UNREGISTERED_ATTESTATION_TYPE = "urn:edtp:sandbox:rc12:not-the-pid";
+export const UNREGISTERED_ATTESTATION_TYPE = "urn:edtp:sandbox:rc12:not-the-issued-type";
 
 const DAY = 86_400_000;
 export const WRPRC_VALIDITY_DAYS = 90;
@@ -286,7 +312,7 @@ export function wrprcPayload(input: WrprcInput): Record<string, unknown> {
   const entitlements =
     input.kind === "service_provider" || variant === "RC-11"
       ? [ENTITLEMENT_SERVICE_PROVIDER]
-      : [ENTITLEMENT_PID_PROVIDER];
+      : [providerEntitlement(input.kind)];
   const payload: Record<string, unknown> = {
     name: organisation.tradeName,
     sub_ln: `TEST ${organisation.legalName}`,

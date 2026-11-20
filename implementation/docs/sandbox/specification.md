@@ -227,6 +227,26 @@ engine is S5 work (plan).
 5. Point the wallet at the sandbox's four lists: `/sandbox/public/wallets` says which, with the list
    signer's pin.
 
+### J12 — EAA Provider: define types and issue EAAs ([ADR 0023](../adr/0023-sandbox-eaa-providers.md))
+
+1. Register a service with the role **EAA Provider** (non-qualified). Its registration certificate
+   carries `https://uri.etsi.org/19475/Entitlement/Non_Q_EAA_Provider` and lists its types.
+2. **Define credential types:** a name, a display name, flat claims (name, display text, one of
+   string, number, integer, boolean, date; required or optional) and a validity. The sandbox assigns
+   the `vct`, `<public base>/vct/<organisation>/<name>`, and serves SD-JWT VC Type Metadata there. A
+   version never changes; defining the same name again makes the next version, with the same `vct`.
+   Every claim is issued selectively disclosable. Quotas: 10 types per service, 20 versions per type.
+3. **Configure the hosted EAA issuer** with a signing variant (§5.5) and a registration variant. One
+   hosted issuer per organisation and role, so a PID issuer and an EAA issuer can coexist.
+4. **Issue an EAA:** one form per type, whose fields are the type's claims. Synthetic values only;
+   they are content, never stored (CLAUDE.md §5).
+5. **Relying Parties request it:** an intended use may name any registered type and its claims; the
+   hosted verifier checks the signature against the sandbox EAA list.
+
+**What J12 needs from a wallet.** A wallet trusts a sandbox EAA only if it holds the sandbox EAA list
+for the sandbox's `vct` prefix: `AS-AP-10-010` (`ISSU_10`) is conditional on access to the anchors.
+The sandbox wallet build does, through WD-1; others configure it from `/sandbox/public/wallets`.
+
 ### J11 — Leaving ([ADR 0021](../adr/0021-sandbox-erasure-of-a-person.md))
 
 - **A person deletes their own account** from the dashboard. A confirmation page says what goes, what
@@ -318,6 +338,18 @@ validator. The wallet's reaction is recorded, not predicted.
 | PID-01 | Signing certificate not on the PID list | Signed under the **untrusted** PID CA | `ISSU_07` |
 | PID-02 | Signing certificate expired | Leaf `notAfter` in the past at issuance | `ISSU_07` |
 | PID-03 | Revoked PID | Correct PID, then revoked on its status list | `AS-AP-07-007` (`VCR_04`) and the verifier's check |
+
+### 5.5 EAA (EAA Provider role, [ADR 0023](../adr/0023-sandbox-eaa-providers.md))
+
+| Id | Defect | Built how | Requirement |
+|---|---|---|---|
+| EAA-00 | *Correct* | Signed under the sandbox EAA CA | — |
+| EAA-01 | Signing certificate not on the EAA list | Signed under the **untrusted** EAA CA | `AS-AP-10-010` (`ISSU_10`), if the wallet has the EAA list |
+| EAA-02 | Signing certificate expired | Leaf `notAfter` in the past at issuance | `AS-AP-10-010` (`ISSU_10`), if the wallet has the EAA list |
+
+`ISSU_10` is conditional: a Wallet Unit validates a non-qualified EAA's signature *if it has access to*
+the provider's trust anchors. EAA-01 and EAA-02 ask nothing of a wallet without the sandbox EAA list,
+and the reports say so. On the Relying Party side the citation is `EW-PIO-01-027` (`OIA_15`).
 
 ### 5.4 What the sandbox can and cannot say about a defect
 
@@ -429,6 +461,8 @@ TS 119 602 V1.1.1, Annexes D, F and G. One list per kind, each a compact JAdES-s
 | Sandbox PID Providers | `http://uri.etsi.org/19602/LoTEType/EUPIDProvidersList` | `…/SvcType/PID/Issuance`, `…/PID/Revocation` |
 | Sandbox Access CAs | `…/LoTEType/EUWRPACProvidersList` | `…/SvcType/WRPAC/Issuance`, `…/WRPAC/Revocation` |
 | Sandbox WRPRC providers | `…/LoTEType/EUWRPRCProvidersList` | `…/SvcType/WRPRC/Issuance`, `…/WRPRC/Revocation` |
+| Sandbox Wallet Providers (ADR 0020) | `…/LoTEType/EUWalletProvidersList` | `…/SvcType/WalletSolution/Issuance`, `…/Revocation` |
+| Sandbox EAA Providers (ADR 0023) | `https://sandbox.murcata.es/19602/LoTEType/EAAProvidersList` — **the sandbox's own** | `https://sandbox.murcata.es/19602/SvcType/EAA/Issuance`, `…/Revocation` |
 
 **Rules:**
 - `LoTESequenceNumber` starts at 1 and strictly increases (§6.3.2).
@@ -453,6 +487,12 @@ or `crit` (Q-S4, TS 119 182-1 V1.2.1 §5.1.11 and §5.2.1).
   PID it signs in with;
 - the sandbox PID CA;
 - in v1.1, approved brought-in anchors.
+
+**The EAA list's identifiers are the sandbox's own.** ETSI TS 119 602 defines no EU list of
+non-qualified EAA Providers, so there is no EU value to reuse. The identifiers are names, not
+locations, and the scheme name says so. The wallet selects services by type identifier and does not
+check the `LoTEType` (ADR 0023 Open 1). A running sandbox gets the EAA CA from `cli.js extend`, which
+`deploy.sh` runs; until then the EAA list is not published.
 
 The Access CA and WRPRC lists carry the sandbox's trusted CAs only. They **never** carry the
 untrusted ones.

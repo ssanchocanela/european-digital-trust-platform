@@ -552,6 +552,7 @@ export const buildDependencies = (options: BuildOptions): Dependencies => {
             domain,
             audit,
             clock,
+            credentialTypes,
           );
           const metadata = new SandboxMetadataService(
             repositories.sandboxIssuers,

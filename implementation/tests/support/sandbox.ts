@@ -328,6 +328,7 @@ export async function wireSandbox(
     domain,
     harness.deps.services.audit,
     harness.clock,
+    credentialTypes,
   );
 
   return {

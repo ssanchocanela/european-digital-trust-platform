@@ -1,6 +1,8 @@
 # ADR 0023 — EAA Providers in the sandbox: non-qualified attestations beyond the PID
 
-- **Status:** PROPOSED, 18 November 2026. Nothing below is built.
+- **Status:** ACCEPTED, 20 November 2026, by the user. Built in the same PR as this ADR, so that the
+  ADR cannot reach `main` without its code. The open items were read in source before building; the
+  answers are below, and one of them changed §6.
 - **Date:** 18 November 2026
 - **Roadmap:** track R2, next in the order the user approved (R1 → R7 → R3 → **R2** → R6 → R4 → R5).
 - **Builds on:**
@@ -51,6 +53,9 @@ Without that, every new type would need a new wallet build, which would make the
   - a name and a display name, in one or more languages;
   - a list of claims, each with a name, a display name and a type (string, number, boolean, date);
     flat claims only in v1;
+  - its registration certificate's `entitlement` is `https://uri.etsi.org/19475/Entitlement/Non_Q_EAA_Provider`,
+    the spelling the pinned wallet compares against (`IssuerEntitlements.NON_Q_EAA`, interop finding
+    C14), and it lists the provided attestations;
   - which claims are selectively disclosable;
   - a validity period for issued credentials.
 - **The `vct` is assigned by the sandbox, never typed:**
@@ -94,8 +99,12 @@ Without that, every new type would need a new wallet build, which would make the
   | EAA-01 | Signing certificate not on the EAA list | Signed under the **untrusted** EAA CA |
   | EAA-02 | Signing certificate expired | Leaf `notAfter` in the past at issuance |
 
-  Their citation is ARF §6.3.2.4 until the HLR identifiers are verified in the register (Open 3); no
-  identifier is written before then (CLAUDE.md §2 rule 2).
+  Their citation, verified in the register at the pinned ARF commit, is **`AS-AP-10-010` (`ISSU_10`)**:
+  a Wallet Unit "SHALL validate the signature of the EAA **if it has access to the trust anchors** of
+  the EAA Provider", and its note adds that Wallet Units are not required to hold the anchors of every
+  EAA Provider. So EAA-01 asks something **conditional** of a wallet: a wallet without the sandbox list
+  is not required to refuse. The report states the requirement in those words. On the Relying Party
+  side the citation is `EW-PIO-01-027` (`OIA_15`): anchors per the applicable Rulebook.
 
 ### 5. Relying Parties request EAAs
 
@@ -105,21 +114,36 @@ Without that, every new type would need a new wallet build, which would make the
 
 ### 6. The sandbox wallet build: WD-1, with a prefix
 
-The sandbox profile of the modified wallet gains WD-1, configured for the prefix:
+**Amended on acceptance (Open 1, read in source).** WD-1 cannot be configuration. wallet-core v0.30.2
+combines the list locations the app gives it with a fixed set of list profiles, `SupportedLists.eu()`,
+and at the pinned ETSI library that set has **no** profile for any EAA use case. A configured
+`eaaProviders` location is dropped without a message (interop finding C16). The same is true of
+`pubEaaProviders`, so WD-9 has never had an effect.
 
-```kotlin
-loteLocations(SupportedLists(/* … */, eaaProviders = mapOf(SANDBOX_USE_CASE to Uri("$base/lists/EAAProviders.jwt"))))
-classifications(AttestationClassifications(/* … */,
-    eaAs = mapOf(SANDBOX_USE_CASE to AttestationIdentifierPredicate.sdJwtVcMatching(
-        Regex("^https://sandbox-platform\\.murcata\\.es/sandbox/public/vct/.+")))))
-```
+The ETSI library's building blocks are public, and wallet-core accepts an app-built trust source for
+issuer trust (`IssuerTrustConfigBuilder.trustSource(IsChainTrustedForEUDIW)`). So WD-1 is **app code
+in our per-flavour copy**, no upstream file edited:
+
+- a trust source built with `ProvisionTrustAnchorsFromLoTEs.eudiwJvm`, whose profiles are upstream's
+  `SupportedLists.eu()` **plus** one EAA use case, `edtp-sandbox`, selecting the list's services by
+  the sandbox's service type identifiers, with `VerificationContext.EAA("edtp-sandbox")` for issuance
+  and `EAAStatus("edtp-sandbox")` for revocation;
+- the same list locations as the rest of the build (PID, WRPAC, WRPRC), plus the EAA list;
+- the same relaxations upstream's demo configuration applies (`relaxCertificateProfiles`,
+  `relaxPkixRevocation`);
+- classifications: upstream's PID predicate, plus
+  `eaAs = mapOf("edtp-sandbox" to sdJwtVcMatching(Regex("^https://sandbox-platform\\.murcata\\.es/sandbox/public/vct/.+")))`.
+
+The wallet selects a list's services by **service type identifier**; it does not check the list's
+`LoTEType` (`ProvisionTrustAnchorsFromLoTEs.createValidators`). No ETSI value exists for a
+non-qualified EAA providers list, so the sandbox uses identifiers in its own namespace and says so.
 
 - **One build serves every type** participants define. The prefix is the sandbox's own address, so it
   cannot match a real attestation.
 - It remains a **modified wallet** (CLAUDE.md §6.22); WD-1 is recorded as built for the sandbox profile
   only, and `BuildConfig.EDTP_DEVIATIONS` names it.
-- **Other wallets** (ADR 0020): the guide page gives the list URL and the prefix, so a Wallet Provider
-  can configure the same thing.
+- **Other wallets** (ADR 0020): the guide page gives the list URL, its service type identifiers and the
+  prefix, so a Wallet Provider can configure the same thing.
 
 ### 7. Wallet testing
 
@@ -165,19 +189,19 @@ EAA issuer, with a sandbox-defined test type. Same observations, same words, sam
   - `security-limitations.md`;
   - the gateway allow-list (`/sandbox/public/vct/…`, `EAAProviders.jwt`).
 
-## Open — to read in source before building
+## Open — answered in source on acceptance, 20 November 2026
 
-1. **The `LoTEType` the wallet requires of an `eaaProviders` list,** if it checks one. The other four
-   lists use the EU values because the wallet selects by them (`packages/sandbox-pki/src/lote.ts`);
-   the profiles in use have no non-qualified EAA value. Read wallet-core v0.30.2 and the ETSI library.
-2. **Whether the pinned wallet fetches SD-JWT VC Type Metadata** from an `https` `vct`, and what it
-   does when the fetch fails. If it does not fetch, the address still works as an identifier.
-3. **The HLR identifiers** for an EAA's signature trust and its expiry, verified in the register at
-   the pinned ARF commit, for EAA-01 and EAA-02.
-4. **Whether the engine's issuance accepts a participant-defined claim set** as `credentialClaims`
-   inline (CLAUDE.md §6.17) without a per-type engine configuration change, or each type needs its
-   own engine credential configuration.
-5. **Quotas:** how many types per service and versions per type.
+1. **The `LoTEType` the wallet requires.** None: services are selected by service type identifier.
+   But wallet-core consults no EAA list at all without app code. §6 was amended accordingly.
+2. **Whether the pinned wallet fetches SD-JWT VC Type Metadata.** No: its SD-JWT VC verifier runs with
+   `TypeMetadataPolicy.NotUsed`, and display comes from the issuer metadata. The sandbox still serves
+   Type Metadata at the `vct`, for other wallets; the pinned build does not use it.
+3. **The HLR identifiers.** `AS-AP-10-010` (`ISSU_10`) for the wallet, `EW-PIO-01-027` (`OIA_15`) for
+   the Relying Party, `AS-AP-10-062` (`ISSU_34a`) for the entitlement check (§4).
+4. **Participant-defined claim sets in the engine.** Each type version becomes a platform
+   `CredentialType` and issuance policy, provisioned to the engine as its own credential
+   configuration, as the PID already is. No engine change.
+5. **Quotas:** ten types per service, and twenty versions per type.
 
 ## Status of claims
 

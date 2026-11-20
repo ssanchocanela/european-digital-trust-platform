@@ -14,7 +14,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | | Deviation | Gate | Kind | State |
 |---|---|---|---|---|
 | **Identity** | Distinct `applicationId`, app name and an on-screen banner | — | Identity only | **Built** (W1) |
-| **WD-1** | `eaaProviders` trust list pointing at our TEST LoTE | (b), ARF §6.3.2.4 | Configuration of an ARF-intended mechanism | Not built |
+| **WD-1** | An issuer trust source that consults an EAA providers list, for the sandbox's EAA use case | (b), ARF §6.3.2.4 | App code exercising an ARF-intended mechanism | **Built** for `--profile sandbox`, 20 November 2026 (ADR 0023) |
 | **WD-2** | Signed-issuer-metadata requirement relaxed | (a), ARF §6.6.2.2 | **Security relaxation** | Not built |
 | **WD-3** | `wrpacProviders` trust list pointing at our TEST LoTE, which carries the notified anchors **plus** ours | — | Configuration of an ARF-intended mechanism | **Built** (W3, W4) — Path A failed |
 | **WD-4** | `pidProviders` trust list pointing at our TEST PID LoTE, which carries the notified anchors **plus** our development PID Provider CA | (b), for a PID | Configuration of an ARF-intended mechanism | **Built** (W5, W6) |
@@ -22,7 +22,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-6** | Credential response encryption `REQUIRED` → `SUPPORTED`: an issuer that offers no encryption is accepted | — | **Security relaxation** | **Prepared** (W8), 2 October 2026 |
 | **WD-7** | A release build logs warnings and errors only: no HTTP bodies in logcat or in the log files | — | **Hardening** (no protocol behaviour changes) | **Prepared** (W8), 2 October 2026 |
 | **WD-8** | `wrprcProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
-| **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 |
+| **WD-9** | `pubEaaProviders` trust list read from another address | — | Configuration of an ARF-intended mechanism | **Built** (F2), 7 October 2026 — **and without effect**: wallet-core 0.30.2 drops a `pubEaaProviders` location (interop finding C16) |
 
 ---
 
@@ -61,28 +61,40 @@ reason no upstream Kotlin is duplicated into this repository. WD-1 and WD-2, whe
 patches against these copies — which is why they are cheap: **no upstream file is edited for them at
 all**, because `WalletCoreConfigImpl` is per-flavour.
 
-## WD-1 — `eaaProviders` trust list pointing at our TEST LoTE
+## WD-1 — an issuer trust source that consults an EAA providers list
 
-**One deviation with two configuration points.** Both are required; one alone does nothing, which is
-exactly the trap worth recording.
+Gate (b), ARF §6.3.2.4, and `AS-AP-10-010` (`ISSU_10`): a Wallet Unit validates a non-qualified EAA's
+signature *if it has access to* the EAA Provider's trust anchors. This gives the wallet that access, for
+the sandbox's EAAs only.
 
-Gate (b), ARF §6.3.2.4. The ARF-intended mechanism for a non-qualified EAA: anchors come from the
-applicable Rulebook and optionally from a list published per ETSI TS 119 602. This configures the
-wallet to consult our published TEST list. **Configuration of an intended mechanism, not a
-relaxation of a check** — which is why it is preferred over the `forVct(..., INFORM)` downgrade.
+**First recorded as configuration, and that was wrong.** The record said two configuration points
+would do it: `SupportedLists.eaaProviders` in `configureEtsiTrust { loteLocations(...) }`, and
+`AttestationClassifications.eaAs`. Read in source on 20 November 2026 (interop finding C16): wallet-core
+v0.30.2's `EtsiTrustProvider` combines the configured locations with the fixed profile set
+`SupportedLists.eu()`, which at the pinned ETSI library has **no** EAA profile, and `combine` drops a
+location that has no profile. Configured that way, WD-1 would have been accepted and done nothing. The
+same holds for `pubEaaProviders`, so **WD-9 has no effect** in any build that carries it, F2 included.
 
-Both points are in `core-logic/src/edtptest/.../config/WalletCoreConfigImpl.kt`:
+**As built** (`deviations/wd-1.kt`, applied only by `--profile sandbox` and `sandbox-strict`, which
+pass `--eaa-lote`): app code in our per-flavour copy of `WalletCoreConfigImpl`, no upstream file
+edited. Inside `configureIssuerTrust { … }` it sets
 
-| # | Point | Why it is needed |
-|---|---|---|
-| **1** | `configureEtsiTrust { loteLocations(SupportedLists(..., eaaProviders = mapOf(useCase to Uri(ourTestLoTE)))) }` | `SupportedLists.eaaProviders` is a **map keyed by use case** and upstream never populates it |
-| **2** | `configureEtsiTrust { classifications(AttestationClassifications(..., eaas = AttestationIdentifierPredicate.any(setOf(AttestationIdentifier.SDJwtVc(vct = ourVct))))) }` | Without a classification the attestation resolves to **no `VerificationContext`**, so no list is consulted whatever point 1 says |
+- `trustSource(…)`: an `IsChainTrustedForEUDIW` built with the public
+  `ProvisionTrustAnchorsFromLoTEs.eudiwJvm`, whose profiles are upstream's `SupportedLists.eu()` plus
+  one EAA use case, `edtp-sandbox` — the list's services selected by the sandbox's service type
+  identifiers, `VerificationContext.EAA("edtp-sandbox")` for issuance and `EAAStatus("edtp-sandbox")`
+  for revocation — over the same PID, WRPAC and WRPRC locations as the rest of the build, plus the EAA
+  list; with upstream's relaxations (`relaxCertificateProfiles`, `relaxPkixRevocation`) and a LoTE
+  signature check equivalent to wallet-core's internal `LoteJwtVerifier`;
+- `classifications(…)`: upstream's PID predicate, plus `eaAs["edtp-sandbox"] =
+  sdJwtVcMatching(^https://sandbox-platform\.murcata\.es/sandbox/public/vct/.+)`, so one build
+  classifies every type the sandbox's participants define.
 
-Point 2 is the part that is easy to miss, and missing it produces the same symptom as not configuring
-anything — a trust failure that looks like a list problem.
+Issuer trust then uses this source; reader trust and status-list trust keep the central one. The
+service type identifiers are the sandbox's own (`packages/sandbox-pki/src/lote.ts`): there is no ETSI
+value for a non-qualified EAA providers list, and the wallet does not check the `LoTEType`.
 
-**Requires our TEST LoTE to be published and reachable from the phone**, which is what
-`TrustAnchorPublication` exists for. Until then WD-1 cannot be tested even once it is built.
+**Not run on a device yet.** Until it is, WD-1 is built, not shown to work.
 
 ## WD-2 — signed-issuer-metadata requirement relaxed
 

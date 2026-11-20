@@ -50,7 +50,8 @@
 #   --build-type <type>     `release` (default) or `debug`.
 #   --profile sandbox       the EDTP sandbox build (docs/sandbox/, ADR 0014): reads the sandbox's three
 #                           lists instead of the reference ones. Needs --sandbox-base; expands to
-#                           --deviations wd-2,wd-3,wd-4,wd-6,wd-7,wd-8, the three --*-lote URLs under
+#                           --deviations wd-1,wd-2,wd-3,wd-4,wd-6,wd-7,wd-8 (wd-1: the sandbox EAA list,
+#                           ADR 0023), the --*-lote URLs and the EAA vct prefix under
 #                           that base, applicationId suffix .sandbox and app name "EDTP Sandbox
 #                           wallet". Refused together with --deviations or a --*-lote flag, so a
 #                           build is either the sandbox profile or something else, never half of it.
@@ -94,6 +95,8 @@ WRPAC_LOTE=""
 PID_LOTE=""
 WRPRC_LOTE=""
 PUBEAA_LOTE=""
+EAA_LOTE=""
+EAA_VCT_PREFIX=""
 ISSUER_URL=""
 PID_LABEL=""
 APP_ID_SUFFIX=""
@@ -112,6 +115,8 @@ while [ $# -gt 0 ]; do
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
     --wrprc-lote) WRPRC_LOTE="${2:-}"; shift 2 ;;
     --pubeaa-lote) PUBEAA_LOTE="${2:-}"; shift 2 ;;
+    --eaa-lote) EAA_LOTE="${2:-}"; shift 2 ;;
+    --eaa-vct-prefix) EAA_VCT_PREFIX="${2:-}"; shift 2 ;;
     --issuer) ISSUER_URL="${2:-}"; shift 2 ;;
     --brand) BRAND="${2:-}"; shift 2 ;;
     --pid-label) PID_LABEL="${2:-}"; shift 2 ;;
@@ -138,7 +143,7 @@ case "$PROFILE" in
   "") ;;
   sandbox|sandbox-strict)
     [ "$DEVIATIONS" = "none" ] || die "--profile $PROFILE sets the deviations itself; drop --deviations."
-    [ -z "$WRPAC_LOTE$PID_LOTE$WRPRC_LOTE$PUBEAA_LOTE" ] ||
+    [ -z "$WRPAC_LOTE$PID_LOTE$WRPRC_LOTE$PUBEAA_LOTE$EAA_LOTE$EAA_VCT_PREFIX" ] ||
       die "--profile $PROFILE sets the list URLs itself; drop the --*-lote flags."
     [ -n "$SANDBOX_BASE" ] || die "--profile $PROFILE requires --sandbox-base https://<host>/sandbox/public."
     case "$SANDBOX_BASE" in
@@ -152,13 +157,16 @@ case "$PROFILE" in
     WRPAC_LOTE="$SANDBOX_BASE/lote/WRPACProviders.jwt"
     PID_LOTE="$SANDBOX_BASE/lote/PIDProviders.jwt"
     WRPRC_LOTE="$SANDBOX_BASE/lote/WRPRCProviders.jwt"
+    # wd-1: the sandbox's non-qualified EAA list, for every vct under the sandbox's prefix (ADR 0023).
+    EAA_LOTE="$SANDBOX_BASE/lote/EAAProviders.jwt"
+    EAA_VCT_PREFIX="$SANDBOX_BASE/vct/"
     if [ "$PROFILE" = "sandbox" ]; then
-      DEVIATIONS="wd-2,wd-3,wd-4,wd-6,wd-7,wd-8"
+      DEVIATIONS="wd-1,wd-2,wd-3,wd-4,wd-6,wd-7,wd-8"
       APP_ID_SUFFIX="${APP_ID_SUFFIX:-.sandbox}"
       APP_NAME="${APP_NAME:-EDTP Sandbox wallet}"
     else
       # No wd-2: signed issuer metadata required, and with it the issuer registration checks.
-      DEVIATIONS="wd-3,wd-4,wd-6,wd-7,wd-8"
+      DEVIATIONS="wd-1,wd-3,wd-4,wd-6,wd-7,wd-8"
       APP_ID_SUFFIX="${APP_ID_SUFFIX:-.sandboxstrict}"
       APP_NAME="${APP_NAME:-EDTP Sandbox wallet (strict)}"
     fi
@@ -168,8 +176,8 @@ esac
 [ -z "$SANDBOX_BASE" ] || [ -n "$PROFILE" ] || die "--sandbox-base goes with --profile sandbox or sandbox-strict."
 
 if [ "$SHOW_CONFIG" = "yes" ]; then
-  printf 'deviations=%s\nwrpac_lote=%s\npid_lote=%s\nwrprc_lote=%s\npubeaa_lote=%s\napp_id_suffix=%s\napp_name=%s\nbuild_type=%s\n' \
-    "$DEVIATIONS" "$WRPAC_LOTE" "$PID_LOTE" "$WRPRC_LOTE" "$PUBEAA_LOTE" "$APP_ID_SUFFIX" "$APP_NAME" "$BUILD_TYPE"
+  printf 'deviations=%s\nwrpac_lote=%s\npid_lote=%s\nwrprc_lote=%s\npubeaa_lote=%s\neaa_lote=%s\neaa_vct_prefix=%s\napp_id_suffix=%s\napp_name=%s\nbuild_type=%s\n' \
+    "$DEVIATIONS" "$WRPAC_LOTE" "$PID_LOTE" "$WRPRC_LOTE" "$PUBEAA_LOTE" "$EAA_LOTE" "$EAA_VCT_PREFIX" "$APP_ID_SUFFIX" "$APP_NAME" "$BUILD_TYPE"
   exit 0
 fi
 
@@ -182,6 +190,7 @@ fi
 # the §7.3 eligibility presentation needs wd-2 to pass the issuer gate *and* wd-3 so the request
 # object's access certificate is trusted. Each is still validated on its own terms, and an unknown
 # or unbuildable name is refused rather than ignored.
+WANT_WD1=no
 WANT_WD2=no
 WANT_WD3=no
 WANT_WD4=no
@@ -274,13 +283,21 @@ if [ "$DEVIATIONS" != "none" ]; then
         WANT_WD7=yes
         ;;
       wd-1)
-        die "wd-1 is recorded in deviations.md and is not built. It needs an ETSI TS 119 602 list
-    of **issuer** anchors published and reachable, which does not exist — scripts/make-test-lote.mjs
-    produces the WRPAC list only. A flag that is accepted and does nothing would put a false claim
-    in a test record."
+        # The issuer trust source WD-1 builds carries the PID, WRPAC and WRPRC lists as well as the
+        # EAA one, so it needs all four addresses, and the vct prefix it classifies. Refused without
+        # any of them: a guessed address would report WD-1 while consulting nothing.
+        for pair in "eaa-lote:$EAA_LOTE" "pid-lote:$PID_LOTE" "wrpac-lote:$WRPAC_LOTE" \
+          "wrprc-lote:$WRPRC_LOTE" "eaa-vct-prefix:$EAA_VCT_PREFIX"; do
+          case "${pair#*:}" in
+            https://*) ;;
+            *) die "--deviations wd-1 requires --${pair%%:*} as an https address. See deviations.md WD-1." ;;
+          esac
+        done
+        [ -f "$HERE/deviations/wd-1.kt" ] || die "deviations/wd-1.kt is missing."
+        WANT_WD1=yes
         ;;
       *)
-        die "unknown deviation '$d'. Accepted: none, wd-2 … wd-9 (not wd-1), or a comma-separated set of them."
+        die "unknown deviation '$d'. Accepted: none, wd-1 … wd-9, or a comma-separated set of them."
         ;;
     esac
   done
@@ -510,6 +527,45 @@ fi
 if [ "$WANT_WD9" = "yes" ]; then
   step "Applying WD-9 (pubEaaProviders -> another list)"
   replace_lote WD-9 pubEaaProviders PubEAAProviders "$PUBEAA_LOTE"
+  # docs/interop-findings.md C16: wallet-core 0.30.2 has no PuB-EAA profile in SupportedLists.eu(),
+  # so this location is dropped and never consulted. Kept so existing builds can be reproduced.
+  echo "    WARNING: WD-9 has NO EFFECT at the pinned wallet-core (interop finding C16): the location"
+  echo "    is dropped. No result from this build may say the PuB-EAA list was consulted."
+fi
+
+if [ "$WANT_WD1" = "yes" ]; then
+  step "Applying WD-1 (an issuer trust source with the sandbox EAA list)"
+  # A new file in our copy of the flavour, and two lines in its configureIssuerTrust block, anchored
+  # on that block's opening line and refused if it is not there exactly once.
+  WD1_DIR="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config"
+  WD1_FILE="$WD1_DIR/WalletCoreConfigImpl.kt"
+  WD1_ANCHOR='configureIssuerTrust {'
+  [ "$(grep -cF "$WD1_ANCHOR" "$WD1_FILE")" = "1" ] ||
+    die "configureIssuerTrust is not in $WD1_FILE exactly once; WD-1 must be regenerated."
+  # The prefix as a regex: dots escaped, anchored at the start, at least one character after it.
+  # Written twice here because the substitution below is a sed replacement, which halves them; it
+  # lands in a Kotlin raw string, so `\.` arrives as the regex's own escape.
+  WD1_REGEX="^$(printf '%s' "$EAA_VCT_PREFIX" | sed 's/[.]/\\\\./g').+"
+  sed -e "s|__EDTP_EAA_LOTE__|$EAA_LOTE|" -e "s|__EDTP_PID_LOTE__|$PID_LOTE|" \
+    -e "s|__EDTP_WRPAC_LOTE__|$WRPAC_LOTE|" -e "s|__EDTP_WRPRC_LOTE__|$WRPRC_LOTE|" \
+    -e "s|__EDTP_EAA_VCT_REGEX__|$WD1_REGEX|" \
+    "$HERE/deviations/wd-1.kt" > "$WD1_DIR/EdtpSandboxEaaTrust.kt"
+  grep -q "__EDTP_" "$WD1_DIR/EdtpSandboxEaaTrust.kt" && die "a WD-1 placeholder was left unsubstituted."
+  awk -v anchor="$WD1_ANCHOR" '
+    index($0, anchor) {
+      print
+      match($0, /^ */); pad = substr($0, 1, RLENGTH) "    "
+      print pad "// EDTP deviation WD-1: issuer trust from a source that also consults the sandbox EAA"
+      print pad "// list (EdtpSandboxEaaTrust). This build is a MODIFIED wallet."
+      print pad "trustSource(EdtpSandboxEaaTrust.source)"
+      print pad "classifications(EdtpSandboxEaaTrust.classifications)"
+      next
+    }
+    { print }
+  ' "$WD1_FILE" > "$WD1_FILE.new" && mv "$WD1_FILE.new" "$WD1_FILE"
+  grep -q "trustSource(EdtpSandboxEaaTrust.source)" "$WD1_FILE" || die "WD-1 did not take effect."
+  echo "    eaaProviders[edtp-sandbox] -> $EAA_LOTE"
+  echo "    sandbox EAAs: vct matching $WD1_REGEX"
 fi
 
 if [ "$WANT_WD5" = "yes" ]; then

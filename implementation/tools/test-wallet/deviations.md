@@ -94,7 +94,13 @@ Issuer trust then uses this source; reader trust and status-list trust keep the 
 service type identifiers are the sandbox's own (`packages/sandbox-pki/src/lote.ts`): there is no ETSI
 value for a non-qualified EAA providers list, and the wallet does not check the `LoTEType`.
 
-**Not run on a device yet.** Until it is, WD-1 is built, not shown to work.
+**Compiled, not run.** On 20 November 2026 `build.sh --profile sandbox --prepare-only` applied it and
+`./gradlew :core-logic:compileEdtptestReleaseKotlin` compiled it against the pinned wallet-core and ETSI
+libraries. No APK carrying it has been run on a device. Until one has, WD-1 is built, not shown to work.
+
+The lists are fetched without wallet-core's file cache (WalletCoreConfigImpl has no Android `Context` for a
+cache directory), and kept in memory for 20 minutes, as wallet-core's own default TTL. `build.sh` now warns
+that WD-9 has no effect.
 
 ## WD-2 — signed-issuer-metadata requirement relaxed
 

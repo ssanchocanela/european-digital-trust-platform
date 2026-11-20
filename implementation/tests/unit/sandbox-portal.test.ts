@@ -1060,3 +1060,77 @@ describe("the portal: leaving (ADR 0021)", () => {
     });
   });
 });
+
+describe("EAA Provider pages (ADR 0023)", () => {
+  it("parses claim lines, and says which line is wrong", async () => {
+    const { parseClaimDefinitions } = await import("@edtp/sandbox-portal/pages.js");
+    expect(
+      parseClaimDefinitions(
+        "member_number | Member number | string | required\npremium | Premium | boolean | optional",
+      ),
+    ).toEqual([
+      {
+        name: "member_number",
+        display: [{ lang: "en", value: "Member number" }],
+        valueType: "string",
+        mandatory: true,
+      },
+      {
+        name: "premium",
+        display: [{ lang: "en", value: "Premium" }],
+        valueType: "boolean",
+        mandatory: false,
+      },
+    ]);
+    expect(parseClaimDefinitions("a | A | text")).toContain("Line 1");
+    expect(parseClaimDefinitions("ok | Ok | string\nbroken")).toContain("Line 2");
+  });
+
+  it("escapes a type's texts, and offers one EAA form per type with the claims as fields", async () => {
+    const { credentialTypesSection, issuerSection } = await import(
+      "@edtp/sandbox-portal/pages.js"
+    );
+    const types = [
+      {
+        slug: "card",
+        versions: [
+          {
+            id: "00000000-0000-4000-8000-000000000001",
+            version: 1,
+            vct: "https://sandbox.test/sandbox/public/vct/sb-es-000001/card",
+            issuable: true,
+            createdAt: "2026-11-20T00:00:00Z",
+            definition: {
+              display: [{ lang: "en", value: "<script>x</script>" }],
+              claims: [
+                {
+                  name: "since",
+                  display: [{ lang: "en", value: "Since" }],
+                  valueType: "date",
+                  mandatory: true,
+                },
+              ],
+              validitySeconds: 86_400,
+            },
+          },
+        ],
+      },
+    ];
+    const html = credentialTypesSection({ orgId: "o", serviceId: "s", types });
+    expect(html).not.toContain("<script>x");
+    expect(html).toContain("/vct/sb-es-000001/card");
+    const issuer = issuerSection({
+      orgId: "o",
+      serviceId: "s",
+      issuer: { configured: true, role: "eaa_provider" },
+      signingVariants: [],
+      wrprcVariants: [],
+      eaaTypes: types,
+    });
+    expect(issuer).toContain("Hosted EAA issuer");
+    expect(issuer).toContain('name="v_since" type="date" required');
+    expect(issuer).toContain("/issuer/eaa-offers");
+    expect(issuer).toContain("ISSU_10");
+    expect(issuer).not.toContain("<script>x");
+  });
+});

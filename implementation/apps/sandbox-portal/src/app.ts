@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
+  EAA_VARIANT_INFO,
+  EAA_VARIANTS,
   PID_VARIANT_INFO,
   WRPAC_VARIANT_INFO,
   WRPAC_VARIANTS,
@@ -32,7 +34,9 @@ import {
 import type { SandboxApi } from "./api.js";
 import {
   type CertificateSummary,
+  type CredentialTypeView,
   certificatePage,
+  credentialTypesSection,
   dashboard,
   type ErasurePlanView,
   erasurePage,
@@ -45,6 +49,7 @@ import {
   OBSERVATIONS,
   organisationPage,
   page,
+  parseClaimDefinitions,
   parseClaimLines,
   profileForm,
   type RunReport,
@@ -1221,7 +1226,30 @@ export function createApp(options: PortalOptions): express.Express {
     // The hosted verifier (S4) or the hosted issuer (S5), when the platform offers it: a 404 from
     // its route means it is not configured on this deployment, and the section is left out.
     let hostedHtml: string | undefined;
+    let credentialChoices: { vct: string; label: string }[] | undefined;
     if (role === "service_provider") {
+      // What an intended use may request: the PID, and every registered sandbox EAA type (ADR 0023).
+      const registered = await api.call(
+        "GET",
+        `organisations/${org}/credential-types/registered`,
+        {
+          session: token,
+        },
+      );
+      const eaas =
+        registered.status === 200
+          ? (registered.body as unknown as {
+              vct: string;
+              display: { lang: string; value: string }[];
+            }[])
+          : [];
+      credentialChoices = [
+        { vct: "urn:eudi:pid:1", label: "PID (urn:eudi:pid:1)" },
+        ...eaas.map((t) => ({
+          vct: t.vct,
+          label: `EAA: ${t.display[0]?.value ?? t.vct} (${t.vct})`,
+        })),
+      ];
       const verifier = await api.call("GET", `organisations/${org}/services/${sid}/verifier`, {
         session: token,
       });
@@ -1236,6 +1264,28 @@ export function createApp(options: PortalOptions): express.Express {
           wrpacVariants,
           wrprcVariants,
         });
+      }
+    }
+    if (role === "eaa_provider") {
+      const [types, issuer] = await Promise.all([
+        api.call("GET", `organisations/${org}/services/${sid}/credential-types`, {
+          session: token,
+        }),
+        api.call("GET", `organisations/${org}/services/${sid}/issuer`, { session: token }),
+      ]);
+      if (types.status === 200) {
+        const list = types.body as unknown as CredentialTypeView[];
+        hostedHtml = credentialTypesSection({ orgId: org, serviceId: sid, types: list });
+        if (issuer.status === 200) {
+          hostedHtml += issuerSection({
+            orgId: org,
+            serviceId: sid,
+            issuer: issuer.body as unknown as IssuerView,
+            signingVariants: EAA_VARIANTS.map((v) => ({ id: v, ...EAA_VARIANT_INFO[v] })),
+            wrprcVariants,
+            eaaTypes: list,
+          });
+        }
       }
     }
     if (role === "pid_provider") {
@@ -1267,6 +1317,7 @@ export function createApp(options: PortalOptions): express.Express {
           wrprcVariants,
           ...(error ? { error } : {}),
           ...(hostedHtml ? { verifierHtml: hostedHtml } : {}),
+          ...(credentialChoices ? { credentialChoices } : {}),
         }),
       );
   };
@@ -1284,7 +1335,7 @@ export function createApp(options: PortalOptions): express.Express {
       session: token,
       body: {
         role:
-          b.role === "pid_provider" || b.role === "wallet_provider"
+          b.role === "pid_provider" || b.role === "wallet_provider" || b.role === "eaa_provider"
             ? b.role
             : "service_provider",
         tradeName: String(b.tradeName ?? ""),
@@ -1326,7 +1377,7 @@ export function createApp(options: PortalOptions): express.Express {
           credentials: [
             {
               format: "dc+sd-jwt",
-              types: ["urn:eudi:pid:1"],
+              types: [String(req.body?.credentialType ?? "") || "urn:eudi:pid:1"],
               claims: parseClaimLines(String(req.body?.claims ?? "")),
             },
           ],
@@ -1563,6 +1614,62 @@ export function createApp(options: PortalOptions): express.Express {
         waitUrl: `/org/${req.params.id}/issuances/${String(result.body.id)}`,
         about:
           "Your wallet will be offered a synthetic TEST PID from this service's hosted issuer.",
+      }),
+    );
+  });
+
+  // --- EAA Providers (ADR 0023) ----------------------------------------------------------------
+
+  app.post("/org/:id/services/:sid/credential-types", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const b = req.body ?? {};
+    const claims = parseClaimDefinitions(String(b.claims ?? ""));
+    if (typeof claims === "string")
+      return renderService(res, token, req.params.id, req.params.sid, claims);
+    const days = Number.parseInt(String(b.validityDays ?? ""), 10);
+    const result = await api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/credential-types`,
+      {
+        session: token,
+        body: {
+          slug: String(b.slug ?? "").trim(),
+          definition: {
+            display: [{ lang: "en", value: String(b.display ?? "").trim() }],
+            claims,
+            validitySeconds: Number.isFinite(days) ? days * 86_400 : 0,
+          },
+        },
+      },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.redirect(303, `/org/${req.params.id}/services/${req.params.sid}`);
+  });
+
+  app.post("/org/:id/services/:sid/issuer/eaa-offers", async (req, res) => {
+    const token = requireSession(req, res);
+    if (!token || !ids(req.params.id, req.params.sid)) return void res.status(404).end();
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const interaction = b.interaction === "QR" ? "QR" : "SAME_DEVICE";
+    // The values are content: forwarded as typed, never logged or kept here.
+    const values: Record<string, string> = {};
+    for (const [k, v] of Object.entries(b)) {
+      if (k.startsWith("v_") && typeof v === "string" && v !== "") values[k.slice(2)] = v;
+    }
+    const result = await api.call(
+      "POST",
+      `organisations/${req.params.id}/services/${req.params.sid}/issuer/eaa-offers`,
+      { session: token, body: { typeVersionId: String(b.typeVersionId ?? ""), values } },
+    );
+    if (result.status !== 201)
+      return renderService(res, token, req.params.id, req.params.sid, apiError(result.body));
+    res.type("html").send(
+      walletStep(String(result.body.offerUri ?? ""), interaction, {
+        waitUrl: `/org/${req.params.id}/issuances/${String(result.body.id)}`,
+        about:
+          "Your wallet will be offered a synthetic TEST EAA from this service's hosted issuer.",
       }),
     );
   });

@@ -8,7 +8,22 @@ linked rather than repeated.
 
 ---
 
-## 20 November 2026 — **R2 built: non-qualified EAA Providers (ADR 0023), not deployed, no wallet run**
+## 20 November 2026, later — **R2 deployed: image `093daa308206`; no wallet run yet**
+
+- `deploy.sh` created the EAA CA and its untrusted twin with `cli.js extend` (keys added, nothing
+  else touched), then switched; migration 0021 is applied (`sandbox_credential_types` exists).
+- Verified after deployment: the code is in the running image; `EAAProviders.jwt` (sequence 1, the
+  sandbox's own `LoTEType` and service types), `ca/eaa-ca.cer` and `ca/eaa-ca-untrusted.cer` answer
+  `200` publicly; `/sandbox/public/wallets` describes the EAA list; an unknown `vct/…` is `404`;
+  negative checks 28/28 locally and publicly; egress rules in place.
+- **Not done:** an APK with WD-1 (the user runs `build.sh --profile sandbox`), and any EAA run on a
+  device.
+
+**Next action:** build the sandbox wallet with WD-1, then run EAA-00 end to end: an EAA Provider
+service, a type, the hosted issuer at EAA-00, an offer accepted by the wallet, and a Relying Party
+presentation of it.
+
+## 20 November 2026 — **R2 built: non-qualified EAA Providers (ADR 0023)** (deployed later the same day)
 
 **Accepted and built in one PR**, so the ADR cannot reach `main` without its code.
 

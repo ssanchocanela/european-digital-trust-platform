@@ -48,13 +48,23 @@ import { fileURLToPath } from "node:url";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3100";
 const KEY = process.env.PLATFORM_TENANT_API_KEY;
-const args = process.argv.slice(2);
-const login = args.includes("--login");
-const [command, ...rest] = args.filter((a) => a !== "--login");
+const argv = process.argv.slice(2);
+const login = argv.includes("--login");
+// `--variant <name>`: the same policy again, for a second instance of the page on another origin
+// (a client-brand instance): its own intended use identifier and policy name, because the platform
+// returns a same-device wallet to one origin per policy.
+const variantAt = argv.indexOf("--variant");
+const variant = variantAt >= 0 ? argv[variantAt + 1] : undefined;
+if (variantAt >= 0 && !/^[a-z0-9-]{2,20}$/.test(variant ?? "")) {
+  process.stderr.write("--variant takes a short lowercase name, e.g. --variant client\n");
+  process.exit(1);
+}
+const args = argv.filter((a, i) => a !== "--login" && i !== variantAt && i !== variantAt + 1);
+const [command, ...rest] = args;
 
 const USAGE =
   "usage: node scripts/register-bank-onboarding.mjs relying-party\n" +
-  "       node scripts/register-bank-onboarding.mjs policy <relyingPartyServiceId> <pidTrustListUrl> [--login]\n";
+  "       node scripts/register-bank-onboarding.mjs policy <relyingPartyServiceId> <pidTrustListUrl> [--login] [--variant <name>]\n";
 
 if (!KEY) {
   process.stderr.write(
@@ -94,9 +104,19 @@ const definition = (name) =>
   );
 // The login shares the onboarding's organisation, Relying Party and Service, and brings its own
 // intended use and policy.
-const doc = login
+const base = login
   ? { ...definition("bank-onboarding.json"), ...definition("bank-login.json") }
   : definition("bank-onboarding.json");
+const doc = variant
+  ? {
+      ...base,
+      intendedUse: {
+        ...base.intendedUse,
+        intendedUseIdentifier: `${base.intendedUse.intendedUseIdentifier}-${variant}`,
+      },
+      policy: { ...base.policy, name: `${base.policy.name} (${variant})` },
+    }
+  : base;
 
 const relyingParty = async (t) => {
   const organisation = await api("POST", `/v1/tenants/${t}/organisations`, doc.organisation);
@@ -162,7 +182,7 @@ const policy = async (t, serviceId, trustListUrl) => {
       `Presentation policy   ${created.policyId} v${version.version} (${version.status})\n\n` +
       "Add to .env:\n" +
       `  HOSTED_VERIFIER_POLICIES     …,<tenantId>:${created.policyId}\n` +
-      `  HOSTED_VERIFIER_ORIGINS      ${created.policyId}=https://<onboarding-host>\n` +
+      `  HOSTED_VERIFIER_ORIGINS      ${created.policyId}=https://<${variant ? `${variant} instance's host` : "onboarding-host"}>\n` +
       `  HOSTED_VERIFIER_QR_POLICIES  ${created.policyId}\n` +
       `  ${login ? "ONBOARDING_LOGIN_POLICY" : "ONBOARDING_POLICY"}${login ? "      " : "            "}${created.policyId}\n`,
   );

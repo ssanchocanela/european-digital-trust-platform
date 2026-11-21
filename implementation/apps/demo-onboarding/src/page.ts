@@ -55,6 +55,8 @@ export interface ShellOptions {
   readonly income?: boolean;
   /** Whether a customer can log in with the wallet. */
   readonly login?: boolean;
+  /** A client's brand (`brand.ts`): its name, and the versioned URLs of its logo and colours. */
+  readonly brand?: { readonly name: string; readonly logo: string; readonly css: string };
   /** A presentation the wallet has just returned from, same-device, and what it was of. */
   readonly resume?: string;
   readonly resumeKind?: string;
@@ -71,15 +73,19 @@ export const renderShell = (o: ShellOptions): string => {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<title>${e(t.productTitle)} — Banco Horizonte (demostración)</title>
-<link rel="stylesheet" href="${e(o.assets)}/app.css">
+<title>${e(t.productTitle)} — ${e(o.brand?.name ?? "Banco Horizonte")} (demostración)</title>
+<link rel="stylesheet" href="${e(o.assets)}/app.css">${o.brand ? `\n<link rel="stylesheet" href="${e(o.brand.css)}">` : ""}
 </head>
 <body>
   <div class="demo" role="note">${e(t.band)}</div>
   <div class="ribbon" id="ribbon" role="status" hidden>${e(t.recordedRibbon)}</div>
   <header class="top">
     <div class="bar">
-      <a class="brand" href="./"><span class="mark" aria-hidden="true"></span><span class="brand-name">Banco Horizonte</span></a>
+      <a class="brand" href="./">${
+        o.brand
+          ? `<img class="brand-logo" src="${e(o.brand.logo)}" alt="${e(o.brand.name)}">`
+          : `<span class="mark" aria-hidden="true"></span><span class="brand-name">Banco Horizonte</span>`
+      }</a>
       <span class="top-actions">
         <span class="icon-btn" role="img" aria-label="${e(t.notifications)}">${BELL}</span>
         <button type="button" class="icon-btn" id="menu-open" aria-label="${e(t.menuOpen)}" aria-expanded="false" aria-controls="drawer">${MENU}</button>
@@ -140,6 +146,7 @@ export const renderPlain = (
   title: string,
   body: string,
   assets: string,
+  brandName = "Banco Horizonte",
 ): string =>
   `<!doctype html>
 <html lang="es">
@@ -147,12 +154,12 @@ export const renderPlain = (
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>${escapeHtml(title)} — Banco Horizonte (demostración)</title>
+<title>${escapeHtml(title)} — ${escapeHtml(brandName)} (demostración)</title>
 <link rel="stylesheet" href="${escapeHtml(assets)}/app.css">
 </head>
 <body>
   <div class="demo" role="note">${escapeHtml(t.band)}</div>
-  <header class="top"><div class="bar"><a class="brand" href="./"><span class="mark" aria-hidden="true"></span><span>Banco Horizonte<small>${escapeHtml(t.brandSub)}</small></span></a></div></header>
+  <header class="top"><div class="bar"><a class="brand" href="./"><span class="mark" aria-hidden="true"></span><span>${escapeHtml(brandName)}<small>${escapeHtml(t.brandSub)}</small></span></a></div></header>
   <main><section class="screen"><h1>${escapeHtml(title)}</h1><p class="lead">${escapeHtml(body)}</p></section></main>
 </body>
 </html>`;
@@ -272,6 +279,7 @@ h1 { font-size:28px; } h2 { font-size:19px; margin-top:28px; }
 .bar { max-width:1280px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:24px; justify-content:space-between; }
 .brand { display:flex; align-items:center; gap:10px; color:var(--ink); text-decoration:none; font-weight:700; font-size:19px; letter-spacing:-.3px; }
 .brand small { display:block; font-weight:400; font-size:12px; opacity:.8; }
+.brand-logo { height:30px; width:auto; display:block; }
 .mark { width:28px; height:28px; border-radius:50%; background:linear-gradient(180deg, var(--yellow) 0 50%, var(--primary) 50% 100%); }
 .top-actions { display:flex; align-items:center; gap:6px; }
 .icon-btn { display:inline-grid; place-items:center; width:40px; height:40px; border:0; background:none; color:var(--ink); border-radius:var(--radius); cursor:pointer; font-size:26px; line-height:1; }

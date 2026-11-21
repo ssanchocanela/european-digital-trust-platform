@@ -175,6 +175,31 @@ restart or the nightly reset forgets every customer: open an account first, then
 A PID without a personal administrative number cannot log in: the page says so. The test PID provider
 issues one; a reference-issued PID may not.
 
+### A client's look, behind Access
+
+Banco Horizonte can be shown wearing a client's look, **with the client's written permission and only
+behind Cloudflare Access**: a second instance, `demo-onboarding-client`, on
+`edtp-banco-cliente.murcata.es` (port 3206). The brand is a directory on the host,
+`/var/lib/edtp-brands/bank-client/` with `brand.json` and the logo (`apps/demo-onboarding/src/brand.ts`),
+never in git. Its band must say it is a demonstration, or the instance refuses to start. The wallet still
+names Banco Horizonte at consent: that is the registered Relying Party. In this order:
+
+1. **Access first.** A Cloudflare Access application for `edtp-banco-cliente.murcata.es` ("EDTP demo
+   banco cliente"), with the operator policy.
+2. **The hostname.** `cloudflared tunnel route dns edtp-demo edtp-banco-cliente.murcata.es`, the
+   ingress rule from `files/cloudflared-config.yml` in `/etc/cloudflared/config.yml`, then restart
+   `cloudflared`. Check it from outside, logged out: a `302` to Access, never the page.
+3. **The brand.** `sudo install -d -o edtp /var/lib/edtp-brands/bank-client` and copy `brand.json` and
+   the logo into it.
+4. **Its own policies**, because the platform returns a same-device wallet to one origin per policy:
+   `register-bank-onboarding.mjs policy <serviceId> <PID list URL> --variant client`, and again with
+   `--login`. Each goes in `HOSTED_VERIFIER_POLICIES`, `HOSTED_VERIFIER_ORIGINS` (with
+   `https://edtp-banco-cliente.murcata.es`) and `HOSTED_VERIFIER_QR_POLICIES`; the first in
+   `ONBOARDING_CLIENT_POLICY`, the second in `ONBOARDING_CLIENT_LOGIN_POLICY`.
+5. `COMPOSE_PROFILES=client-brand` in `.env`, and deploy.
+
+The instance has its own customers: open an account and log in on the same host.
+
 ## Trust lists published by the portal
 
 `https://demo.murcata.es/lote/<name>.jwt` serves the files in `/var/lib/edtp-lote` on the VM, read-only

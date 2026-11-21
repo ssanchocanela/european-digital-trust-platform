@@ -145,7 +145,12 @@ ${LOAN_JS}${String.raw`(function () {
     var list = document.getElementById("tech-events");
     var view = "business";
     var events = [];
-    function label(n) { return t("tech" + n + (view === "business" ? "Business" : "Technical")); }
+    // A flow may word a step its own way ("Login"); a step it does not reword keeps the default.
+    var script = "";
+    function label(n) {
+      var suffix = view === "business" ? "Business" : "Technical";
+      return T["tech" + n + script + suffix] !== undefined ? t("tech" + n + script + suffix) : t("tech" + n + suffix);
+    }
     function render() {
       clear(list);
       if (events.length === 0) { add(list, el("li", "tech-empty", t("techEmpty"))); return; }
@@ -180,6 +185,7 @@ ${LOAN_JS}${String.raw`(function () {
     return {
       toggle: toggle,
       reset: function () { events = []; render(); },
+      use: function (name) { if (script !== name) { script = name; events = []; render(); } },
       mark: function (n, payload, flags) {
         if (events.some(function (e) { return e.n === n; })) return;
         flags = flags || {};
@@ -364,6 +370,7 @@ ${LOAN_JS}${String.raw`(function () {
             (view.fields || []).forEach(function (f) { claims[f.path] = mask(f.value); });
             tech.mark(5, { status: "VERIFIED", trustEnvironment: "TEST", claims: claims });
             if (!view.adult) return fail("errorMinor");
+            if (view.alreadyCustomer && !loan) { timers.later(alreadyCustomer, 700); return true; }
             data = view; timers.later(received, 700); return true;
           }
           if (view.status === "AWAITING_WALLET" || view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" ||
@@ -483,6 +490,17 @@ ${LOAN_JS}${String.raw`(function () {
         };
         add(s, el("h2", "", t("kycTitle")), kyc, add(el("div", "actions"), button(t("continue"), "btn-primary", primary)));
       });
+    }
+
+    function alreadyCustomer() {
+      screen(2, function (s) {
+        s.classList.add("outcome");
+        add(s, el("div", "outcome-icon", "✓"), el("h1", "", t("alreadyCustomerTitle")), el("p", "", t("alreadyCustomerBody")));
+        primary = function () { go("login"); };
+        add(s, add(el("div", "actions center"), button(t("loginCta"), "btn-primary", primary),
+          button(t("compareAgain"), "btn-secondary", reset)));
+      });
+      done = true;
     }
 
     function field(name) {
@@ -649,7 +667,12 @@ ${LOAN_JS}${String.raw`(function () {
         [[fmt(ms), t("compareTime")], ["3", t("compareSteps")], ["0", t("compareDocs")], [t("compareNo"), t("compareReview")]]
           .forEach(function (m) { add(metrics, add(el("div", "metric"), el("strong", "", m[0]), el("span", "", m[1]))); });
         primary = function () { go("compare"); };
-        add(s, metrics, add(el("div", "actions"), button(t("successCompare"), "btn-primary", primary)));
+        var acts = add(el("div", "actions"), button(t("successCompare"), "btn-primary", primary));
+        // The customer this account opening made can log in now, with the same wallet.
+        if (CFG.login && !opts.compact && !recorded) {
+          add(acts, button(t("loginCta"), "btn-secondary", function () { go("login"); }));
+          add(s, metrics, el("p", "note", t("joinedLogin")), acts);
+        } else add(s, metrics, acts);
       });
       done = true;
       results.eudi = { ms: ms, steps: 3, typed: typed, docs: 0, retries: 0, review: false, recorded: recorded };
@@ -860,24 +883,187 @@ ${LOAN_JS}${String.raw`(function () {
     app.className = "";
   }
 
-  function cover() {
-    var s = el("section", "cover");
-    add(s, el("h1", "", t("coverTitle")), el("p", "lead", t("coverLead")));
-    var cards = el("div", "cover-cards");
-    function card(cls, title, text, cta, target, badge) {
-      var c = el("div", "cover-card " + cls);
-      add(c, badge ? el("span", "badge-new", t("badgeNew")) : null, el("h2", "", title), el("p", "", text),
-        button(cta, cls === "eudi" ? "btn-primary" : "btn-secondary", function () { go(target); }));
-      add(cards, c);
-    }
-    card("current", t("coverCurrentTitle"), t("coverCurrentBody"), t("coverCurrentCta"), "current");
-    card("eudi", t("coverEudiTitle"), t("coverEudiBody"), t("coverEudiCta"), "eudi", true);
-    var more = el("div", "cover-more");
-    add(more, add(el("div"), el("h2", "", t("coverLoanTitle")), el("p", "", t("coverLoanBody"))),
-      button(t("coverLoanCta"), "btn-secondary", function () { go("loan"); }));
-    add(s, cards, add(el("div", "actions center"), button(t("coverCompare"), "btn-outline", function () { go("side"); })), more);
+  function greeting() {
+    var h = new Date().getHours();
+    return t(h >= 6 && h < 14 ? "greetMorning" : h >= 14 && h < 21 ? "greetAfternoon" : "greetEvening");
+  }
+
+  /** The app's first screen: log in with the wallet, or become a customer. No credential field. */
+  function home() {
+    var s = el("section", "mobile home screen");
+    add(s, el("div", "shapes"), el("h1", "greeting", greeting()), el("p", "lead", t("homeLead")), el("div", "spacer"));
+    var stack = el("div", "stack");
+    if (CFG.login) add(stack, button(t("loginCta"), "btn-primary", function () { go("login"); }));
+    add(stack, button(t("joinCta"), CFG.login ? "btn-secondary" : "btn-primary", function () { go("eudi"); }));
+    var note = el("p", "other-note", t(CFG.login ? "homeOtherNote" : "homeLoginOff"));
+    note.hidden = CFG.login;
+    var other = button(t("homeOther"), "btn-link", function () { note.hidden = !note.hidden; });
+    add(s, stack, CFG.login ? add(el("div", "other"), other) : null, note);
     add(app, s);
-    advanceTarget = { advance: function () { go("eudi"); } };
+
+    // The rest of the demonstration, for the presenter: below the app, never in its way.
+    var more = el("section", "home-more");
+    var grid = el("div", "home-more-grid");
+    function card(title, body, cta, target) {
+      add(grid, add(el("div", "home-card"), el("strong", "", title), el("p", "", body),
+        button(cta, "btn-secondary", function () { go(target); })));
+    }
+    card(t("coverCurrentTitle"), t("coverCurrentBody"), t("coverCurrentCta"), "current");
+    card(t("coverCompare"), t("coverLead"), t("coverCompare"), "side");
+    card(t("coverLoanTitle"), t("coverLoanBody"), t("coverLoanCta"), "loan");
+    add(more, el("h2", "", t("homeMoreTitle")), grid);
+    add(app, more);
+    advanceTarget = { advance: function () { go(CFG.login ? "login" : "eudi"); } };
+  }
+
+  /**
+   * Log in with the wallet: one presentation asking for the document number, and the bank's answer —
+   * the customer it kept, or not one. The page never sees the number: the server hashes and drops it.
+   */
+  function loginFlow(host, resume) {
+    var timers = Timers(), primary = null;
+    tech.use("Login");
+    var s = el("section", "mobile screen");
+    add(host, s);
+
+    function page(build) {
+      timers.stop(); primary = null; clear(s);
+      add(s, el("div", "shapes"));
+      build(s);
+      window.scrollTo(0, 0);
+    }
+
+    function outcome(icon, title, body, actions) {
+      page(function (p) {
+        p.classList.add("outcome");
+        add(p, el("div", "outcome-icon", icon), el("h1", "", title), body ? el("p", "", body) : null, el("div", "spacer"));
+        var stack = el("div", "stack");
+        actions.forEach(function (a, i) { add(stack, button(a[0], i === 0 ? "btn-primary" : "btn-secondary", a[1])); });
+        primary = actions[0][1];
+        add(p, stack);
+      });
+    }
+    function exit() { go("home"); }
+    function failed(status) {
+      p_reset();
+      var oops = !status || status === "UNAVAILABLE";
+      outcome("⚠", t(oops ? "loginOopsTitle" : "loginFailTitle"),
+        t(oops ? "errorUnavailable" : FAILURES[status] || "errorProtocol"),
+        [[t("connectRetry"), function () { connect(MOBILE() ? "movil" : "qr"); }], [t("logout"), exit]]);
+    }
+    function p_reset() { s.classList.remove("outcome"); }
+
+    function signedIn(customer) {
+      p_reset();
+      page(function (p) {
+        add(p, el("h1", "greeting", greeting() + ", " + customer.givenName));
+        add(p, add(el("div", "acct"), el("small", "", t("signedAccount")), el("span", "acct-iban", customer.iban),
+          el("small", "", t("signedBalance")), el("span", "acct-balance", euros(0, 2))));
+        add(p, add(el("div", "tile"), add(el("span"), el("strong", "", t("signedCard")), el("small", "", "•••• 0000")),
+          el("span", "chip chip-ok", t("signedCardActive"))));
+        add(p, add(el("div", "who"), el("strong", "", "✓ " + t("signedWho")), el("span", "", t("signedAsked"))),
+          el("p", "note", t("signedFictitious")), el("div", "spacer"));
+        primary = exit;
+        add(p, add(el("div", "stack"), button(t("logout"), "btn-secondary", exit)));
+      });
+    }
+
+    function settle(view) {
+      if (view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" || view.status === "VERIFIED" ||
+          view.status === "NOT_A_CUSTOMER" || view.status === "NO_DOCUMENT") {
+        tech.mark(2, null, { notObserved: true });
+        tech.mark(3, { status: "PRESENTATION_RECEIVED" });
+      }
+      if (view.status === "VERIFIED" || view.status === "NOT_A_CUSTOMER" || view.status === "NO_DOCUMENT") {
+        tech.mark(4, { issuerTrust: "ETSI TS 119 602 list, PID_PROVIDER, TEST", statusCheckMode: "STRICT", outcome: "VERIFIED" });
+        tech.mark(5, { customer: view.status === "VERIFIED" ? "found" : view.status === "NOT_A_CUSTOMER" ? "not found" : "no document number", kept: "HMAC-SHA256 only" });
+      }
+      if (view.status === "VERIFIED" && view.customer) { timers.later(function () { signedIn(view.customer); }, 600); return true; }
+      if (view.status === "NOT_A_CUSTOMER") {
+        timers.later(function () {
+          outcome("⚠", t("notCustomerTitle"), t("notCustomerBody"), [[t("joinCta"), function () { go("eudi"); }], [t("logout"), exit]]);
+        }, 600);
+        return true;
+      }
+      if (view.status === "NO_DOCUMENT") {
+        timers.later(function () { outcome("⚠", t("noDocumentTitle"), t("noDocumentBody"), [[t("logout"), exit]]); }, 600);
+        return true;
+      }
+      if (view.status === "AWAITING_WALLET" || view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" ||
+          view.status === "CREATED" || view.status === "REQUEST_READY") return false;
+      failed(view.status);
+      return true;
+    }
+
+    function poll(id, token) {
+      var busy = false;
+      timers.every(function () {
+        if (busy) return;
+        busy = true;
+        fetch("api/presentaciones/" + encodeURIComponent(id) + "?tipo=acceso", { headers: token ? { "x-onboarding-token": token } : {} })
+          .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then(function (view) { busy = settle(view) === true; })
+          .catch(function () { busy = false; });
+      }, 1500);
+    }
+
+    function connecting(parent) {
+      add(parent, add(el("div", "connecting"), add(el("div", "dots"), el("span"), el("span"), el("span")), el("span", "", t("loginConnecting"))));
+    }
+
+    function connect(mode, resumeId) {
+      p_reset();
+      if (!resumeId) tech.reset();
+      page(function (p) {
+        add(p, el("h1", "", t("loginTitle")), el("p", "lead", t("loginAsks")));
+        add(p, add(el("ul", "asked-one"), add(el("li"), el("span", "asked-icon", "🪪"),
+          add(el("span"), el("strong", "", t("loginAskDocument")), el("small", "", t("loginAskDocumentWhy"))))));
+        var box = el("div", "wallet-box");
+        add(p, box);
+        if (resumeId) { connecting(box); poll(resumeId, null); return; }
+        if (recorded) {
+          tech.mark(1, CFG.recorded.loginRequest);
+          add(box, el("div", "qr qr-recorded", "QR"), el("p", "note", t("recordedRibbon")));
+          connecting(box);
+          CFG.recorded.statuses.forEach(function (x) {
+            timers.later(function () {
+              settle(x.status !== "VERIFIED" ? { status: x.status } : { status: "VERIFIED", customer: CFG.recorded.customer });
+            }, x.afterMs);
+          });
+          return;
+        }
+        add(box, el("p", "note", t("connectStarting")));
+        fetch("api/presentaciones", {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ modo: mode, tipo: "acceso" })
+        }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then(function (res) {
+            clear(box);
+            tech.mark(1, res.request);
+            if (mode === "qr") {
+              var svg = new DOMParser().parseFromString(res.qrSvg, "image/svg+xml").documentElement;
+              add(box, add(el("div", "qr"), document.importNode(svg, true)), el("p", "qr-caption", t("loginQr")),
+                button(t("loginUsePhone"), "btn-link", function () { connect("movil"); }));
+            } else {
+              var a = el("a", "btn btn-primary", t("loginOpen"));
+              a.href = res.walletUri;
+              primary = function () { window.location.href = res.walletUri; };
+              add(box, a, el("p", "note", t("loginOpenBody")),
+                button(t("loginUseQr"), "btn-link", function () { connect("qr"); }));
+            }
+            connecting(box);
+            poll(res.id, res.token);
+          })
+          .catch(function () { failed(); });
+      });
+    }
+
+    if (resume) connect("movil", resume.id);
+    else connect(MOBILE() ? "movil" : "qr");
+    return {
+      advance: function () { if (primary) primary(); },
+      destroy: function () { timers.stop(); },
+      isDone: function () { return false; }
+    };
   }
 
   function solo(kind, resume) {
@@ -936,12 +1122,15 @@ ${LOAN_JS}${String.raw`(function () {
 
   function go(view, resume) {
     leave();
-    if (view === "eudi") solo("eudi", resume);
+    closeMenu();
+    if (view !== "login") tech.use("");
+    if (view === "login") { var f = loginFlow(app, resume); flows.push(f); advanceTarget = f; }
+    else if (view === "eudi") solo("eudi", resume);
     else if (view === "current") solo("current");
     else if (view === "loan") solo("loan", resume);
     else if (view === "side") side();
     else if (view === "compare") compare();
-    else cover();
+    else home();
     window.scrollTo(0, 0);
   }
 
@@ -950,7 +1139,7 @@ ${LOAN_JS}${String.raw`(function () {
     store(null); saveSession(null);
     tech.reset();
     if (CFG.resume) { window.location.href = "./"; return; }
-    go("cover");
+    go("home");
   }
 
   function setRecorded(on) {
@@ -964,7 +1153,8 @@ ${LOAN_JS}${String.raw`(function () {
     var tag = ev.target && ev.target.tagName;
     if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
     var key = ev.key.toLowerCase();
-    if (key === "r") reset();
+    if (key === "escape") closeMenu();
+    else if (key === "r") reset();
     else if (key === "t") tech.toggle();
     // The fallback's switch: unlisted on the page, and what it turns on is announced on every screen.
     else if (key === "g") setRecorded(!recorded);
@@ -976,10 +1166,29 @@ ${LOAN_JS}${String.raw`(function () {
   });
   document.getElementById("restart").addEventListener("click", reset);
 
+  // --- the app's menu ----------------------------------------------------------------------------
+
+  var drawer = document.getElementById("drawer"), scrim = document.getElementById("scrim");
+  var menuOpen = document.getElementById("menu-open");
+  function closeMenu() { drawer.hidden = true; scrim.hidden = true; menuOpen.setAttribute("aria-expanded", "false"); }
+  menuOpen.addEventListener("click", function () {
+    drawer.hidden = false; scrim.hidden = false; menuOpen.setAttribute("aria-expanded", "true");
+    document.getElementById("menu-close").focus();
+  });
+  document.getElementById("menu-close").addEventListener("click", closeMenu);
+  scrim.addEventListener("click", closeMenu);
+  Array.prototype.forEach.call(drawer.querySelectorAll("[data-go]"), function (b) {
+    b.addEventListener("click", function () {
+      var target = b.getAttribute("data-go");
+      if (target === "home") reset(); else go(target);
+    });
+  });
+
   setRecorded(false);
   if (CFG.resume) {
     var returning = loadSession();
-    go(returning && returning.product === "loan" ? "loan" : "eudi", { id: CFG.resume, kind: CFG.resumeKind || "pid" });
-  } else go("cover");
+    if (CFG.resumeKind === "acceso") go("login", { id: CFG.resume });
+    else go(returning && returning.product === "loan" ? "loan" : "eudi", { id: CFG.resume, kind: CFG.resumeKind || "pid" });
+  } else go("home");
 })();
 `}`;

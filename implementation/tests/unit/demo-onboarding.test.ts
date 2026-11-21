@@ -6,11 +6,14 @@ import {
   FIELDS,
   INCOME_REQUESTED_CLAIMS,
   isAdult,
+  LOGIN_REQUESTED_CLAIMS,
+  loginDocument,
   REQUESTED_CLAIMS,
   toIncomeData,
   toOnboardingData,
 } from "../../apps/demo-onboarding/src/claims.js";
 import { CLIENT_JS } from "../../apps/demo-onboarding/src/client.js";
+import { CustomerBook, normaliseDocument } from "../../apps/demo-onboarding/src/customers.js";
 import { DICTIONARIES, dictionary } from "../../apps/demo-onboarding/src/i18n.js";
 import {
   affordableAmount,
@@ -35,7 +38,7 @@ import {
  * for is exactly what its policy registers.
  */
 const { t } = dictionary("es");
-const shell = (extra: { resume?: string; recorded?: unknown } = {}) =>
+const shell = (extra: { resume?: string; recorded?: unknown; login?: boolean } = {}) =>
   renderShell({ lang: "es", t, assets: "assets/abc", live: true, recorded: {}, ...extra });
 
 describe("Banco Horizonte pages", () => {
@@ -301,5 +304,72 @@ describe("the back office's case book", () => {
     expect(page).toContain("operator@example.test");
     expect(page).not.toContain("<script>alert(1)");
     expect(page).not.toMatch(/<script/);
+  });
+});
+
+describe("the login with the wallet", () => {
+  const definition = JSON.parse(
+    readFileSync(resolve(__dirname, "../../scripts/onboarding/bank-login.json"), "utf8"),
+  ) as { policy: { requestedClaims: string[][] } };
+
+  it("asks the PID for the document number and nothing else, as its policy requests", () => {
+    expect(LOGIN_REQUESTED_CLAIMS).toEqual(definition.policy.requestedClaims);
+    expect(LOGIN_REQUESTED_CLAIMS).toEqual([["personal_administrative_number"]]);
+  });
+
+  it("reads the document number, and finds none in a PID without it", () => {
+    expect(loginDocument({ personal_administrative_number: "12345678Z" })).toBe("12345678Z");
+    expect(loginDocument({ personal_administrative_number: "  " })).toBeUndefined();
+    expect(loginDocument({ given_name: "Elena" })).toBeUndefined();
+  });
+
+  it("treats one document written two ways as one", () => {
+    expect(normaliseDocument("12.345.678-z")).toBe(normaliseDocument("12345678Z"));
+  });
+
+  it("makes a customer only when the contract of a verified PID is signed", () => {
+    const book = new CustomerBook();
+    expect(book.enrol("never-verified")).toBeUndefined();
+    book.expect("p1", "12345678Z", "Elena");
+    expect(book.find("12345678Z")).toBeUndefined();
+    expect(book.isCustomer("12345678Z")).toBe(false);
+    const customer = book.enrol("p1");
+    expect(customer?.givenName).toBe("Elena");
+    expect(customer?.iban).toMatch(/^ES00 0000 0000 0000 0000 \d{4}$/);
+    expect(book.find("12345678-z")).toEqual(customer);
+    expect(book.isCustomer("12345678Z")).toBe(true);
+    expect(book.find("87654321X")).toBeUndefined();
+    expect(book.enrol("p1")).toBeUndefined();
+  });
+
+  it("keeps a digest of the document, never the document", () => {
+    const book = new CustomerBook();
+    book.expect("p1", "12345678Z", "Elena");
+    book.enrol("p1");
+    const held = JSON.stringify([
+      ...(book as unknown as { customers: Map<string, unknown> }).customers,
+    ]);
+    expect(held).not.toContain("12345678");
+    expect(held).toMatch(/[0-9a-f]{64}/);
+  });
+
+  it("forgets an account opening that is never signed", () => {
+    let now = 0;
+    const book = new CustomerBook(() => now);
+    book.expect("p1", "12345678Z", "Elena");
+    now += 61 * 60 * 1000;
+    expect(book.enrol("p1")).toBeUndefined();
+  });
+
+  it("recognises nothing across a restart: the key is new each time", () => {
+    const first = new CustomerBook();
+    first.expect("p1", "12345678Z", "Elena");
+    first.enrol("p1");
+    expect(new CustomerBook().find("12345678Z")).toBeUndefined();
+  });
+
+  it("offers no field to type a user name or a password into", () => {
+    expect(shell({ login: true })).not.toMatch(/type=["']?password|contraseña<\/label/i);
+    expect(CLIENT_JS).not.toMatch(/type = "password"|\.type = 'password'/);
   });
 });

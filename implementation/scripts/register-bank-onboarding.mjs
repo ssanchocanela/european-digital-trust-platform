@@ -27,6 +27,12 @@
  *    policy: `VERIFIED_CLAIMS`, those claims and no others. The issuer anchor is the TEST list of
  *    PID providers, which must carry the test PID provider's certificate.
  *
+ *   PLATFORM_TENANT_API_KEY=… node scripts/register-bank-onboarding.mjs policy \
+ *     <relyingPartyServiceId> <pidTrustListUrl> --login
+ *
+ * 3. The same for the login (`scripts/onboarding/bank-login.json`): a second intended use under the
+ *    same Service, asking for the personal administrative number only.
+ *
  * ## What the definition is
  *
  * `scripts/onboarding/bank-onboarding.json`. The bank is fictitious and so is every identifier: no
@@ -42,11 +48,13 @@ import { fileURLToPath } from "node:url";
 
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3100";
 const KEY = process.env.PLATFORM_TENANT_API_KEY;
-const [command, ...rest] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const login = args.includes("--login");
+const [command, ...rest] = args.filter((a) => a !== "--login");
 
 const USAGE =
   "usage: node scripts/register-bank-onboarding.mjs relying-party\n" +
-  "       node scripts/register-bank-onboarding.mjs policy <relyingPartyServiceId> <pidTrustListUrl>\n";
+  "       node scripts/register-bank-onboarding.mjs policy <relyingPartyServiceId> <pidTrustListUrl> [--login]\n";
 
 if (!KEY) {
   process.stderr.write(
@@ -55,8 +63,9 @@ if (!KEY) {
   process.exit(1);
 }
 if (
-  !(command === "relying-party" && rest.length === 0) &&
-  !(command === "policy" && rest.length === 2)
+  (!(command === "relying-party" && rest.length === 0) &&
+    !(command === "policy" && rest.length === 2)) ||
+  (login && command !== "policy")
 ) {
   process.stderr.write(USAGE);
   process.exit(1);
@@ -79,12 +88,15 @@ const api = async (method, path, body) => {
   return parsed;
 };
 
-const doc = JSON.parse(
-  readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "onboarding", "bank-onboarding.json"),
-    "utf8",
-  ),
-);
+const definition = (name) =>
+  JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), "onboarding", name), "utf8"),
+  );
+// The login shares the onboarding's organisation, Relying Party and Service, and brings its own
+// intended use and policy.
+const doc = login
+  ? { ...definition("bank-onboarding.json"), ...definition("bank-login.json") }
+  : definition("bank-onboarding.json");
 
 const relyingParty = async (t) => {
   const organisation = await api("POST", `/v1/tenants/${t}/organisations`, doc.organisation);
@@ -152,7 +164,7 @@ const policy = async (t, serviceId, trustListUrl) => {
       `  HOSTED_VERIFIER_POLICIES     …,<tenantId>:${created.policyId}\n` +
       `  HOSTED_VERIFIER_ORIGINS      ${created.policyId}=https://<onboarding-host>\n` +
       `  HOSTED_VERIFIER_QR_POLICIES  ${created.policyId}\n` +
-      `  ONBOARDING_POLICY            ${created.policyId}\n`,
+      `  ${login ? "ONBOARDING_LOGIN_POLICY" : "ONBOARDING_POLICY"}${login ? "      " : "            "}${created.policyId}\n`,
   );
 };
 

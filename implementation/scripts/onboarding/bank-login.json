@@ -1,0 +1,24 @@
+{
+  "_note": [
+    "Banco Horizonte's login: a customer who opened an account signs in by presenting their PID.",
+    "Registered under the same Relying Party Service as the onboarding (bank-onboarding.json), as a",
+    "second intended use. TEST environment only, every identifier a placeholder.",
+    "One claim: the personal administrative number, which the bank keeps only as an HMAC under a key",
+    "of the demonstration's process (apps/demo-onboarding/src/customers.ts). It is optional in the PID",
+    "Rulebook, so a PID without it cannot be used to log in, and the page says so."
+  ],
+  "intendedUse": {
+    "intendedUseIdentifier": "edtp-test-bank-login",
+    "purpose": [
+      { "lang": "es", "value": "Identificarte para entrar en tu banca" },
+      { "lang": "ca", "value": "Identificar-te per entrar a la teva banca" },
+      { "lang": "en", "value": "Identify you to sign in to your bank" }
+    ],
+    "privacyPolicyUris": [{ "lang": "es", "value": "https://example.test/privacidad" }]
+  },
+  "policy": {
+    "name": "Banco Horizonte — login with PID",
+    "description": "Recognises an existing customer from the personal administrative number in their PID. Nothing else is asked for.",
+    "requestedClaims": [["personal_administrative_number"]]
+  }
+}

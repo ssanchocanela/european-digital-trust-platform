@@ -395,6 +395,22 @@ starts with no documents.
       --issuer https://edtp-engine.murcata.es/issuers/pid-1,https://edtp-engine.murcata.es/issuers/rpi-1,https://edtp-engine.murcata.es/issuers/fam-1,https://edtp-engine.murcata.es/issuers/nominas-1 \
       --pid-label "PID (demo)" --app-id-suffix .edtptest9 --app-name "EDTP TEST 9"
 
+## W9N — W9 with NTT DATA's look
+
+Prepared 21 November 2026, for a demonstration of Banco Horizonte and its client-brand instance on
+24 November. Exactly W9's configuration — the same deviations, lists and four issuers — plus
+`--brand nttdata` (`brands/nttdata`, with NTT DATA's permission). No new deviation. Release, our
+`OU=TEST ONLY` key, `.edtptest9n`, "EDTP TEST 9 NTT DATA"; it installs **alongside** W9, so it starts
+with no documents. Built by the operator, who holds the key password.
+
+    ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
+      --deviations wd-2,wd-3,wd-4,wd-5,wd-6,wd-7 \
+      --wrpac-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/WRPACProviders.jwt \
+      --pid-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/PIDProviders.jwt \
+      --issuer https://edtp-engine.murcata.es/issuers/pid-1,https://edtp-engine.murcata.es/issuers/rpi-1,https://edtp-engine.murcata.es/issuers/fam-1,https://edtp-engine.murcata.es/issuers/nominas-1 \
+      --pid-label "PID (demo)" --app-id-suffix .edtptest9n --app-name "EDTP TEST 9 NTT DATA" \
+      --brand nttdata
+
 ## A client's look, and a build for a client's own issuers
 
 Decided 7 October 2026 (`CLAUDE.md` §6.22). Two things, neither a deviation:

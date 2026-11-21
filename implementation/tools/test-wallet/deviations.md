@@ -403,6 +403,10 @@ Prepared 21 November 2026, for a demonstration of Banco Horizonte and its client
 `OU=TEST ONLY` key, `.edtptest9n`, "EDTP TEST 9 NTT DATA"; it installs **alongside** W9, so it starts
 with no documents. Built by the operator, who holds the key password.
 
+**Built 21 November 2026** by the operator: `eu.europa.ec.euidi.edtptest9n`, "EDTP TEST 9 NTT DATA",
+signed with the same `OU=TEST ONLY` certificate as W9 (SHA-256 `5e60c99f…44a8`), APK SHA-256
+`dcb509e9…0f08`. Not yet run with a wallet flow.
+
     ANDROID_HOME=… ANDROID_KEYSTORE_PATH=… ANDROID_KEY_ALIAS=… ANDROID_KEY_PASSWORD=… ./build.sh \
       --deviations wd-2,wd-3,wd-4,wd-5,wd-6,wd-7 \
       --wrpac-lote https://ssanchocanela.github.io/european-digital-trust-platform/lote/WRPACProviders.jwt \

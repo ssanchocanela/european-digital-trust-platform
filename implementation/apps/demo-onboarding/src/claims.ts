@@ -133,3 +133,20 @@ export const toIncomeData = (
     },
   };
 };
+
+/**
+ * What the login asks a PID for (`scripts/onboarding/bank-login.json`): the personal administrative
+ * number, and nothing else. The name the signed-in page greets is the bank's own record, kept when the
+ * account was opened — not something the wallet is asked for again.
+ */
+export const LOGIN_REQUESTED_CLAIMS: readonly (readonly string[])[] = [
+  ["personal_administrative_number"],
+];
+
+/** The document number a login presented, or nothing when the PID did not carry one. */
+export const loginDocument = (
+  claims: Readonly<Record<string, unknown>>,
+): string | undefined => {
+  const value = text(read(claims, "personal_administrative_number"));
+  return value !== undefined && value.trim() !== "" ? value : undefined;
+};

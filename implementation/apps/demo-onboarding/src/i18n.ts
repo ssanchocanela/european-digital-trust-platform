@@ -281,6 +281,63 @@ const es = {
   compareNoteRecorded: "El recorrido con la cartera se ha reproducido de una grabación.",
   compareAgain: "Volver al inicio",
 
+  // --- the app's top bar and menu ---
+  notifications: "Notificaciones",
+  menuOpen: "Menú",
+  menuClose: "Cerrar el menú",
+  drawerHome: "Inicio",
+  drawerLogin: "Entrar con mi cartera",
+  drawerJoin: "Hacerme cliente",
+  drawerLoan: "Préstamo con certificado de ingresos",
+  drawerCurrent: "El alta de hoy (simulada)",
+  drawerCompare: "Comparar lado a lado",
+  drawerBranches: "Oficinas y cajeros",
+  drawerSecurity: "Seguridad",
+  drawerUnavailable: "No disponible en la demostración",
+  drawerVersion: "Versión de demostración",
+
+  // --- home and login ---
+  greetMorning: "Buenos días",
+  greetAfternoon: "Buenas tardes",
+  greetEvening: "Buenas noches",
+  homeLead: "Accede a tu banca con tu Cartera Digital Europea. Sin usuario ni contraseña.",
+  loginCta: "Entrar con mi cartera",
+  joinCta: "Hacerme cliente",
+  homeOther: "Otras formas de acceso",
+  homeOtherNote:
+    "En esta demostración solo se entra con la cartera: no hay usuario ni contraseña que escribir.",
+  homeLoginOff: "El acceso con cartera no está configurado en este entorno.",
+  homeMoreTitle: "Más en esta demostración",
+  loginTitle: "Entrar con tu cartera",
+  loginAsks: "Banco Horizonte pide a tu cartera:",
+  loginAskDocument: "Tu número de documento",
+  loginAskDocumentWhy: "Para reconocerte como cliente. No pide nada más.",
+  loginOpen: "Abrir mi cartera",
+  loginOpenBody: "Tu cartera te enseñará qué se pide y quién lo pide antes de que aceptes.",
+  loginUseQr: "Desde otro dispositivo: código QR",
+  loginQr: "Escanéalo con la cartera de tu móvil",
+  loginUsePhone: "Usar la cartera de este dispositivo",
+  loginConnecting: "Conectando de forma segura",
+  signedAccount: "Cuenta Online",
+  signedBalance: "Saldo disponible",
+  signedCard: "Tarjeta de débito",
+  signedCardActive: "Activa",
+  signedWho: "Has entrado con tu cartera",
+  signedAsked:
+    "Datos pedidos a tu cartera: 1, el número de documento. El nombre lo guarda el banco desde tu alta.",
+  signedFictitious: "Cuenta, saldo y tarjeta ficticios.",
+  logout: "Salir",
+  notCustomerTitle: "No te hemos encontrado como cliente",
+  notCustomerBody: "Si aún no tienes cuenta, hazte cliente en unos minutos con tu cartera.",
+  noDocumentTitle: "Tu PID no incluye número de documento",
+  noDocumentBody:
+    "El banco te reconoce por él, y en el PID es un dato opcional. Con este PID no puedes entrar.",
+  loginFailTitle: "No hemos podido identificarte",
+  loginOopsTitle: "¡Ups! Algo ha ido mal",
+  alreadyCustomerTitle: "Ya eres cliente de Banco Horizonte",
+  alreadyCustomerBody: "Con este documento ya hay una cuenta abierta. Entra con tu cartera.",
+  joinedLogin: "Ahora puedes entrar en tu banca con la misma cartera.",
+
   // --- technical panel ---
   techTitle: "Qué pasa por detrás",
   techBusiness: "Vista negocio",
@@ -302,6 +359,12 @@ const es = {
     "Firma del emisor contra la lista de confianza de proveedores de PID (TEST), vigencia y estado de revocación",
   tech5Business: "Identidad verificada: los datos están listos para tu alta",
   tech5Technical: "Resultado normalizado: solo los atributos que la política permite devolver",
+  tech1LoginBusiness: "El banco prepara la petición: solo tu número de documento",
+  tech1LoginTechnical:
+    "Petición de presentación (OpenID4VP) con un solo claim: personal_administrative_number",
+  tech5LoginBusiness: "El banco te reconoce sin guardar tu número de documento",
+  tech5LoginTechnical:
+    "HMAC-SHA256 del número con una clave del proceso, buscado entre los clientes y descartado en la misma petición",
 } as const;
 
 export type Dictionary = Readonly<Record<keyof typeof es, string>>;

@@ -659,7 +659,7 @@ ${LOAN_JS}${String.raw`(function () {
         s.classList.add("success");
         add(s, el("div", "success-mark", "✓"), el("h1", "", t("successTitle", { name: name() })), el("p", "lead", t("successLead")));
         var card = el("div", "bank-card");
-        add(card, el("span", "bank-card-brand", "Horizonte"), el("span", "bank-card-number", "•••• •••• •••• 0000"), el("span", "", t("successCard")));
+        add(card, el("span", "bank-card-brand", t("brandShort")), el("span", "bank-card-number", "•••• •••• •••• 0000"), el("span", "", t("successCard")));
         add(s, add(el("div", "success-grid"),
           add(el("div", "summary"), add(el("div", "kv"), el("span", "", t("successIban")), el("strong", "", t("successIbanValue")))),
           card));

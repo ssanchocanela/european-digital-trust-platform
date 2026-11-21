@@ -39,6 +39,30 @@ services:
   demo-onboarding:
     <<: *platform-image
 
+  # Banco Horizonte again, wearing a client's look (apps/demo-onboarding/src/brand.ts), for a
+  # demonstration prepared for that client with its written permission. Only behind Cloudflare Access,
+  # on edtp-banco-cliente.murcata.es, and off until COMPOSE_PROFILES names it: without its brand
+  # directory it would refuse to start. Its own policies, because the platform returns a same-device
+  # wallet to one origin per policy (`register-bank-onboarding.mjs … --variant client`). The brand
+  # directory holds the client's logo: on the host only, never in git.
+  demo-onboarding-client:
+    <<: *platform-image
+    profiles: ["client-brand"]
+    command: ["node", "apps/demo-onboarding/dist/main.js"]
+    environment:
+      NODE_ENV: production
+      ONBOARDING_PORT: "3206"
+      PLATFORM_API_BASE_URL: http://platform-api:3100
+      HOSTED_VERIFIER_SECRET: ${HOSTED_VERIFIER_SECRET:-}
+      ONBOARDING_POLICY: ${ONBOARDING_CLIENT_POLICY:-}
+      ONBOARDING_LOGIN_POLICY: ${ONBOARDING_CLIENT_LOGIN_POLICY:-}
+      ONBOARDING_BRAND_DIR: /brand
+      ONBOARDING_BACKOFFICE: "off"
+    volumes:
+      - /var/lib/edtp-brands/bank-client:/brand:ro
+    ports:
+      - "127.0.0.1:3206:3206"
+
   demo-portal:
     <<: *platform-image
     environment:

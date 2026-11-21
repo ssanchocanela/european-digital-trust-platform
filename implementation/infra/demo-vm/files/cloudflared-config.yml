@@ -27,6 +27,10 @@ ingress:
   # it (ADR 0010 §2).
   - hostname: edtp-cliente.murcata.es
     service: http://127.0.0.1:3202
+  # Banco Horizonte wearing a client's look, by its written permission. Behind Cloudflare Access
+  # (application "EDTP demo banco cliente"), added only after Access was seen protecting it.
+  - hostname: edtp-banco-cliente.murcata.es
+    service: http://127.0.0.1:3206
   # The demonstration portal. Public, except /operador, which the Access application "EDTP demo
   # operador" protects at the edge (the portal also refuses it without Access's identity header).
   - hostname: demo.murcata.es

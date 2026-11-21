@@ -14,6 +14,7 @@ const es = {
   // --- shell ---
   band: "Entorno de demostración. Banco Horizonte no es un banco real y esta alta es ficticia. Use únicamente credenciales de prueba.",
   brandSub: "Banca digital",
+  brandShort: "Horizonte",
   menuPersonal: "Particulares",
   menuBusiness: "Empresas",
   menuPrivate: "Banca Privada",

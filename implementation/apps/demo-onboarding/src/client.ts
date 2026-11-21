@@ -917,45 +917,111 @@ ${LOAN_JS}${String.raw`(function () {
   }
 
   /**
+   * One presentation from the wallet, drawn into "box": a QR, or the button that opens the wallet on
+   * this device, then "connecting" while the page polls. "settle" receives every view and returns true
+   * once it has dealt with an end; "failed" is called when no request could be made at all.
+   */
+  function present(o) {
+    var box = o.box, timers = o.timers;
+    function connecting() {
+      add(box, add(el("div", "connecting"), add(el("div", "dots"), el("span"), el("span"), el("span")), el("span", "", t("loginConnecting"))));
+    }
+    function poll(id, token) {
+      var busy = false;
+      timers.every(function () {
+        if (busy) return;
+        busy = true;
+        fetch("api/presentaciones/" + encodeURIComponent(id) + "?tipo=" + o.kind, { headers: token ? { "x-onboarding-token": token } : {} })
+          .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then(function (view) { busy = o.settle(view) === true; })
+          .catch(function () { busy = false; });
+      }, 1500);
+    }
+    clear(box);
+    if (o.resumeId) { connecting(); poll(o.resumeId, null); return; }
+    if (recorded) {
+      tech.mark(1, o.recordedRequest);
+      add(box, el("div", "qr qr-recorded", "QR"), el("p", "note", t("recordedRibbon")));
+      connecting();
+      CFG.recorded.statuses.forEach(function (x) {
+        timers.later(function () { o.settle(x.status !== "VERIFIED" ? { status: x.status } : o.recordedView); }, x.afterMs);
+      });
+      return;
+    }
+    add(box, el("p", "note", t("connectStarting")));
+    var body = { modo: o.mode, tipo: o.kind };
+    for (var k in (o.body || {})) body[k] = o.body[k];
+    fetch("api/presentaciones", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(function (res) {
+        clear(box);
+        tech.mark(1, res.request);
+        if (o.onStarted) o.onStarted(res.id);
+        if (o.mode === "qr") {
+          var svg = new DOMParser().parseFromString(res.qrSvg, "image/svg+xml").documentElement;
+          add(box, add(el("div", "qr"), document.importNode(svg, true)), el("p", "qr-caption", t("loginQr")),
+            button(t("loginUsePhone"), "btn-link", function () { o.restart("movil"); }));
+        } else {
+          var a = el("a", "btn btn-primary", t("loginOpen"));
+          a.href = res.walletUri;
+          if (o.setPrimary) o.setPrimary(function () { window.location.href = res.walletUri; });
+          add(box, a, el("p", "note", t("loginOpenBody")),
+            button(t("loginUseQr"), "btn-link", function () { o.restart("qr"); }));
+        }
+        connecting();
+        poll(res.id, res.token);
+      })
+      .catch(function () { o.failed(); });
+  }
+
+  /** The app screens' frame: a phone-width section with its corner shapes, rebuilt per screen. */
+  function AppScreens(host, timers) {
+    var s = el("section", "mobile");
+    add(host, s);
+    return {
+      node: s,
+      page: function (build, opts) {
+        timers.stop(); clear(s);
+        s.className = "mobile screen" + (opts && opts.outcome ? " outcome" : "");
+        add(s, el("div", "shapes"));
+        build(s);
+        window.scrollTo(0, 0);
+      }
+    };
+  }
+
+  function outcomeScreen(screens, icon, title, body, actions, setPrimary) {
+    screens.page(function (p) {
+      add(p, el("div", "outcome-icon", icon), el("h1", "", title), body ? el("p", "", body) : null, el("div", "spacer"));
+      var stack = el("div", "stack");
+      actions.forEach(function (a, i) { add(stack, button(a[0], i === 0 ? "btn-primary" : "btn-secondary", a[1])); });
+      setPrimary(actions[0][1]);
+      add(p, stack);
+    }, { outcome: true });
+  }
+
+  function marksFor(view, domain, result) {
+    tech.mark(2, null, { notObserved: true });
+    tech.mark(3, { status: "PRESENTATION_RECEIVED" });
+    if (view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING") return;
+    tech.mark(4, { issuerTrust: "ETSI TS 119 602 list, " + domain + ", TEST", statusCheckMode: "STRICT", outcome: "VERIFIED" });
+    tech.mark(5, result);
+  }
+  var WAITING = { AWAITING_WALLET: 1, PRESENTATION_RECEIVED: 1, VERIFYING: 1, CREATED: 1, REQUEST_READY: 1 };
+
+  /**
    * Log in with the wallet: one presentation asking for the document number, and the bank's answer —
    * the customer it kept, or not one. The page never sees the number: the server hashes and drops it.
    */
   function loginFlow(host, resume) {
     var timers = Timers(), primary = null;
+    function setPrimary(fn) { primary = fn; }
     tech.use("Login");
-    var s = el("section", "mobile screen");
-    add(host, s);
-
-    function page(build) {
-      timers.stop(); primary = null; clear(s);
-      add(s, el("div", "shapes"));
-      build(s);
-      window.scrollTo(0, 0);
-    }
-
-    function outcome(icon, title, body, actions) {
-      page(function (p) {
-        p.classList.add("outcome");
-        add(p, el("div", "outcome-icon", icon), el("h1", "", title), body ? el("p", "", body) : null, el("div", "spacer"));
-        var stack = el("div", "stack");
-        actions.forEach(function (a, i) { add(stack, button(a[0], i === 0 ? "btn-primary" : "btn-secondary", a[1])); });
-        primary = actions[0][1];
-        add(p, stack);
-      });
-    }
+    var screens = AppScreens(host, timers);
     function exit() { go("home"); }
-    function failed(status) {
-      p_reset();
-      var oops = !status || status === "UNAVAILABLE";
-      outcome("⚠", t(oops ? "loginOopsTitle" : "loginFailTitle"),
-        t(oops ? "errorUnavailable" : FAILURES[status] || "errorProtocol"),
-        [[t("connectRetry"), function () { connect(MOBILE() ? "movil" : "qr"); }], [t("logout"), exit]]);
-    }
-    function p_reset() { s.classList.remove("outcome"); }
 
     function signedIn(customer) {
-      p_reset();
-      page(function (p) {
+      screens.page(function (p) {
         add(p, el("h1", "greeting", greeting() + ", " + customer.givenName));
         add(p, add(el("div", "acct"), el("small", "", t("signedAccount")), el("span", "acct-iban", customer.iban),
           el("small", "", t("signedBalance")), el("span", "acct-balance", euros(0, 2))));
@@ -969,91 +1035,44 @@ ${LOAN_JS}${String.raw`(function () {
     }
 
     function settle(view) {
-      if (view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" || view.status === "VERIFIED" ||
-          view.status === "NOT_A_CUSTOMER" || view.status === "NO_DOCUMENT") {
-        tech.mark(2, null, { notObserved: true });
-        tech.mark(3, { status: "PRESENTATION_RECEIVED" });
-      }
-      if (view.status === "VERIFIED" || view.status === "NOT_A_CUSTOMER" || view.status === "NO_DOCUMENT") {
-        tech.mark(4, { issuerTrust: "ETSI TS 119 602 list, PID_PROVIDER, TEST", statusCheckMode: "STRICT", outcome: "VERIFIED" });
-        tech.mark(5, { customer: view.status === "VERIFIED" ? "found" : view.status === "NOT_A_CUSTOMER" ? "not found" : "no document number", kept: "HMAC-SHA256 only" });
+      var end = view.status === "VERIFIED" || view.status === "NOT_A_CUSTOMER" || view.status === "NO_DOCUMENT";
+      if (end || view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING") {
+        marksFor(view, "PID_PROVIDER", { customer: view.status === "VERIFIED" ? "found" : view.status === "NOT_A_CUSTOMER" ? "not found" : "no document number", kept: "HMAC-SHA256 only" });
       }
       if (view.status === "VERIFIED" && view.customer) { timers.later(function () { signedIn(view.customer); }, 600); return true; }
       if (view.status === "NOT_A_CUSTOMER") {
         timers.later(function () {
-          outcome("⚠", t("notCustomerTitle"), t("notCustomerBody"), [[t("joinCta"), function () { go("eudi"); }], [t("logout"), exit]]);
+          outcomeScreen(screens, "⚠", t("notCustomerTitle"), t("notCustomerBody"), [[t("joinCta"), function () { go("eudi"); }], [t("logout"), exit]], setPrimary);
         }, 600);
         return true;
       }
       if (view.status === "NO_DOCUMENT") {
-        timers.later(function () { outcome("⚠", t("noDocumentTitle"), t("noDocumentBody"), [[t("logout"), exit]]); }, 600);
+        timers.later(function () { outcomeScreen(screens, "⚠", t("noDocumentTitle"), t("noDocumentBody"), [[t("logout"), exit]], setPrimary); }, 600);
         return true;
       }
-      if (view.status === "AWAITING_WALLET" || view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" ||
-          view.status === "CREATED" || view.status === "REQUEST_READY") return false;
+      if (WAITING[view.status]) return false;
       failed(view.status);
       return true;
     }
-
-    function poll(id, token) {
-      var busy = false;
-      timers.every(function () {
-        if (busy) return;
-        busy = true;
-        fetch("api/presentaciones/" + encodeURIComponent(id) + "?tipo=acceso", { headers: token ? { "x-onboarding-token": token } : {} })
-          .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
-          .then(function (view) { busy = settle(view) === true; })
-          .catch(function () { busy = false; });
-      }, 1500);
-    }
-
-    function connecting(parent) {
-      add(parent, add(el("div", "connecting"), add(el("div", "dots"), el("span"), el("span"), el("span")), el("span", "", t("loginConnecting"))));
+    function failed(status) {
+      var oops = !status;
+      outcomeScreen(screens, "⚠", t(oops ? "loginOopsTitle" : "loginFailTitle"), t(oops ? "errorUnavailable" : FAILURES[status] || "errorProtocol"),
+        [[t("connectRetry"), function () { connect(MOBILE() ? "movil" : "qr"); }], [t("logout"), exit]], setPrimary);
     }
 
     function connect(mode, resumeId) {
-      p_reset();
       if (!resumeId) tech.reset();
-      page(function (p) {
+      screens.page(function (p) {
         add(p, el("h1", "", t("loginTitle")), el("p", "lead", t("loginAsks")));
         add(p, add(el("ul", "asked-one"), add(el("li"), el("span", "asked-icon", "🪪"),
           add(el("span"), el("strong", "", t("loginAskDocument")), el("small", "", t("loginAskDocumentWhy"))))));
         var box = el("div", "wallet-box");
         add(p, box);
-        if (resumeId) { connecting(box); poll(resumeId, null); return; }
-        if (recorded) {
-          tech.mark(1, CFG.recorded.loginRequest);
-          add(box, el("div", "qr qr-recorded", "QR"), el("p", "note", t("recordedRibbon")));
-          connecting(box);
-          CFG.recorded.statuses.forEach(function (x) {
-            timers.later(function () {
-              settle(x.status !== "VERIFIED" ? { status: x.status } : { status: "VERIFIED", customer: CFG.recorded.customer });
-            }, x.afterMs);
-          });
-          return;
-        }
-        add(box, el("p", "note", t("connectStarting")));
-        fetch("api/presentaciones", {
-          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ modo: mode, tipo: "acceso" })
-        }).then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
-          .then(function (res) {
-            clear(box);
-            tech.mark(1, res.request);
-            if (mode === "qr") {
-              var svg = new DOMParser().parseFromString(res.qrSvg, "image/svg+xml").documentElement;
-              add(box, add(el("div", "qr"), document.importNode(svg, true)), el("p", "qr-caption", t("loginQr")),
-                button(t("loginUsePhone"), "btn-link", function () { connect("movil"); }));
-            } else {
-              var a = el("a", "btn btn-primary", t("loginOpen"));
-              a.href = res.walletUri;
-              primary = function () { window.location.href = res.walletUri; };
-              add(box, a, el("p", "note", t("loginOpenBody")),
-                button(t("loginUseQr"), "btn-link", function () { connect("qr"); }));
-            }
-            connecting(box);
-            poll(res.id, res.token);
-          })
-          .catch(function () { failed(); });
+        present({
+          box: box, timers: timers, kind: "acceso", mode: mode, resumeId: resumeId,
+          recordedRequest: CFG.recorded.loginRequest, recordedView: { status: "VERIFIED", customer: CFG.recorded.customer },
+          settle: settle, failed: failed, setPrimary: setPrimary, restart: function (m) { connect(m); }
+        });
       });
     }
 
@@ -1066,14 +1085,283 @@ ${LOAN_JS}${String.raw`(function () {
     };
   }
 
+  /**
+   * Opening an account in the six phases a retail bank's app uses, with the wallet doing what the
+   * document photos, the selfie and the video did. Typed details are the ones a PID does not carry;
+   * the economic activity, the consents and the signature are simulated, and say so.
+   */
+  function accountFlow(host, opts) {
+    var timers = Timers(), clock = Clock(1), primary = null, data = null, pidId = null, typed = 0;
+    function setPrimary(fn) { primary = fn; }
+    var screens = AppScreens(host, timers);
+    var PHASES = ["phaseData", "phaseIdentity", "phaseActivity", "phaseSetup", "phaseSign"];
+
+    function frame(build, phase) {
+      screens.page(function (p) {
+        if (phase) {
+          var head = add(el("div", "phase"), el("span", "", t("phaseOf", { n: phase, total: PHASES.length })));
+          var time = el("span", "phase-time", fmt(clock.ms()));
+          add(head, time);
+          var bar = add(el("div", "phase-bar"), el("div", "phase-fill"));
+          bar.firstChild.style.width = Math.round((phase / PHASES.length) * 100) + "%";
+          add(p, head, bar);
+          timers.every(function () { time.textContent = fmt(clock.ms()); }, 500);
+        }
+        build(p);
+      });
+    }
+    function actions(p, label, fn, secondary) {
+      primary = fn;
+      add(p, el("div", "spacer"), add(el("div", "stack"), button(label, "btn-primary", fn), secondary || null));
+    }
+    function field(name) {
+      var f = (data && data.fields || []).filter(function (x) { return x.path === name; })[0];
+      return f ? f.value : "";
+    }
+    function report(outcome) {
+      if (!pidId || recorded) return;
+      fetch("api/expedientes/" + encodeURIComponent(pidId), {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(outcome)
+      }).catch(function () { /* nothing to tell the person */ });
+    }
+    function exit() { reset(); }
+
+    // A0 — before you start
+    function before() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a0Title")));
+        var products = el("ul", "asked-one");
+        [["a0Account", "a0AccountWhy"], ["a0Card", "a0CardWhy"], ["a0App", "a0AppWhy"]].forEach(function (x) {
+          add(products, add(el("li"), el("span", "asked-icon", "☑"), add(el("span"), el("strong", "", t(x[0])), el("small", "", t(x[1])))));
+        });
+        add(p, products, el("h2", "", t("a0NeedTitle")));
+        var need = el("ul", "asked-one");
+        [["a0NeedAdult", "👤"], ["a0NeedWallet", "▣"], ["a0NeedPhone", "📱"]].forEach(function (x) {
+          add(need, add(el("li"), el("span", "asked-icon", x[1]), add(el("span"), el("strong", "", t(x[0])), el("small", "", t(x[0] + "Why")))));
+        });
+        add(p, need);
+        actions(p, t("continue"), function () { clock.start(); store(Date.now()); identify(); },
+          button(t("a0Classic"), "btn-link", function () { go("current"); }));
+      });
+    }
+
+    // A1 — personal details: the PID first
+    function identify(mode, resumeId) {
+      if (!resumeId) tech.reset();
+      frame(function (p) {
+        add(p, el("h1", "", t("a1Title")), el("p", "lead", t("a1Lead")));
+        var asked = el("ul", "asked-one");
+        [["consentName", "👤"], ["consentBirth", "📅"], ["consentNationality", "🌍"], ["consentDocument", "🪪"], ["consentAddress", "🏠"]].forEach(function (x) {
+          add(asked, add(el("li"), el("span", "asked-icon", x[1]), add(el("span"), el("strong", "", t(x[0])), el("small", "", t(x[0] + "Why")))));
+        });
+        var box = el("div", "wallet-box");
+        add(p, asked, box);
+        present({
+          box: box, timers: timers, kind: "pid", mode: mode || (MOBILE() ? "movil" : "qr"), resumeId: resumeId, body: { producto: "cuenta" },
+          recordedRequest: CFG.recorded.request, recordedView: { status: "VERIFIED", fields: CFG.recorded.fields, adult: true },
+          onStarted: function (id) { pidId = id; },
+          settle: settle, failed: function () { failed(); }, setPrimary: setPrimary,
+          restart: function (m) { identify(m); }
+        });
+      }, 1);
+    }
+    function settle(view) {
+      if (view.status === "PRESENTATION_RECEIVED" || view.status === "VERIFYING" || view.status === "VERIFIED") {
+        var claims = {};
+        (view.fields || []).forEach(function (f) { claims[f.path] = mask(f.value); });
+        marksFor(view, "PID_PROVIDER", { status: "VERIFIED", trustEnvironment: "TEST", claims: claims });
+      }
+      if (view.status === "VERIFIED") {
+        if (!view.adult) { timers.later(function () { outcomeScreen(screens, "⚠", t("minorTitle"), t("errorMinor"), [[t("logout"), exit]], setPrimary); }, 600); return true; }
+        if (view.alreadyCustomer) {
+          timers.later(function () {
+            outcomeScreen(screens, "✓", t("alreadyCustomerTitle"), t("alreadyCustomerBody"), [[t("loginCta"), function () { go("login"); }], [t("logout"), exit]], setPrimary);
+          }, 600);
+          return true;
+        }
+        data = view; timers.later(details, 600); return true;
+      }
+      if (WAITING[view.status]) return false;
+      failed(view.status);
+      return true;
+    }
+    function failed(status) {
+      outcomeScreen(screens, "⚠", t(status ? "loginFailTitle" : "loginOopsTitle"), t(status ? FAILURES[status] || "errorProtocol" : "errorUnavailable"),
+        [[t("connectRetry"), function () { identify(); }], [t("logout"), exit]], setPrimary);
+    }
+
+    // A1 — the verified data, and what the PID does not carry
+    function details() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a1Title")), add(el("p", "verified-line"), el("strong", "", "✓ " + t("a1Verified"))));
+        var list = el("div", "locked");
+        var labels = {};
+        CFG.fields.forEach(function (f) { labels[f.path] = t(f.label); });
+        data.fields.forEach(function (f, i) {
+          var row = add(el("div", "locked-row"), el("span", "", labels[f.path] || f.path), el("strong", "", ""), el("span", "lock", "🔒"));
+          add(list, row);
+          timers.later(function () { row.classList.add("in"); row.children[1].textContent = f.value; }, 150 + i * 150);
+        });
+        add(p, list, el("h2", "", t("a1ContactTitle")));
+        function input(key, type, sample) {
+          var i = el("input"); i.type = type; i.dataset.sample = sample; i.autocomplete = "off";
+          add(p, add(el("div", "field"), el("label", "", t(key)), i));
+          return i;
+        }
+        var email = input("kycEmail", "email", t("kycEmailSample"));
+        var phone = input("kycPhone", "tel", t("kycPhoneSample"));
+        actions(p, t("continue"), function () {
+          [email, phone].forEach(function (i) { if (!i.value) i.value = i.dataset.sample; });
+          typed = 2;
+          verifyPhone();
+        });
+      }, 1);
+    }
+    function verifyPhone() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a1OtpTitle")), el("p", "lead", t("a1OtpLead")));
+        var digits = el("div", "otp-digits");
+        var cells = [0, 1, 2, 3, 4, 5].map(function () { var c = el("span", "otp-cell"); add(digits, c); return c; });
+        add(p, digits, el("p", "note", t("a1OtpNote")));
+        cells.forEach(function (c, i) { timers.later(function () { c.textContent = String((i * 7 + 3) % 10); }, 300 + i * 200); });
+        actions(p, t("continue"), function () { checklist(2, identity); });
+        timers.later(function () { checklist(2, identity); }, 2200);
+      }, 1);
+    }
+
+    // Between phases: what is done and what is left
+    function checklist(doneCount, next) {
+      frame(function (p) {
+        add(p, el("h1", "", t(doneCount >= PHASES.length ? "checkAllTitle" : "checkTitle_" + doneCount)));
+        var ol = el("ol", "checklist");
+        PHASES.forEach(function (k, i) {
+          var li = el("li", i < doneCount ? "done" : "");
+          add(li, el("span", "check-dot", i < doneCount ? "✓" : String(i + 1)),
+            add(el("span"), el("strong", "", t(k)), el("small", "", t(i < doneCount ? (k === "phaseIdentity" ? "checkByWallet" : "checkDone") : k + "Time"))));
+          add(ol, li);
+        });
+        add(p, ol);
+        actions(p, t("continue"), next);
+      });
+    }
+
+    // A2 — identity verification: what the wallet replaced
+    function identity() {
+      frame(function (p) {
+        add(p, el("div", "outcome-icon good", "✓"), el("h1", "", t("a2Title")), el("p", "lead", t("a2Lead")));
+        var ul = el("ul", "proof");
+        ["a2Check1", "a2Check2", "a2Check3"].forEach(function (k) { add(ul, el("li", "", t(k))); });
+        add(p, el("p", "", t("a2Checked")), ul, el("p", "note", t("a2Replaced")));
+        actions(p, t("continue"), activity);
+      }, 2);
+    }
+
+    // A3 — economic activity, simulated
+    function activity() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a3Title")), add(el("p", "note"), el("span", "chip chip-warn", t("simulated")), document.createTextNode(" " + t("a3Note"))));
+        function radios(key, options) {
+          var fs = add(el("fieldset", "radios"), el("legend", "", t(key)));
+          t(options).split("|").forEach(function (o, i) {
+            var r = el("input"); r.type = "radio"; r.name = key; r.checked = i === 0;
+            add(fs, add(el("label", "radio"), r, el("span", "", o)));
+          });
+          add(p, fs);
+        }
+        radios("a3Activity", "a3ActivityOptions");
+        var sel = el("select");
+        t("a3IncomeOptions").split("|").forEach(function (o) { add(sel, el("option", "", o)); });
+        add(p, add(el("div", "field"), el("label", "", t("a3Income")), sel));
+        radios("a3Pep", "a3YesNoNo");
+        radios("a3Us", "a3YesNoNo");
+        actions(p, t("continue"), function () { checklist(3, setup); });
+      }, 3);
+    }
+
+    // A4 — set up the account
+    function setup() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a4Title")));
+        add(p, el("h2", "", t("a4AccessTitle")), add(el("div", "who"), el("strong", "", "▣ " + t("a4Access")), el("span", "", t("a4AccessBody"))));
+        add(p, el("h2", "", t("a4ConsentTitle")), el("p", "note", t("a4ConsentBody")));
+        var choice = el("p", "verified-line");
+        var go4 = function (label) { choice.textContent = "✓ " + label; timers.later(function () { checklist(4, sign); }, 500); };
+        add(p, add(el("div", "stack"), button(t("a4AcceptAll"), "btn-secondary", function () { go4(t("a4Accepted")); }),
+          button(t("a4RejectAll"), "btn-secondary", function () { go4(t("a4Rejected")); })), choice);
+        add(p, el("h2", "", t("a4BranchTitle")), add(el("div", "tile"), add(el("span"), el("strong", "", t("a4Branch")), el("small", "", t("a4BranchWhy")))));
+        actions(p, t("a4Confirm"), function () { go4(t("a4Accepted")); });
+      }, 4);
+    }
+
+    // A5 — sign, simulated
+    function sign() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a5Title")), el("p", "lead", t("a5Lead", { name: field("given_name") })));
+        var docs = el("ul", "docs");
+        ["a5Doc1", "a5Doc2", "a5Doc3"].forEach(function (k) { add(docs, add(el("li"), el("span", "", "📄 " + t(k)), el("span", "", "›"))); });
+        var c = el("input"); c.type = "checkbox";
+        add(p, docs, add(el("label", "check"), c, el("span", "", t("a5Accept"))), el("p", "note", t("a5Simulated")));
+        actions(p, t("a5Sign"), function () { c.checked = true; confirm(); });
+      }, 5);
+    }
+    function confirm() {
+      frame(function (p) {
+        add(p, el("h1", "", t("a5OtpTitle")), el("p", "lead", t("a5OtpLead")));
+        var digits = el("div", "otp-digits");
+        var cells = [0, 1, 2, 3, 4, 5].map(function () { var c = el("span", "otp-cell"); add(digits, c); return c; });
+        add(p, digits, el("p", "note", t("a1OtpNote")));
+        cells.forEach(function (c, i) { timers.later(function () { c.textContent = String((i * 3 + 1) % 10); }, 300 + i * 200); });
+        timers.later(welcome, 2200);
+        primary = welcome;
+      }, 5);
+    }
+
+    function welcome() {
+      clock.stop(); store(null);
+      var ms = clock.ms();
+      results.eudi = { ms: ms, steps: PHASES.length, typed: typed, docs: 0, retries: 0, review: false, recorded: recorded };
+      report({ product: "cuenta", signed: true });
+      frame(function (p) {
+        add(p, el("div", "outcome-icon good", "✓"), el("h1", "", t("a5WelcomeTitle")), el("p", "lead", t("successLead")));
+        add(p, add(el("div", "acct"), el("small", "", t("signedAccount")), el("span", "acct-iban", t("successIbanValue"))));
+        var metrics = el("div", "metrics");
+        [[fmt(ms), t("compareTime")], [String(typed), t("compareTyped")], ["0", t("compareDocs")], [t("compareNo"), t("a5Video")]]
+          .forEach(function (m) { add(metrics, add(el("div", "metric"), el("strong", "", m[0]), el("span", "", m[1]))); });
+        add(p, metrics);
+        var login = CFG.login && !recorded;
+        if (login) add(p, el("p", "note", t("joinedLogin")));
+        primary = login ? function () { go("login"); } : function () { go("compare"); };
+        add(p, el("div", "spacer"), add(el("div", "stack"),
+          login ? button(t("loginCta"), "btn-primary", primary) : null,
+          button(t("successCompare"), login ? "btn-secondary" : "btn-primary", function () { go("compare"); })));
+      });
+    }
+
+    if (opts.resume) {
+      clock.start(stored() || Date.now());
+      pidId = opts.resume.id;
+      identify("movil", opts.resume.id);
+    } else before();
+    return {
+      advance: function () { if (primary) primary(); },
+      destroy: function () { timers.stop(); },
+      isDone: function () { return false; }
+    };
+  }
+
   function solo(kind, resume) {
     var pane = el("div", "pane pane-solo");
     add(app, pane);
-    var flow = kind === "eudi"
-      ? eudiFlow(pane, { resume: resume, onClassic: function () { go("current"); } })
-      : kind === "loan"
-        ? eudiFlow(pane, { product: "loan", resume: resume })
-        : currentFlow(pane, { auto: false });
+    if (kind === "eudi") {
+      // The account opening is the app's own screens, not a pane.
+      app.removeChild(pane);
+      var account = accountFlow(app, { resume: resume });
+      flows.push(account); advanceTarget = account;
+      return;
+    }
+    var flow = kind === "loan"
+      ? eudiFlow(pane, { product: "loan", resume: resume })
+      : currentFlow(pane, { auto: false });
     flows.push(flow); advanceTarget = flow;
   }
 

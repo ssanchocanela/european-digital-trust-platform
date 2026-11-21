@@ -4,6 +4,7 @@ import express, { type Request, type Response } from "express";
 import qrcode from "qrcode-generator";
 import { z } from "zod";
 import { CaseBook } from "./backoffice.js";
+import { type Brand, brandCss, brandDictionary, loadBrand } from "./brand.js";
 import {
   FIELDS,
   INCOME_REQUESTED_CLAIMS,
@@ -95,6 +96,14 @@ const schema = z.object({
   ONBOARDING_LOGIN_POLICY: z.preprocess(
     (v) => (v === "" ? undefined : v),
     z.string().uuid().optional(),
+  ),
+  /**
+   * A client's look (`brand.ts`), from a directory on the host. Unset: Banco Horizonte. Only for an
+   * instance that Cloudflare Access protects whole, shown with the client's written permission.
+   */
+  ONBOARDING_BRAND_DIR: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().min(1).optional(),
   ),
 });
 
@@ -221,9 +230,26 @@ const main = (): void => {
   const today = () => new Date().toISOString().slice(0, 10);
 
   // Content-versioned, so a cache in front never serves yesterday's script with today's page.
+  let brand: Brand | undefined;
+  try {
+    brand = config.ONBOARDING_BRAND_DIR ? loadBrand(config.ONBOARDING_BRAND_DIR) : undefined;
+  } catch (error) {
+    process.stderr.write(`Invalid brand: ${(error as Error).message}\n`);
+    process.exit(1);
+  }
+  const BRAND_CSS = brandCss(brand);
+  const brandName = brand?.name ?? "Banco Horizonte";
+  const texts = (lang: string | undefined) => {
+    const d = dictionary(lang);
+    return { lang: d.lang, t: brandDictionary(d.t, brand) };
+  };
+
+  // Content-versioned, so a cache in front never serves yesterday's script with today's page.
   const version = createHash("sha256")
     .update(APP_CSS)
     .update(CLIENT_JS)
+    .update(BRAND_CSS)
+    .update(brand?.logo.bytes ?? "")
     .digest("hex")
     .slice(0, 12);
   const assets = `assets/${version}`;
@@ -263,7 +289,7 @@ const main = (): void => {
   });
 
   const shell = (lang: unknown, resume?: string, resumeKind?: Kind): string => {
-    const { lang: chosen, t } = dictionary(typeof lang === "string" ? lang : undefined);
+    const { lang: chosen, t } = texts(typeof lang === "string" ? lang : undefined);
     return renderShell({
       lang: chosen,
       t,
@@ -272,6 +298,15 @@ const main = (): void => {
       // With no policy at all the page plays its recording, income certificate included.
       income: Boolean(incomePolicy) || !policy,
       login: Boolean(loginPolicy) || !policy,
+      ...(brand
+        ? {
+            brand: {
+              name: brand.name,
+              logo: `${assets}/logo.${brand.logo.ext}`,
+              css: `${assets}/brand.css`,
+            },
+          }
+        : {}),
       ...(resume ? { resume, resumeKind: resumeKind ?? "pid" } : {}),
       recorded,
     });
@@ -307,6 +342,23 @@ const main = (): void => {
     response.setHeader("cache-control", "public, max-age=31536000, immutable");
     response.type("css").send(APP_CSS);
   });
+  if (brand) {
+    const logo = brand.logo;
+    app.get(`/${assets}/brand.css`, (_request, response) => {
+      response.setHeader("cache-control", "public, max-age=31536000, immutable");
+      response.type("css").send(BRAND_CSS);
+    });
+    app.get(`/${assets}/logo.${logo.ext}`, (_request, response) => {
+      response.setHeader("cache-control", "public, max-age=31536000, immutable");
+      response.setHeader("x-content-type-options", "nosniff");
+      // Opened on its own, an SVG is a document: it may draw, never run anything.
+      response.setHeader(
+        "content-security-policy",
+        "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      );
+      response.type(logo.type).send(logo.bytes);
+    });
+  }
   app.get(`/${assets}/app.js`, (_request, response) => {
     response.setHeader("cache-control", "public, max-age=31536000, immutable");
     response.type("js").send(CLIENT_JS);
@@ -443,25 +495,25 @@ const main = (): void => {
     const who = accessIdentity(request);
     if (!book || !who) return next();
     secureHeaders(response);
-    const { t } = dictionary(undefined);
+    const { t } = texts(undefined);
     response.send(renderBackoffice({ t, assets, who, cases: book.list(), now: new Date() }));
   });
 
   app.use((request, response) => {
     secureHeaders(response);
-    const { t } = dictionary(undefined);
+    const { t } = texts(undefined);
     if (request.path.startsWith("/api/")) {
       response.status(404).json({ error: "not_found" });
       return;
     }
     response
       .status(404)
-      .send(renderPlain(t, "No encontrado", "Esta página no existe.", "/" + assets));
+      .send(renderPlain(t, "No encontrado", "Esta página no existe.", "/" + assets, brandName));
   });
 
   app.listen(config.ONBOARDING_PORT, config.ONBOARDING_BIND_HOST, () => {
     process.stdout.write(
-      `${JSON.stringify({ level: "info", service: "demo-onboarding", message: "listening", port: config.ONBOARDING_PORT, live: Boolean(policy), login: Boolean(loginPolicy), fields: FIELDS.length, backoffice: Boolean(book) })}\n`,
+      `${JSON.stringify({ level: "info", service: "demo-onboarding", message: "listening", port: config.ONBOARDING_PORT, live: Boolean(policy), login: Boolean(loginPolicy), brand: brand?.name ?? null, fields: FIELDS.length, backoffice: Boolean(book) })}\n`,
     );
   });
 };

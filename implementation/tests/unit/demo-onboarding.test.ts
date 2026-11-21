@@ -1,7 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { CaseBook } from "../../apps/demo-onboarding/src/backoffice.js";
+import { brandCss, brandDictionary, loadBrand } from "../../apps/demo-onboarding/src/brand.js";
 import {
   FIELDS,
   INCOME_REQUESTED_CLAIMS,
@@ -371,5 +373,77 @@ describe("the login with the wallet", () => {
   it("offers no field to type a user name or a password into", () => {
     expect(shell({ login: true })).not.toMatch(/type=["']?password|contraseña<\/label/i);
     expect(CLIENT_JS).not.toMatch(/type = "password"|\.type = 'password'/);
+  });
+});
+
+describe("a client's brand", () => {
+  const dir = (
+    brand: Record<string, unknown>,
+    logo = "<svg xmlns='http://www.w3.org/2000/svg'/>",
+  ) => {
+    const d = mkdtempSync(join(tmpdir(), "brand-"));
+    writeFileSync(join(d, "brand.json"), JSON.stringify(brand));
+    writeFileSync(join(d, "logo.svg"), logo);
+    return d;
+  };
+  const good = {
+    name: "Banco Cliente",
+    band: "Demostración preparada para Banco Cliente. No es un servicio de Banco Cliente.",
+    legal:
+      "Página de demostración de la European Digital Trust Platform, con permiso del cliente.",
+    shapeA: "#FFC600",
+    shapeB: "#007EAE",
+    logo: "logo.svg",
+  };
+
+  it("is read from a directory on the host, never from the code", () => {
+    const brand = loadBrand(dir(good));
+    expect(brand.name).toBe("Banco Cliente");
+    expect(brand.logo.type).toBe("image/svg+xml");
+    expect(brandCss(brand)).toContain("--shape-a:#FFC600");
+  });
+
+  it("is refused unless its band and legal line say it is a demonstration", () => {
+    expect(() =>
+      loadBrand(dir({ ...good, band: "Bienvenido a Banco Cliente, tu banco de siempre." })),
+    ).toThrow(/demonstration/);
+    expect(() =>
+      loadBrand(dir({ ...good, legal: "Banco Cliente S.A., todos los derechos reservados." })),
+    ).toThrow(/demonstration/);
+  });
+
+  it("refuses anything but a plain colour and an SVG or PNG logo", () => {
+    expect(() => loadBrand(dir({ ...good, shapeA: "red;}body{x" }))).toThrow();
+    expect(() => loadBrand(dir({ ...good, logo: "../secret.svg" }))).toThrow();
+    expect(() => loadBrand(dir({ ...good, logo: "logo.html" }))).toThrow();
+  });
+
+  it("renames every text, and puts its own band in place of Banco Horizonte's", () => {
+    const branded = brandDictionary(t, loadBrand(dir(good)));
+    expect(JSON.stringify(branded)).not.toMatch(/Horizonte/);
+    expect(branded.band).toBe(good.band);
+    expect(branded.a5WelcomeTitle).toContain("Banco Cliente");
+  });
+
+  it("shows its logo, its name and its band, and keeps the page's own rules", () => {
+    const branded = brandDictionary(t, loadBrand(dir(good)));
+    const page = renderShell({
+      lang: "es",
+      t: branded,
+      assets: "assets/abc",
+      live: true,
+      recorded: {},
+      brand: {
+        name: "Banco Cliente",
+        logo: "assets/abc/logo.svg",
+        css: "assets/abc/brand.css",
+      },
+    });
+    expect(page).toContain(
+      '<img class="brand-logo" src="assets/abc/logo.svg" alt="Banco Cliente">',
+    );
+    expect(page).toContain("Demostración preparada para Banco Cliente");
+    expect(page).not.toMatch(/Banco Horizonte/);
+    expect(page).not.toMatch(/<script(?![^>]*(type="application\/json"|src=))/);
   });
 });

@@ -159,6 +159,22 @@ exposure.
 country): they are optional in the Rulebook, and a wallet whose PID lacks one reports that it holds
 nothing suitable. Issue the demonstration's person, and a spare, from the hosted form with all four.
 
+### Login with the wallet
+
+A customer who opened an account on the page signs in by presenting their PID under a second policy,
+which asks for the personal administrative number only (`scripts/onboarding/bank-login.json`). The
+process keeps an HMAC of that number from the account opening, under a key it generates at start, so a
+restart or the nightly reset forgets every customer: open an account first, then log in, in one run.
+
+1. `PLATFORM_TENANT_API_KEY=… node scripts/register-bank-onboarding.mjs policy <Banco Horizonte's
+   serviceId> <PID list URL> --login`, with the same service and list as the onboarding policy.
+2. The printed policy goes in `HOSTED_VERIFIER_POLICIES`, `HOSTED_VERIFIER_ORIGINS` (the same
+   origin) and `HOSTED_VERIFIER_QR_POLICIES`, and in **`ONBOARDING_LOGIN_POLICY`**. Recreate
+   `platform-api` and `demo-onboarding`.
+
+A PID without a personal administrative number cannot log in: the page says so. The test PID provider
+issues one; a reference-issued PID may not.
+
 ## Trust lists published by the portal
 
 `https://demo.murcata.es/lote/<name>.jwt` serves the files in `/var/lib/edtp-lote` on the VM, read-only

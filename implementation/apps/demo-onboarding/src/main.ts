@@ -7,11 +7,14 @@ import { CaseBook } from "./backoffice.js";
 import {
   FIELDS,
   INCOME_REQUESTED_CLAIMS,
+  LOGIN_REQUESTED_CLAIMS,
+  loginDocument,
   REQUESTED_CLAIMS,
   toIncomeData,
   toOnboardingData,
 } from "./claims.js";
 import { CLIENT_JS } from "./client.js";
+import { CustomerBook } from "./customers.js";
 import { dictionary } from "./i18n.js";
 import {
   APP_CSS,
@@ -46,6 +49,13 @@ import { RECORDED_CLAIMS, RECORDED_INCOME_CLAIMS, RECORDED_STATUSES } from "./re
  *
  * Without a policy it still runs: the simulation, and a recording in place of the wallet, announced
  * on every screen for as long as it plays.
+ *
+ * ## The login
+ *
+ * A customer who opened an account here signs in by presenting their PID under a second policy,
+ * which asks for the personal administrative number only. The process recognises it by an HMAC it
+ * keeps from the account opening, and greets the given name it kept then (`customers.ts`). That is
+ * the one other thing this process holds, in memory, whatever the back office's setting.
  */
 
 const schema = z.object({
@@ -81,6 +91,11 @@ const schema = z.object({
    * when no request can reach this process without passing Access.
    */
   ONBOARDING_BACKOFFICE: z.enum(["on", "off"]).default("off"),
+  /** The login's policy: `register-bank-onboarding.mjs policy … --login`. Unset: no wallet login. */
+  ONBOARDING_LOGIN_POLICY: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.string().uuid().optional(),
+  ),
 });
 
 type Config = Readonly<z.infer<typeof schema>>;
@@ -142,11 +157,12 @@ const qrSvg = (value: string): string => {
   return qr.createSvgTag({ cellSize: 5, margin: 2, scalable: true });
 };
 
-/** The two things the page asks a wallet for. */
-type Kind = "pid" | "ingresos";
+/** The three things the page asks a wallet for: a PID to open an account, an income certificate, a PID to log in. */
+type Kind = "pid" | "ingresos" | "acceso";
 const CREDENTIALS = {
   pid: { vct: "urn:eudi:pid:1", requestedClaims: REQUESTED_CLAIMS },
   ingresos: { vct: "urn:edtp:income-certificate:1", requestedClaims: INCOME_REQUESTED_CLAIMS },
+  acceso: { vct: "urn:eudi:pid:1", requestedClaims: LOGIN_REQUESTED_CLAIMS },
 } as const;
 
 /** What the technical panel shows of the request: its shape, never a secret and never content. */
@@ -192,9 +208,13 @@ const main = (): void => {
   const policy = config.HOSTED_VERIFIER_SECRET ? config.ONBOARDING_POLICY : undefined;
   // The income step exists only on top of the identification: never one without the other.
   const incomePolicy = policy ? config.ONBOARDING_INCOME_POLICY : undefined;
+  // The login recognises customers the account opening made: never one without the other.
+  const loginPolicy = policy ? config.ONBOARDING_LOGIN_POLICY : undefined;
   const policyFor = (kind: Kind): string | undefined =>
-    kind === "pid" ? policy : incomePolicy;
-  const kindOf = (value: unknown): Kind => (value === "ingresos" ? "ingresos" : "pid");
+    kind === "pid" ? policy : kind === "ingresos" ? incomePolicy : loginPolicy;
+  const kindOf = (value: unknown): Kind =>
+    value === "ingresos" ? "ingresos" : value === "acceso" ? "acceso" : "pid";
+  const customers = new CustomerBook();
   const polls = new CrossDevicePolls();
   // Only with the back office on is anything a wallet presented kept past the request.
   const book = config.ONBOARDING_BACKOFFICE === "on" ? new CaseBook() : undefined;
@@ -214,6 +234,11 @@ const main = (): void => {
     request: requestSummary("pid", "00000000", "RECORDED", "", null),
     income: toIncomeData(RECORDED_INCOME_CLAIMS),
     incomeRequest: requestSummary("ingresos", "00000000", "RECORDED", "", null),
+    loginRequest: requestSummary("acceso", "00000000", "RECORDED", "", null),
+    customer: {
+      givenName: String(RECORDED_CLAIMS["given_name"] ?? ""),
+      iban: "ES00 0000 0000 0000 0000 0000",
+    },
   };
 
   const app = express();
@@ -246,6 +271,7 @@ const main = (): void => {
       live: Boolean(policy),
       // With no policy at all the page plays its recording, income certificate included.
       income: Boolean(incomePolicy) || !policy,
+      login: Boolean(loginPolicy) || !policy,
       ...(resume ? { resume, resumeKind: resumeKind ?? "pid" } : {}),
       recorded,
     });
@@ -267,7 +293,9 @@ const main = (): void => {
         ? "pid"
         : incomePolicy && returned === incomePolicy
           ? "ingresos"
-          : undefined;
+          : loginPolicy && returned === loginPolicy
+            ? "acceso"
+            : undefined;
     if (!kind || !UUID.test(presentationId)) {
       response.redirect(303, "./");
       return;
@@ -311,7 +339,11 @@ const main = (): void => {
     if (kind === "pid") {
       const product = request.body?.producto === "prestamo" ? "prestamo" : "cuenta";
       book?.expect(id, product, product === "prestamo" && Boolean(incomePolicy));
-    } else if (typeof request.body?.pid === "string" && UUID.test(request.body.pid)) {
+    } else if (
+      kind === "ingresos" &&
+      typeof request.body?.pid === "string" &&
+      UUID.test(request.body.pid)
+    ) {
       book?.link(id, request.body.pid);
     }
     response.status(201).json({
@@ -362,21 +394,47 @@ const main = (): void => {
       response.json(income ? { status, income } : { status: "POLICY_NOT_SATISFIED" });
       return;
     }
+    if (kind === "acceso") {
+      // The number is hashed, looked up and dropped here. Only what the bank kept goes back.
+      const document = loginDocument(claims);
+      const customer = document === undefined ? undefined : customers.find(document);
+      response.json(
+        document === undefined
+          ? { status: "NO_DOCUMENT" }
+          : customer
+            ? { status, customer: { givenName: customer.givenName, iban: customer.iban } }
+            : { status: "NOT_A_CUSTOMER" },
+      );
+      return;
+    }
     const identity = toOnboardingData(claims, today());
     book?.identity(id, identity);
-    response.json({ status, ...identity });
+    // Held against this presentation until a contract is signed: then the person is a customer.
+    const document = loginDocument(claims);
+    const alreadyCustomer = document !== undefined && customers.isCustomer(document);
+    if (document !== undefined && !alreadyCustomer) {
+      const givenName = identity.fields.find((f) => f.path === "given_name")?.value ?? "";
+      customers.expect(id, document, givenName);
+    }
+    response.json({ status, ...identity, alreadyCustomer });
   });
 
   // How an application ended, as the page worked it out. It lands on a case only a verified PID
-  // presentation can have opened, and is shown to the back office as declared.
+  // presentation can have opened, and is shown to the back office as declared. A signed account
+  // makes the person a customer, who can then log in with the wallet.
   app.post("/api/expedientes/:id", (request, response) => {
     secureHeaders(response);
     const declared = declaredSchema.safeParse(request.body);
-    if (!book || !UUID.test(request.params.id) || !declared.success) {
+    if (!UUID.test(request.params.id) || !declared.success) {
       response.status(404).json({ error: "not_found" });
       return;
     }
-    response.status(book.declare(request.params.id, declared.data) ? 204 : 404).end();
+    const enrolled =
+      declared.data.product === "cuenta" && declared.data.signed
+        ? customers.enrol(request.params.id) !== undefined
+        : false;
+    const declaredToBook = book?.declare(request.params.id, declared.data) ?? false;
+    response.status(enrolled || declaredToBook ? 204 : 404).end();
   });
 
   // The back office. Served only when it is switched on and only to a visitor Access has
@@ -403,7 +461,7 @@ const main = (): void => {
 
   app.listen(config.ONBOARDING_PORT, config.ONBOARDING_BIND_HOST, () => {
     process.stdout.write(
-      `${JSON.stringify({ level: "info", service: "demo-onboarding", message: "listening", port: config.ONBOARDING_PORT, live: Boolean(policy), fields: FIELDS.length, backoffice: Boolean(book) })}\n`,
+      `${JSON.stringify({ level: "info", service: "demo-onboarding", message: "listening", port: config.ONBOARDING_PORT, live: Boolean(policy), login: Boolean(loginPolicy), fields: FIELDS.length, backoffice: Boolean(book) })}\n`,
     );
   });
 };

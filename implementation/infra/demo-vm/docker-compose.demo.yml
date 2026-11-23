@@ -57,7 +57,10 @@ services:
       ONBOARDING_POLICY: ${ONBOARDING_CLIENT_POLICY:-}
       ONBOARDING_LOGIN_POLICY: ${ONBOARDING_CLIENT_LOGIN_POLICY:-}
       ONBOARDING_BRAND_DIR: /brand
-      ONBOARDING_BACKOFFICE: "off"
+      # On: Access protects this whole hostname, /backoffice included (a 302 to Access was seen from
+      # outside on 21 November 2026), so the identity header the back office trusts can only come
+      # from Access. Its cases are this instance's own.
+      ONBOARDING_BACKOFFICE: "on"
     volumes:
       - /var/lib/edtp-brands/bank-client:/brand:ro
     ports:

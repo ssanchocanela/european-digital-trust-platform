@@ -174,6 +174,8 @@ export interface BackofficeOptions {
   readonly who: string;
   readonly cases: readonly CaseRecord[];
   readonly now: Date;
+  /** A client's brand, as on the shell: its name, and the versioned URLs of its logo and colours. */
+  readonly brand?: { readonly name: string; readonly logo: string; readonly css: string };
 }
 
 /**
@@ -242,12 +244,16 @@ export const renderBackoffice = (o: BackofficeOptions): string => {
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="refresh" content="5">
-<title>${e(t.boTitle)} — Banco Horizonte (demostración)</title>
-<link rel="stylesheet" href="${e(o.assets)}/app.css">
+<title>${e(t.boTitle)} — ${e(o.brand?.name ?? "Banco Horizonte")} (demostración)</title>
+<link rel="stylesheet" href="${e(o.assets)}/app.css">${o.brand ? `\n<link rel="stylesheet" href="${e(o.brand.css)}">` : ""}
 </head>
 <body>
   <div class="demo" role="note">${e(t.band)}</div>
-  <header class="top"><div class="bar"><a class="brand" href="./"><span class="mark" aria-hidden="true"></span><span>Banco Horizonte<small>${e(t.boTitle)}</small></span></a><span class="access">${e(o.who)}</span></div></header>
+  <header class="top"><div class="bar"><a class="brand" href="./">${
+    o.brand
+      ? `<img class="brand-logo" src="${e(o.brand.logo)}" alt="${e(o.brand.name)}"><span><small>${e(t.boTitle)}</small></span>`
+      : `<span class="mark" aria-hidden="true"></span><span>Banco Horizonte<small>${e(t.boTitle)}</small></span>`
+  }</a><span class="access">${e(o.who)}</span></div></header>
   <main>
     <section class="screen">
       <h1>${e(t.boTitle)}</h1>

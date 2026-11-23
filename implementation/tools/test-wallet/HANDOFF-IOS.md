@@ -38,15 +38,33 @@ The Android deliverable this iOS build must match (`dist/DELIVERY-NOTICE.md`, 20
 | **Trust lists** | Commission **Launchpad 2026 testbed** (development env) for PID / WRPAC / WRPRC / mDL; pub-EAA left on the EUDI reference list |
 | EDTP trust layers | granular C1/C2/C3 core always compiled in; runtime toggles off by default (§6) |
 
-**iOS upstream to start from (confirm the exact release with the maintainer — do not guess a tag):**
-- App: `eu-digital-identity-wallet/eudi-app-ios-wallet-ui`
-- Wallet Kit (SPM): `eu-digital-identity-wallet/eudi-lib-ios-wallet-kit` and its transitive libs
-  (OpenID4VCI, OpenID4VP, SIOPv2, mdoc-data-model, …).
+**iOS upstream to start from — the release that matches `2026.09.42-Demo_Build=42`** (resolved from
+the EUDI iOS repo's tags and its `Package.resolved`, 2026-11-23):
 
-Pick the iOS reference-wallet release on the **same `2026.09.x` demo line** as the Android tag above,
-and record the exact iOS app tag + wallet-kit version you build against in the run record (§9). The
-behaviours below are defined against Wallet Core 0.30.2 semantics; verify each against the iOS
-wallet-kit version you land on, because a different minor can move or rename the call site.
+| | |
+|---|---|
+| App | `eu-digital-identity-wallet/eudi-app-ios-wallet-ui`, tag **`Wallet/Demo_2026.09.42-Demo_Build=42`**, commit `7da95a7be097c538469293171612e743a4c0d550`. Xcode project **`EudiReferenceWallet.xcodeproj`** |
+| `eudi-lib-ios-wallet-kit` | **0.51.0** — the app-facing façade (trust config, issuer list, schemes) |
+| `eudi-lib-ios-openid4vci-swift` | **0.53.2** — issuance ⇒ WD-6, WD-11, **WD-21** |
+| `eudi-lib-ios-openid4vp-swift` | **0.41.0** — presentation ⇒ WD-19, request object |
+| `eudi-lib-ios-iso18013-data-model` / `-data-transfer` / `-security` | **0.25.0** — mdoc/mDL, the reader role, device/issuer-auth verdict |
+| `eudi-lib-ios-statium-swift` | **0.5.0** — token status lists ⇒ WD-16 / WD-17 |
+| `eudi-lib-ios-wallet-storage` | **0.26.0** — credential storage ⇒ WD-20 (reuse policy) |
+| `eudi-lib-sdjwt-swift` | **0.14.7** — SD-JWT PID |
+
+These are the versions that release pins; a later minor can move or rename a call site, so verify each
+change against the version you actually build. Record the exact app tag + wallet-kit version in the
+run record (§9).
+
+> **⚠ Trust-model difference — investigate this FIRST.** The iOS wallet's `Package.resolved` has **no
+> ETSI TS 119 602 trusted-list library** (Android's trust lives in `eudi-lib-kmp-etsi-1196x2`, which
+> WD-10/13/15 patch). So the iOS trust mechanism is **not the same shape**: it likely does **not**
+> consume LoTE/ETSI trusted lists the way Android does, and trust anchors may be configured directly
+> in `eudi-lib-ios-wallet-kit`. This affects **WD-3, WD-4, WD-8, WD-10, WD-12, WD-13, WD-15** — half
+> the set. Before porting those one by one, map **how `eudi-lib-ios-wallet-kit` 0.51.0 establishes
+> issuer/reader trust**, then translate the *intent* (trust our dev PID/WRPAC/WRPRC/mDL anchors)
+> rather than the Android list-parsing patches. §5.1 and §5.3 below assume the Android (ETSI-list)
+> shape — adapt them to whatever iOS actually does.
 
 ---
 

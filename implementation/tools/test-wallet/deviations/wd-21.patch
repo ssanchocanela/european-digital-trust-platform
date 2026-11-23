@@ -1,0 +1,77 @@
+diff --git a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
+index df36329..727b858 100644
+--- a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
++++ b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
+@@ -975,11 +975,41 @@ class WalletCoreDocumentsControllerImpl(
+                                 }
+                             }
+ 
+-                            val createDocumentSettings =
++                            // EDTP WD-21: negotiate the binding-key algorithm with the issuer's
++                            // required JWT-proof signing algorithms. The reference wallet always
++                            // creates the key with the default (ES256) and never reads the issuer's
++                            // proof_signing_alg_values_supported, so an issuer that accepts only
++                            // e.g. ES384 is unsatisfiable (ProofTypeSigningAlgorithmNotSupported).
++                            // null = the default (ES256) is accepted, so the upstream path is used
++                            // unchanged (byte-for-byte).
++                            val edtpProofAlg = edtpNegotiateProofKeyAlgorithm(event.offeredDocument)
++                            val createDocumentSettings = if (edtpProofAlg == null) {
+                                 eudiWallet.getDefaultCreateDocumentSettings(
+                                     offeredDocument = event.offeredDocument,
+                                     credentialPolicy = adjustedPolicy
+                                 )
++                            } else {
++                                // Passing a `configure` block makes getDefaultCreateKeySettings skip
++                                // ALL its defaults, so StrongBox and user-authentication are
++                                // re-applied here from the wallet config. StrongBox typically holds
++                                // only P-256, so a P-384/P-521 key is created in the TEE instead.
++                                val edtpCfg = eudiWallet.config
++                                eudiWallet.getDefaultCreateDocumentSettings(
++                                    offeredDocument = event.offeredDocument,
++                                    credentialPolicy = adjustedPolicy
++                                ) {
++                                    setUserAuthenticationRequired(
++                                        required = edtpCfg.userAuthenticationRequired,
++                                        timeout = edtpCfg.userAuthenticationTimeout,
++                                        userAuthenticationTypes = setOf(
++                                            org.multipaz.securearea.UserAuthenticationType.LSKF,
++                                            org.multipaz.securearea.UserAuthenticationType.BIOMETRIC
++                                        )
++                                    )
++                                    setAlgorithm(edtpProofAlg)
++                                    setUseStrongBox(false)
++                                }
++                            }
+ 
+                             event.resume(createDocumentSettings)
+                         }
+@@ -1171,4 +1201,28 @@ class WalletCoreDocumentsControllerImpl(
+         return manager?.let(Result.Companion::success)
+             ?: Result.failure(RuntimeException(errorMessage))
+     }
++}
++
++// EDTP WD-21. Returns the EC binding-key algorithm the credential issuer requires for its JWT proof
++// of possession, or null when the wallet's default (ES256) is among the accepted algorithms — in
++// which case the upstream key-creation path is used unchanged. The conversion from the issuer's
++// JOSE identifiers uses the same mapping Wallet Core uses, and only signing algorithms are kept.
++// See deviations.md (WD-21).
++private fun edtpNegotiateProofKeyAlgorithm(
++    offeredDocument: eu.europa.ec.eudi.wallet.issue.openid4vci.Offer.OfferedDocument,
++): org.multipaz.crypto.Algorithm? {
++    val jwt = offeredDocument.configuration.proofTypesSupported[
++        eu.europa.ec.eudi.openid4vci.ProofType.JWT
++    ] as? eu.europa.ec.eudi.openid4vci.ProofTypeMeta.Jwt ?: return null
++    val issuerAlgorithms = jwt.algorithms.mapNotNull { jwsAlgorithm ->
++        runCatching {
++            org.multipaz.crypto.Algorithm.fromJoseAlgorithmIdentifier(jwsAlgorithm.name)
++        }.getOrNull()?.takeIf { it.isSigning }
++    }
++    if (issuerAlgorithms.isEmpty()) return null
++    val es256Jose = org.multipaz.crypto.Algorithm.ESP256.joseAlgorithmIdentifier
++    // The wallet's default binding key is ES256; if the issuer accepts it, keep the upstream path.
++    if (issuerAlgorithms.any { it.joseAlgorithmIdentifier == es256Jose }) return null
++    // Otherwise bind the credential with the algorithm the issuer requires (e.g. ES384 / P-384).
++    return issuerAlgorithms.first()
+ }
+\ No newline at end of file

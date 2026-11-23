@@ -1,0 +1,590 @@
+diff --git a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+index eeda41f..ae836e0 100644
+--- a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
++++ b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+@@ -41,6 +41,12 @@ class Application : Application() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        // EDTP addition. Seed the granular-trust configuration from the build stamp, once, before
++        // any issuance or presentation flow can run. Inert unless a layer is OBSERVE/ENFORCE; a
++        // non-EDTP build stamps "none", so every layer stays OFF and behaviour is upstream's.
++        eu.europa.ec.edtp.trust.TrustConfigHolder.seed(
++            eu.europa.ec.assemblylogic.BuildConfig.EDTP_TRUST
++        )
+         initializeKoin().initializeRqes()
+         initializeReporting()
+         initializeWorkManagers()
+diff --git a/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt b/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
+index c79a891..be00ec7 100644
+--- a/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
++++ b/build-logic/convention/src/main/kotlin/project/convention/logic/AppFlavor.kt
+@@ -77,6 +77,15 @@ fun Project.configureFlavors(
+         "version.properties"
+     ).orEmpty().ifBlank { "none" }
+ 
++    // EDTP addition. The granular trust spec compiled into this build, e.g.
++    // "c1=observe,c2=observe,c3=enforce", or "none". Written to version.properties by build.sh from
++    // the --trust flag, read the same way as the deviation list. Absent/blank means every layer OFF,
++    // which is upstream behaviour.
++    val edtpTrust = getProperty<String>(
++        "EDTP_TRUST",
++        "version.properties"
++    ).orEmpty().ifBlank { "none" }
++
+     // EDTP addition. The identity of our flavour, overridable per build through the same file.
+     //
+     // Why it is not simply a constant on the enum: two EDTP builds sometimes have to coexist on one
+@@ -139,6 +148,12 @@ fun Project.configureFlavors(
+                         "EDTP_DEVIATIONS",
+                         edtpDeviations
+                     )
++                    // EDTP addition. The active granular-trust spec, read by the trust config holder
++                    // and shown in the banner, so neither can drift from what was compiled.
++                    addConfigField(
++                        "EDTP_TRUST",
++                        edtpTrust
++                    )
+                     flavorConfigurationBlock(this, it)
+                 }
+             }
+diff --git a/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustConfig.kt b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustConfig.kt
+new file mode 100644
+index 0000000..525a4df
+--- /dev/null
++++ b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustConfig.kt
+@@ -0,0 +1,92 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.edtp.trust
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/** The active mode of each layer. Default: everything OFF (upstream behaviour). */
++data class TrustConfig(
++    val modes: Map<TrustLayer, TrustMode> = TrustLayer.entries.associateWith { TrustMode.OFF },
++) {
++    fun modeFor(layer: TrustLayer): TrustMode = modes[layer] ?: TrustMode.OFF
++
++    val anyActive: Boolean get() = modes.values.any { it != TrustMode.OFF }
++
++    companion object {
++        val OFF = TrustConfig()
++
++        /**
++         * Parse a stamped spec such as "c1=observe,c2=observe,c3=enforce". Unknown tokens and unknown
++         * modes are ignored (fall back to OFF) rather than throwing — build.sh is what refuses an
++         * unbuildable flag; at runtime an unreadable value must never be more permissive than OFF.
++         */
++        fun parse(spec: String?): TrustConfig {
++            if (spec.isNullOrBlank()) return OFF
++            val modes = HashMap<TrustLayer, TrustMode>()
++            for (part in spec.split(',')) {
++                val kv = part.trim().lowercase().split('=')
++                if (kv.size != 2) continue
++                val layer = when (kv[0]) {
++                    "c1", "c1_signatures", "signatures" -> TrustLayer.C1_SIGNATURES
++                    "c2", "c2_chain", "chain" -> TrustLayer.C2_CHAIN
++                    "c3", "c3_revocation", "revocation" -> TrustLayer.C3_REVOCATION
++                    else -> continue
++                }
++                val mode = when (kv[1]) {
++                    "observe" -> TrustMode.OBSERVE
++                    "enforce" -> TrustMode.ENFORCE
++                    "off" -> TrustMode.OFF
++                    else -> continue
++                }
++                modes[layer] = mode
++            }
++            return TrustConfig(TrustLayer.entries.associateWith { modes[it] ?: TrustMode.OFF })
++        }
++    }
++}
++
++/**
++ * Process-wide holder of the active [TrustConfig]. Seeded once at app start from the build stamp
++ * (see README: EDTP_TRUST spec), then optionally overridden by the Settings screen.
++ *
++ * Kept as a tiny observable singleton rather than injected, because the deepest check seams that read
++ * it (steps C1–C3, inside wallet-core/etsi patches) have no DI graph to reach the app's container.
++ */
++object TrustConfigHolder {
++    private val _config = MutableStateFlow(TrustConfig.OFF)
++    val config: StateFlow<TrustConfig> = _config.asStateFlow()
++
++    /** Seed from the build stamp. Called once, early. Idempotent. */
++    fun seed(spec: String?) {
++        _config.value = TrustConfig.parse(spec)
++    }
++
++    /** Runtime override of one layer (Settings). */
++    fun setMode(layer: TrustLayer, mode: TrustMode) {
++        val current = _config.value.modes.toMutableMap()
++        current[layer] = mode
++        _config.value = TrustConfig(current)
++    }
++
++    fun current(): TrustConfig = _config.value
++}
+diff --git a/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustGate.kt b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustGate.kt
+new file mode 100644
+index 0000000..31e3cd5
+--- /dev/null
++++ b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustGate.kt
+@@ -0,0 +1,100 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.edtp.trust
++
++object TrustGate {
++
++    /**
++     * Record [result] according to the active mode of its layer and, under ENFORCE, throw on a
++     * blocking (FAIL/UNKNOWN) result so the caller can translate it into the point-appropriate
++     * refusal. Returns the (possibly OFF-skipped) result for convenient chaining.
++     *
++     * - OFF     → nothing recorded, never throws (upstream behaviour).
++     * - OBSERVE → recorded to the ledger, never throws.
++     * - ENFORCE → recorded; throws [TrustBlockedException] iff the outcome is blocking.
++     */
++    fun gate(result: TrustCheckResult): TrustCheckResult {
++        when (TrustConfigHolder.current().modeFor(result.layer)) {
++            TrustMode.OFF -> return result
++            TrustMode.OBSERVE -> {
++                log(result, blocked = false)
++                TrustLedger.record(result)
++            }
++            TrustMode.ENFORCE -> {
++                log(result, blocked = result.isBlocking)
++                TrustLedger.record(result)
++                if (result.isBlocking) throw TrustBlockedException(result)
++            }
++        }
++        return result
++    }
++
++    /**
++     * One log line per check, tag `EDTP-TRUST`, so the flow is followable in logcat as well as in the
++     * overlay. No credential content — only layer, point, subject, outcome, reason and the short
++     * detail the caller chose. [blocked] marks a result that ENFORCE will refuse on.
++     */
++    private fun log(r: TrustCheckResult, blocked: Boolean) {
++        val msg = "[${r.layer}/${r.point}] ${r.subject}=${r.outcome} (${r.reason})" +
++            (r.detail?.let { " — $it" } ?: "") +
++            (if (blocked) " [BLOCKED]" else "")
++        if (r.outcome == TrustOutcome.FAIL || r.outcome == TrustOutcome.UNKNOWN) {
++            android.util.Log.w("EDTP-TRUST", msg)
++        } else {
++            android.util.Log.i("EDTP-TRUST", msg)
++        }
++    }
++
++    /**
++     * Convenience for a site that computes a boolean. [onFail]/[onPass] let the caller pick the
++     * reason code; detail is free text (cert subject, failing URL — never credential content).
++     */
++    inline fun check(
++        layer: TrustLayer,
++        point: TrustPoint,
++        subject: TrustSubject,
++        passed: Boolean,
++        detail: String? = null,
++        onPass: TrustReason = TrustReason.OK,
++        onFail: TrustReason = TrustReason.OTHER,
++    ): TrustCheckResult = gate(
++        TrustCheckResult(
++            layer = layer,
++            point = point,
++            subject = subject,
++            outcome = if (passed) TrustOutcome.PASS else TrustOutcome.FAIL,
++            reason = if (passed) onPass else onFail,
++            detail = detail,
++        )
++    )
++
++    /** Record an explicit UNKNOWN (e.g. a revocation source that could not be reached). Blocking
++     *  under ENFORCE, as "cannot determine" must not be more permissive than "known good". */
++    fun unknown(
++        layer: TrustLayer,
++        point: TrustPoint,
++        subject: TrustSubject,
++        reason: TrustReason = TrustReason.REVOCATION_STATUS_UNKNOWN,
++        detail: String? = null,
++    ): TrustCheckResult = gate(
++        TrustCheckResult(layer, point, subject, TrustOutcome.UNKNOWN, reason, detail)
++    )
++}
+diff --git a/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustLedger.kt b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustLedger.kt
+new file mode 100644
+index 0000000..7d31514
+--- /dev/null
++++ b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustLedger.kt
+@@ -0,0 +1,91 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.edtp.trust
++
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++
++/** A single lifecycle flow and the checks recorded against it. */
++data class TrustRun(
++    val point: TrustPoint,
++    val correlationId: String,
++    val startedAtMillis: Long = System.currentTimeMillis(),
++    val results: List<TrustCheckResult> = emptyList(),
++    val finished: Boolean = false,
++) {
++    fun countsByLayer(): Map<TrustLayer, LayerTally> =
++        TrustLayer.entries.associateWith { layer ->
++            val forLayer = results.filter { it.layer == layer }
++            LayerTally(
++                pass = forLayer.count { it.outcome == TrustOutcome.PASS },
++                fail = forLayer.count { it.outcome == TrustOutcome.FAIL },
++                unknown = forLayer.count { it.outcome == TrustOutcome.UNKNOWN },
++                skip = forLayer.count { it.outcome == TrustOutcome.SKIP },
++            )
++        }
++
++    val hasBlocking: Boolean get() = results.any { it.isBlocking }
++}
++
++data class LayerTally(val pass: Int, val fail: Int, val unknown: Int, val skip: Int) {
++    val anyRecorded: Boolean get() = pass + fail + unknown + skip > 0
++    val anyBlocking: Boolean get() = fail + unknown > 0
++}
++
++object TrustLedger {
++
++    private val _current = MutableStateFlow<TrustRun?>(null)
++    /** The live flow (or null before the first). The overlay observes this. */
++    val current: StateFlow<TrustRun?> = _current.asStateFlow()
++
++    private val _previous = MutableStateFlow<TrustRun?>(null)
++    /** The flow before the current one, retained so a failed run can still be inspected. */
++    val previous: StateFlow<TrustRun?> = _previous.asStateFlow()
++
++    /** Begin a new flow. The outgoing current (if any) is moved to [previous]. No-op-safe to call
++     *  when trust is OFF — callers should skip it then, but a stray call just starts an empty run. */
++    @Synchronized
++    fun startRun(point: TrustPoint, correlationId: String) {
++        _current.value?.let { _previous.value = it.copy(finished = true) }
++        _current.value = TrustRun(point = point, correlationId = correlationId)
++    }
++
++    /** Append a check result to the current flow. Starts an implicit flow if none is open, so a
++     *  check that fires outside an explicit run is still visible rather than lost. */
++    @Synchronized
++    fun record(result: TrustCheckResult) {
++        val run = _current.value ?: TrustRun(point = result.point, correlationId = "implicit")
++        _current.value = run.copy(results = run.results + result)
++    }
++
++    @Synchronized
++    fun finishRun() {
++        _current.value = _current.value?.copy(finished = true)
++    }
++
++    /** Clear everything (e.g. when trust is turned OFF at runtime). */
++    @Synchronized
++    fun reset() {
++        _current.value = null
++        _previous.value = null
++    }
++}
+diff --git a/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustModel.kt b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustModel.kt
+new file mode 100644
+index 0000000..1be54d8
+--- /dev/null
++++ b/business-logic/src/main/java/eu/europa/ec/edtp/trust/TrustModel.kt
+@@ -0,0 +1,86 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.edtp.trust
++
++/** The three independent validation layers the wallet can run. */
++enum class TrustLayer { C1_SIGNATURES, C2_CHAIN, C3_REVOCATION }
++
++/** Per-layer mode. OFF = do not run (upstream behaviour); OBSERVE = run + record, never block;
++ *  ENFORCE = run + record, and block the flow on a failed/unknown result. */
++enum class TrustMode { OFF, OBSERVE, ENFORCE }
++
++/** Where in the lifecycle a check ran. */
++enum class TrustPoint { OFFER, PRESTORE, PRESENT }
++
++/** What the check was about. Kept coarse on purpose — the detail string carries specifics. */
++enum class TrustSubject {
++    ISSUER_SIGNATURE,       // mdoc MSO / SD-JWT VC issuer signature
++    DOC_SIGNER_CHAIN,       // issuer document-signer certificate chain vs LoTE anchors
++    CREDENTIAL_STATUS,      // the issued credential's own status list
++    REQUEST_OBJECT_SIG,     // OpenID4VP request object signature / ISO reader auth
++    RPAC,                   // relying-party / reader access certificate (chain, validity, revocation)
++    RPRC,                   // relying-party / issuer registration certificate (WRPRC)
++    HOLDER_BINDING,         // cnf / device-key binding, isBoundTo(access cert)
++    ENTITLEMENT,            // issuer entitlements / over-provisioning / over-asking
++}
++
++/** Outcome of a single check. UNKNOWN is a first-class failure mode (e.g. revocation not reachable). */
++enum class TrustOutcome { PASS, FAIL, UNKNOWN, SKIP }
++
++/**
++ * Reason codes. These mirror the enums the upstream core already produces so the overlay can show
++ * the same vocabulary a developer would see in logs. Not exhaustive; [TrustCheckResult.detail]
++ * carries anything finer. OTHER is the catch-all.
++ */
++enum class TrustReason {
++    OK,
++    SIGNATURE_INVALID,
++    UNTRUSTED_PROVIDER,
++    NOT_BOUND_TO_REQUESTER,
++    EXPIRED,
++    REVOKED,
++    REVOCATION_STATUS_UNKNOWN,
++    STATUS_MISSING,
++    ENTITLEMENT_MISSING,
++    OVER_ASKING,
++    MALFORMED,
++    NOT_EVALUATED,
++    OTHER,
++}
++
++/** One recorded check. Immutable; the ledger only ever appends. */
++data class TrustCheckResult(
++    val layer: TrustLayer,
++    val point: TrustPoint,
++    val subject: TrustSubject,
++    val outcome: TrustOutcome,
++    val reason: TrustReason = if (outcome == TrustOutcome.PASS) TrustReason.OK else TrustReason.OTHER,
++    val detail: String? = null,
++    val atMillis: Long = System.currentTimeMillis(),
++) {
++    val isBlocking: Boolean get() = outcome == TrustOutcome.FAIL || outcome == TrustOutcome.UNKNOWN
++}
++
++/** Thrown by [TrustGate] when a layer in ENFORCE sees a blocking result. Callers translate it into
++ *  the point-appropriate refusal (OfferResult.Failure / delete-then-fail / deny-before-consent). */
++class TrustBlockedException(
++    val result: TrustCheckResult,
++) : Exception("EDTP trust ${result.layer} ENFORCE blocked: ${result.subject}=${result.reason}")
+diff --git a/ui-logic/src/main/java/eu/europa/ec/edtp/trust/ui/EdtpTrustOverlay.kt b/ui-logic/src/main/java/eu/europa/ec/edtp/trust/ui/EdtpTrustOverlay.kt
+new file mode 100644
+index 0000000..c0e63c1
+--- /dev/null
++++ b/ui-logic/src/main/java/eu/europa/ec/edtp/trust/ui/EdtpTrustOverlay.kt
+@@ -0,0 +1,111 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation. Floating, expandable panel
++ * that shows what the granular trust layers checked in the current flow and what failed. Renders
++ * nothing unless this is an EDTP build AND at least one layer is active, so an unmodified build and a
++ * build with trust OFF are both unchanged.
++ */
++
++package eu.europa.ec.edtp.trust.ui
++
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.material3.AssistChip
++import androidx.compose.material3.Card
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import eu.europa.ec.edtp.trust.LayerTally
++import eu.europa.ec.edtp.trust.TrustCheckResult
++import eu.europa.ec.edtp.trust.TrustConfigHolder
++import eu.europa.ec.edtp.trust.TrustLayer
++import eu.europa.ec.edtp.trust.TrustLedger
++import eu.europa.ec.edtp.trust.TrustOutcome
++import eu.europa.ec.uilogic.BuildConfig
++
++/**
++ * Drop once in [eu.europa.ec.uilogic.component.content.ContentScreen], next to the modified-build
++ * banner, so it is present on every screen and cannot be navigated away from.
++ */
++@Composable
++fun EdtpTrustOverlay(modifier: Modifier = Modifier) {
++    if (!BuildConfig.EDTP_BUILD) return
++
++    val config by TrustConfigHolder.config.collectAsStateWithLifecycle()
++    if (!config.anyActive) return
++
++    val run by TrustLedger.current.collectAsStateWithLifecycle()
++    val current = run ?: return
++
++    var expanded by remember { mutableStateOf(false) }
++    val tallies = current.countsByLayer()
++
++    Card(modifier = modifier.fillMaxWidth().padding(8.dp)) {
++        Row(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
++            TrustLayer.entries.forEach { layer ->
++                LayerBadge(layer, tallies[layer]) { expanded = !expanded }
++            }
++        }
++        if (expanded) {
++            LazyColumn(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
++                items(current.results) { r -> TrustRow(r) }
++            }
++        }
++    }
++}
++
++@Composable
++private fun LayerBadge(layer: TrustLayer, tally: LayerTally?, onClick: () -> Unit) {
++    val label = buildString {
++        append(
++            when (layer) {
++                TrustLayer.C1_SIGNATURES -> "C1"
++                TrustLayer.C2_CHAIN -> "C2"
++                TrustLayer.C3_REVOCATION -> "C3"
++            }
++        )
++        if (tally != null && tally.anyRecorded) {
++            append(' ')
++            append(if (tally.anyBlocking) "✗${tally.fail + tally.unknown}" else "✓")
++        }
++    }
++    AssistChip(onClick = onClick, label = { Text(label) }, modifier = Modifier.padding(end = 6.dp))
++}
++
++@Composable
++private fun TrustRow(r: TrustCheckResult) {
++    val mark = when (r.outcome) {
++        TrustOutcome.PASS -> "✓"
++        TrustOutcome.FAIL, TrustOutcome.UNKNOWN -> "✗"
++        TrustOutcome.SKIP -> "–"
++    }
++    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
++        Text("$mark  ${r.subject}  —  ${r.reason}")
++        r.detail?.let { Text("     $it") }
++    }
++}
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt
+index 5ca2e25..b38d16e 100644
+--- a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/ContentScreen.kt
+@@ -205,6 +205,11 @@ fun ContentScreen(
+                     // here, in the scaffold every screen uses, so it cannot be navigated away from.
+                     EdtpModifiedBuildBanner()
+ 
++                    // EDTP addition. The granular-trust overlay, placed next to the banner so it is
++                    // on every screen. Renders nothing unless this is an EDTP build and at least one
++                    // trust layer is active, so an unmodified build is unchanged.
++                    eu.europa.ec.edtp.trust.ui.EdtpTrustOverlay()
++
+                     Box(modifier = Modifier.weight(1f)) {
+                         bodyContent(
+                             screenPaddings(
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
+index 0aae78e..03ead72 100644
+--- a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
+@@ -55,7 +55,8 @@ fun EdtpModifiedBuildBanner(modifier: Modifier = Modifier) {
+ 
+     Text(
+         text = "EDTP TEST WALLET · MODIFIED REFERENCE BUILD · NOT THE OFFICIAL EUDI WALLET" +
+-                " · deviations: ${BuildConfig.EDTP_DEVIATIONS}",
++                " · deviations: ${BuildConfig.EDTP_DEVIATIONS}" +
++                " · trust: ${BuildConfig.EDTP_TRUST}",
+         modifier = modifier
+             .fillMaxWidth()
+             .background(BANNER_BACKGROUND)

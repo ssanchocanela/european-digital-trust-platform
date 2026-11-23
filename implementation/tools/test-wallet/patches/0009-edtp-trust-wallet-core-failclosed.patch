@@ -1,0 +1,26 @@
+diff --git a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+index 798cbe6..68e0a25 100644
+--- a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
++++ b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+@@ -76,6 +76,21 @@ class Application : Application() {
+                     }
+                 )
+             }
++            // EDTP: mirror the enforce decision into Wallet Core, which cannot see TrustConfigHolder.
++            // Fail-closed so a thrown credential-trust error (bad issuer signature, revoked document
++            // signer, unreachable revocation) BLOCKS instead of being swallowed to null (upstream =
++            // fail-open). Active only when enforce is on AND at least one layer is enabled. Enforce
++            // changes already require a restart (snackbar), so seeding this once at start is enough.
++            // Set by reflection: EdtpTrustEnforce exists only when Wallet Core is built from source
++            // (deviation wd-14). On the stock Wallet Core AAR the class is absent and there is no
++            // fail-open fix to arm, so this is silently a no-op.
++            val anyEnforced = enforce &&
++                listOf("C1", "C2", "C3").any { prefKeys.getTrustLayerEnabled(it) }
++            runCatching {
++                Class.forName("eu.europa.ec.eudi.wallet.trust.EdtpTrustEnforce")
++                    .getMethod("setFailClosed", Boolean::class.javaPrimitiveType)
++                    .invoke(null, anyEnforced)
++            }
+         }
+     }
+ 

@@ -1,0 +1,61 @@
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/EdtpTrustEnforce.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/EdtpTrustEnforce.kt
+new file mode 100644
+index 0000000..2123ea1
+--- /dev/null
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/EdtpTrustEnforce.kt
+@@ -0,0 +1,21 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence. See https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * ---
++ *
++ * EDTP addition. Not part of upstream Wallet Core. A process-wide switch the app sets from its
++ * granular-trust configuration: when any trust layer is in ENFORCE, the credential trust verifiers
++ * must NOT swallow a verification error (upstream returns null = fail-open). Wallet Core cannot see
++ * the app's TrustConfigHolder, so the app mirrors the decision here.
++ */
++package eu.europa.ec.eudi.wallet.trust
++
++object EdtpTrustEnforce {
++    @Volatile
++    @JvmStatic
++    var failClosed: Boolean = false
++}
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/MsoMdocCredentialTrustVerifier.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/MsoMdocCredentialTrustVerifier.kt
+index 176c866..c21b915 100644
+--- a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/MsoMdocCredentialTrustVerifier.kt
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/MsoMdocCredentialTrustVerifier.kt
+@@ -91,7 +91,11 @@ internal class MsoMdocCredentialTrustVerifier(
+         trustResult
+     }.onFailure { e ->
+         logger?.e(TAG, "MsoMdoc credential trust verification failed", e)
+-    }.getOrNull()
++    }.getOrElse { e ->
++            // EDTP: under ENFORCE a thrown verification error (bad signature, revoked signer,
++            // unreachable revocation) must block, not be swallowed as upstream does.
++            if (EdtpTrustEnforce.failClosed) throw e else null
++        }
+ 
+     companion object {
+         private const val TAG = "MdocIssuerTrust"
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/SdJwtVcCredentialTrustVerifier.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/SdJwtVcCredentialTrustVerifier.kt
+index 132d00c..ca12cc9 100644
+--- a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/SdJwtVcCredentialTrustVerifier.kt
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/trust/SdJwtVcCredentialTrustVerifier.kt
+@@ -67,7 +67,11 @@ internal class SdJwtVcCredentialTrustVerifier(
+ 
+         verifier.verify(credentialValue)
+             .onFailure { e -> logger?.e(TAG, "SD-JWT VC credential trust verification failed", e) }
+-            .getOrNull()
++            .getOrElse { e ->
++            // EDTP: under ENFORCE a thrown verification error (bad signature, revoked signer,
++            // unreachable revocation) must block, not be swallowed as upstream does.
++            if (EdtpTrustEnforce.failClosed) throw e else null
++        }
+         return result
+     }
+ 

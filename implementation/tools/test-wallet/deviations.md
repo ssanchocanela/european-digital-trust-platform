@@ -34,6 +34,7 @@ any of them without what it needs, rather than accepting a flag that does nothin
 | **WD-18** | The EUDI Wallet Launchpad 2026 Testing Playbook's URL schemes are accepted: `eu-eaap://` (presentation) and `eu-eaa-offer://` (credential offer) | — | Configuration (which schemes the app and Wallet Core accept) | **Prepared** (F13), 26 October 2026 |
 | **WD-19** | A request for an OpenID4VP Request Object carries `Accept: application/oauth-authz-req+jwt` alone | — | **Defect fix** in the app's HTTP client (as WD-11) | **Prepared** (F14), 26 October 2026 |
 | **WD-20** | The PID (mdoc and SD-JWT) is reused across presentations (`RotatingBatch`, one credential) instead of used once (`OnceOnly`, ten) | — | **Privacy relaxation** (presentations become linkable) | **Prepared** (F15), 26 October 2026 |
+| **WD-21** | The credential's binding-key algorithm is negotiated with the issuer's JWT-proof `proof_signing_alg_values_supported` (e.g. ES384 / P-384) instead of always ES256 | — | **Defect fix** in the app's issuance controller | **Prepared**, 13 November 2026 |
 
 ---
 
@@ -427,6 +428,41 @@ providers (WD-3), registration-certificate providers and public-body EAA provide
 (WD-8) and `--pubeaa-lote` (WD-9) set the last two, by replacing the exact upstream line, refused
 without an `https` address. As with WD-3 and WD-4, a single address **replaces** the notified list:
 the build trusts the anchors of the list it is pointed at and no others for that domain.
+
+## `--trust-lists ec` — the Commission's Launchpad 2026 testbed lists
+
+Not a WD deviation and not in the register: a one-flag convenience that points the build's PID,
+WRPAC and WRPRC lists at the **Commission's own** trusted lists for the EUDI Wallets **Launchpad 2026
+testbed** (`itb.eudiw.dev`), instead of the EUDI reference lists at
+`trustedlist.serviceproviders.eudiw.dev`. Default `ri` keeps the reference lists and is byte-for-byte
+upstream; `ec` substitutes the three list lines, by the same exact-line replacement as WD-4/WD-8:
+
+| List | `ec` address (development env) |
+|---|---|
+| `pidProviders` | `https://development.trust.tech.ec.europa.eu/lists/eudiw/pid-providers.json` |
+| `wrpacProviders` | `https://development.trust.tech.ec.europa.eu/lists/eudiw/wrpac-providers.json` |
+| `wrprcProviders` | `https://development.trust.tech.ec.europa.eu/lists/eudiw/wrprc-providers.json` |
+
+`pubEaaProviders` is **left on the reference list**: the Launchpad has no PubEAA list. Because the
+three lines are the same ones WD-3/WD-4/WD-8 rewrite, `--trust-lists ec` is **refused together with**
+those deviations. Stamped as `EDTP_TRUST_LISTS` in `version.properties`.
+
+Two facts checked against the live endpoint (2026-11-12) and the wallet-core 0.30.2 source, so this is
+not a URL swap taken on faith:
+
+- The Launchpad lists are **RS512-signed JWS** (`application/jose`), signer
+  `European Commission — CommisSign - 2`, not the ES-signed reference lists. Wallet-core 0.30.2's
+  default LoTE verifier (`LoteJwtVerifier`) builds an `RSASSAVerifier` for an RSA leaf, so **it
+  already accepts RSA** — no verifier change is needed (unlike the grnet fork, whose older verifier
+  was EC-only and had to be patched).
+- That default verifier only checks the JWS signature against the `x5c` leaf; it does not anchor the
+  list signer (documented stub). This is the **same** verifier the build already uses for the `ri`
+  lists, so `ec` is **trust-equivalent** to today — it changes the list source, not the trust model.
+
+**What a run with this build may and may not say.** It consults the Commission's **development**
+testbed lists — `TEST`, never production. It is still a MODIFIED wallet: no result from it is a
+Reference Wallet result. Whether the Launchpad actually trusts a given issuer is an **end-to-end test
+on a device against `itb.eudiw.dev`** (§8) — this flag only points the wallet at those lists.
 
 ### F2 — the FNMT-RCM build, reading FNMT-RCM's own test trust lists
 
@@ -1187,3 +1223,174 @@ Per the scope decision, every run records all of:
 | EUDIPLO version and image digest | `docker compose images` |
 | Platform commit | `git rev-parse HEAD` |
 | Registration-certificate-check preference | The wallet's Settings toggle — **default off**, and it gates both the issuer and the verifier check |
+
+---
+
+## Granular trust verification — WD-21 / WD-22 / WD-23 (core in, layers pending)
+
+Added by `patches/0004-edtp-trust-core.patch` (always applied) plus the `--trust` flag. The patch
+installs the **trust core** only: `eu.europa.ec.edtp.trust` (`TrustModel`, `TrustConfig` +
+`TrustConfigHolder`, `TrustLedger`, `TrustGate`) in `business-logic`, and `EdtpTrustOverlay` in
+`ui-logic`, mounted in `ContentScreen` next to the modified-build banner. The core is **inert** while
+every layer is OFF: `TrustGate.gate()` records nothing and never throws, the overlay composes
+nothing, the ledger stays empty — so a build with `--trust none` (the default) is byte-for-byte
+upstream behaviour. `Application.onCreate` seeds `TrustConfigHolder` from `BuildConfig.EDTP_TRUST`;
+the banner prints the active spec.
+
+Design: `TRUST-GRANULAR-design.md`. The three layers verify, independently and tri-state
+(off | observe | enforce), across all three lifecycle points (offer, pre-store, presentation):
+
+- **WD-21 — C1 signatures & binding.** Issuer signature (mdoc MSO / SD-JWT VC), request-object /
+  reader-auth signature, RPAC/RPRC/WRPRC signature, and holder/device-key binding.
+- **WD-22 — C2 chain vs trust lists.** PKIX chain of document-signer / RPAC / RPRC-signer against the
+  LoTE anchors, entitlements, over-asking / over-provisioning, certificate profile.
+- **WD-23 — C3 validity & revocation.** Validity dates and revocation of every certificate — RPAC
+  CRL/OCSP, RPRC/WRPRC token status list, document-signer CRL/OCSP — and the credential's own status
+  list.
+
+`observe` records each check to the ledger/overlay (pass/fail/unknown + reason) without blocking;
+`enforce` additionally blocks at the point (offer failure / delete-then-fail / deny-before-consent).
+`UNKNOWN` (e.g. a revocation source that cannot be reached) is blocking under `enforce`.
+
+**Build acceptance (honesty):** `build.sh --trust` accepts `off` and `observe` for any layer now,
+because the core records and surfaces results. It **refuses `enforce`** for every layer until that
+layer's per-check wiring is built (steps C1/C2/C3), on the same rule as every other deviation — a flag
+that cannot be honestly honoured is refused rather than accepted as a silent no-op. The per-layer
+check sites (removing the pre-store fail-open, un-relaxing PKIX revocation, adding RPAC revocation on
+the ETSI path, the pre-store credential status check, making WRPRC blocking, etc.) land as their own
+patches against `wallet-core` / the ETSI library in the WD-14 / WD-10 manner, and each flips its
+layer's `enforce` acceptance on as it arrives.
+
+### Step 3 — app-boundary OBSERVE wiring (`patches/0005-edtp-trust-observe.patch`)
+
+Adds `eu.europa.ec.edtp.trust.observe.EdtpTrustObserver` (core-logic) and three call sites that feed
+the ledger from outcomes the app ALREADY receives — no wallet-core change:
+
+- Offer resolved → `observeOffer(issuerRegistration)` and, on a refusal, `observeOfferFailure(reason)`
+  (`WalletCoreDocumentsController`): records the issuer registration-certificate (RPRC) evaluation as
+  C1 (signature/binding) / C2 (chain, entitlement) / C3 (validity, status) per the failure reason.
+- Presentation request received → `observePresentation(relyingParty)`
+  (`WalletCorePresentationController`): records the access-certificate (RPAC) chain verdict as C2 and
+  the registration (WRPRC) evaluation as C1/C2/C3, plus over-asking as C2.
+
+OBSERVE-grade only: it surfaces what the core already decided, so the overlay lights up end-to-end
+with real rows. It never blocks (the core's own gating is unchanged). The gaps the core does not
+expose — pre-store issuer-signature fail-open, RPAC validity/revocation on the ETSI path, the
+credential's own status list — are not covered here; they need the wallet-core / ETSI patches that
+also make C1/C2/C3 ENFORCE-able. Mapping: `RegistrationFailureReasonDomain` → layer is
+SIGNATURE_INVALID/MALFORMED/CERTIFICATE_ABSENT/NOT_BOUND_TO_REQUESTER → C1; UNTRUSTED_PROVIDER/
+ENTITLEMENT_MISSING → C2; STATUS_MISSING/EXPIRED/REVOKED/REVOCATION_STATUS_UNKNOWN → C3.
+
+### Step 4 — runtime toggles, persistence, and ENFORCE (`patches/0006`–`0009`, `deviations/edtp-c1-failclosed.patch`)
+
+What makes the three layers switchable at runtime and actually blocking:
+
+- **`patches/0006-edtp-trust-settings-toggles.patch`** — three Options switches (C1/C2/C3), beside the
+  built-in *Check Registration Certificates* one. A toggle flips the layer live between `OFF` and
+  `OBSERVE` via `TrustConfigHolder` (the observer reads it on every flow) and persists it under
+  `EdtpTrust_<C1|C2|C3>` in the same encrypted prefs the app already uses.
+- **`patches/0007-edtp-trust-persist-toggles.patch`** — `Application.seedTrustFromPrefs()` reads those
+  persisted toggles once at start, after Koin, so a choice survives a restart. A *fresh* install has
+  no prefs, so every layer starts `OFF` (upstream behaviour) until switched on in Options.
+- **`patches/0008-edtp-trust-enforce-toggle.patch`** — a fourth Options switch, **Enforce**
+  (`EdtpTrust_ENFORCE`). With it on, each *enabled* layer runs in `ENFORCE` instead of `OBSERVE`:
+  `TrustGate` blocks the flow on a failing or `UNKNOWN` result (offer refused / credential deleted
+  before store / request denied before consent). The C3 part also re-enables PKIX CRL/OCSP in the
+  rebuilt `WalletCoreConfig` (the build gates `relaxPkixRevocation()` on C3 == `ENFORCE`), which is
+  read at app start — so changing Enforce shows a "restart to apply" hint for that part.
+- **`deviations/edtp-c1-failclosed.patch`** (applied to `wallet-core` in the WD-14 step) **+
+  `patches/0009-edtp-trust-wallet-core-failclosed.patch`** (app) — closes the last gap. Upstream's
+  `MsoMdocCredentialTrustVerifier` / `SdJwtVcCredentialTrustVerifier` end a thrown verification error
+  with `.getOrNull()`, i.e. **fail-open**: a revoked document signer, a bad issuer signature or an
+  unreachable revocation source that *throws* on the credential path would return `null` and not
+  block, even under `ENFORCE`. The patch adds `EdtpTrustEnforce` (a process-wide switch, since Wallet
+  Core cannot see the app's `TrustConfigHolder`) and makes both verifiers **rethrow** the error when
+  it is armed; `Application.seedTrustFromPrefs()` arms it by reflection (`setFailClosed`) when Enforce
+  is on and at least one layer is enabled. Reflection, not a direct call, because the class exists only
+  when Wallet Core is built from source (WD-14): on the stock AAR there is no fail-open fix to arm and
+  the call is a silent no-op. This is what makes the **credential's own signing-certificate revocation**
+  block reliably — alongside RPRC/WRPRC (token status list, always blocking when the registration
+  check runs) and RPAC (CRL/OCSP, via the C3 PKIX re-enable).
+
+**Build acceptance now:** `--trust enforce` is accepted for every layer (the wiring above exists). The
+runtime Options switches are the primary control; `--trust` only seeds `TrustConfigHolder` before the
+prefs seeding runs, so on a fresh install the Options switches govern. Revocation coverage is therefore
+complete and granular: RPRC/WRPRC, RPAC, and the concrete credential's signing certificate are each
+verifiable and each block under `ENFORCE`.
+
+---
+
+## Capability: proximity READER (verifier) role (`--reader`)
+
+A **capability**, not a deviation: `--reader` *adds* an ISO/IEC 18013-5 reader (verifier) role, it
+does not relax or reconfigure a trust mechanism, so it is stamped as `EDTP_READER` (not in
+`EDTP_DEVIATIONS`) and carries its own run-record line. Default off ⇒ the build is byte-for-byte
+upstream; `build.sh` refuses the flag if `deviations/edtp-reader-feature.patch` is absent, on the
+same honesty rule as every deviation.
+
+- **What it does.** Lets the wallet *read* a credential presented in person. First cut: read a PID
+  (`eu.europa.ec.eudi.pid.1`, mdoc) over BLE and show the disclosed attributes plus a verification
+  verdict. mDL and NFC come later. Design and phase plan: `READER-feature-design.md`.
+- **How it is built.** A single conditional deviation `deviations/edtp-reader-feature.patch`, applied
+  only by the `--reader` block (after `patches/` and the wd deviations, because it touches `src/main`
+  and `build-logic`). It adds a `reader-feature` module (scan screen scaffold, Koin module, nav
+  graph) and registers it (`settings.gradle.kts`, `LibraryModule.ReaderFeature`, the `assembly-logic`
+  dependency + `@KoinApplication`, `MainActivity.featureReaderGraph`, `RouterContract.ReaderScreens`
+  / `ReaderModule`, a Home "Read in person (verifier)" card). BLE + camera permissions are merged in
+  from the module manifest. The modified-build banner names the capability on every screen.
+- **No new dependency.** The reader uses Multipaz 0.99.0 (`multipaz-android-legacy`
+  `VerificationHelper` + BLE reader transports; core `DeviceRequestGenerator` / `DeviceResponseParser`),
+  already on the classpath. The exact signatures are pinned in `READER-feature-design.md`.
+- **Status (2026-11-09).** Phases 1–4 done. Phase 1: scaffold + `--reader` + de-risk. Phase 2:
+  engagement + BLE — the scan screen drives `VerificationHelper` (via `ReaderScanInteractor`), scans
+  the holder's engagement QR, connects over BLE, reflects the transport state; BLE + camera
+  permissions merge into the app manifest. Phase 3: request + response — on connect it sends an
+  unsigned PID `DeviceRequest` and parses the `DeviceResponse` into disclosed attributes
+  (`Cbor.toDiagnostics`). Phase 4: verdict — per document, five checks (issuer signature, data
+  integrity, validity, device authentication, trusted issuer) shown ✓/✗/– above the attributes. The
+  build bundles a TEST issuer anchor — the "EDTP Development PID Provider CA", extracted from the
+  published PID Providers LoTE — in `reader-feature/res/raw/edtp_reader_trust.pem`, so "Trusted
+  issuer" verifies the PID's chain against it (`X509Cert.verify`) and evaluates instead of SKIPPED;
+  `--reader-trust <file>` overrides it (TEST only). The request also carries an **mDL** docRequest
+  (`org.iso.18013.5.1.mDL`) alongside PID — one entry in `REQUESTED_DOCUMENTS`, no structural change;
+  the parse/verdict are doctype-agnostic, so an mDL renders its attributes and the five checks like a
+  PID. No mDL anchor is bundled (we issue no mDL), so an mDL's "Trusted issuer" is a truthful ✗ until
+  `--reader-trust` supplies the mDL Providers anchors. `:app:compileEdtptestDebugKotlin` +
+  `mergeEdtptestDebugResources` + `processEdtptestDebugManifest` green with `--reader`; a build without
+  the flag shows no reader trace. Remaining (Phase 5): NFC handover, error/timeout states, release
+  build + notices. **On-device read is blocked on a second device as holder** (BLE needs two) — not
+  simulated. `TEST` only; never a production trust anchor.
+
+## WD-21 — the binding-key algorithm is negotiated with the issuer
+
+**Found with the FNMT `pid-demo` issuer on the Launchpad, 13 November 2026.** With the F14 build its
+`MDOC_PID` offer reached the credential request and the issuer rejected the proof:
+`CredentialIssuanceError.ProofGenerationError.ProofTypeSigningAlgorithmNotSupported`. Its signed
+metadata declares `proof_types_supported.jwt.proof_signing_alg_values_supported: ["ES384"]` — it
+accepts **only** an ES384 (P-384) proof of possession.
+
+**Whose limitation.** The wallet's. Wallet Core can sign ES384 (its default proof algorithms are
+ES256/ES384/ES512 and the key manager maps ES384 → `SHA384withECDSA`), but the app creates the
+credential's **binding key with the default algorithm, ES256 (P-256)**, through
+`EudiWallet.getDefaultCreateDocumentSettings` → `getDefaultCreateKeySettings`, which never reads the
+offered document's `proof_signing_alg_values_supported`. A P-256 key cannot produce an ES384 proof,
+so an ES384-only issuer is unsatisfiable. (Changing the issuer to ES256 is not an option here — the
+fix must be in the wallet.)
+
+**The patch**, `deviations/wd-21.patch`, against
+`core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt` (shared
+`src/main`): a helper reads `offeredDocument.configuration.proofTypesSupported[ProofType.JWT]`,
+converts the issuer's JOSE identifiers with Wallet Core's own `Algorithm.fromJoseAlgorithmIdentifier`,
+and returns the algorithm to bind with — **or null when the issuer accepts ES256**, in which case the
+upstream `getDefaultCreateDocumentSettings` call is used unchanged (byte-for-byte). When it is not
+null (e.g. ES384), the key is created through the `configure` block with `setAlgorithm(…)`. Because a
+`configure` block makes `getDefaultCreateKeySettings` skip **all** its defaults, the StrongBox and
+user-authentication settings are re-applied from `eudiWallet.config`, and the key is placed in the
+**TEE** (`setUseStrongBox(false)`): Android StrongBox generally holds only P-256.
+
+**Checked:** the patch applies against the pinned tag plus `patches/`, and
+`:core-logic:compileEdtptestDebugKotlin` is green (`--rerun-tasks`). **Not yet proven end-to-end** on a
+device: a P-384 proof must be accepted by FNMT, and the issuer additionally sets
+`key_attestations_required` — if a key attestation then becomes a hard gate, it needs a
+`WalletKeyAttestationProvider`, which the reference wallet does not configure (a separate, larger
+piece). `TEST` only.

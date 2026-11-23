@@ -1,0 +1,41 @@
+diff --git a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+index ae836e0..98121f8 100644
+--- a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
++++ b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+@@ -39,6 +39,9 @@ class Application : Application() {
+     private val configLogic: ConfigLogic by inject()
+     private val walletCoreConfig: WalletCoreConfig by inject()
+ 
++    // EDTP: persisted per-layer granular-trust toggles (Options).
++    private val prefKeys: eu.europa.ec.businesslogic.controller.storage.PrefKeys by inject()
++
+     override fun onCreate() {
+         super.onCreate()
+         // EDTP addition. Seed the granular-trust configuration from the build stamp, once, before
+@@ -50,6 +53,26 @@ class Application : Application() {
+         initializeKoin().initializeRqes()
+         initializeReporting()
+         initializeWorkManagers()
++        // EDTP: override the build-stamp default with any persisted per-layer trust toggles
++        // (Options), so a user's choice survives a restart. Read once, after Koin is up.
++        seedTrustFromPrefs()
++    }
++
++    private fun seedTrustFromPrefs() {
++        kotlinx.coroutines.runBlocking {
++            mapOf(
++                "C1" to eu.europa.ec.edtp.trust.TrustLayer.C1_SIGNATURES,
++                "C2" to eu.europa.ec.edtp.trust.TrustLayer.C2_CHAIN,
++                "C3" to eu.europa.ec.edtp.trust.TrustLayer.C3_REVOCATION,
++            ).forEach { (key, layer) ->
++                val on = prefKeys.getTrustLayerEnabled(key)
++                eu.europa.ec.edtp.trust.TrustConfigHolder.setMode(
++                    layer,
++                    if (on) eu.europa.ec.edtp.trust.TrustMode.OBSERVE
++                    else eu.europa.ec.edtp.trust.TrustMode.OFF
++                )
++            }
++        }
+     }
+ 
+     private fun KoinApplication.initializeRqes() {

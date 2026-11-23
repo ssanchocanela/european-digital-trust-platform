@@ -35,6 +35,19 @@
 #                           changes appearance only — the modified-build banner, the signing key and
 #                           the applicationId are untouched, so a branded build still says what it is.
 #                           A real organisation's look needs its permission (brands/<name>/README.md).
+#   --reader                compile in the proximity READER (verifier) role: an ISO 18013-5 reader
+#                           that reads a credential (PID first) presented in person over BLE, and
+#                           shows a verification verdict. A capability, not a deviation; default off
+#                           leaves the build byte-for-byte upstream. See READER-feature-design.md.
+#   --reader-trust <file>   optional with --reader. A PEM of issuer trust anchor(s) that replaces the
+#                           build's bundled TEST anchor, so "Trusted issuer" validates against these.
+#                           TEST only; never a production anchor.
+#   --trust-lists <ri|ec>   which ETSI trusted-list source the build consults. "ri" (default) = the
+#                           EUDI reference LoTE lists at trustedlist.serviceproviders.eudiw.dev, so
+#                           the build is byte-for-byte upstream. "ec" = the Commission's Launchpad
+#                           2026 testbed lists at development.trust.tech.ec.europa.eu for
+#                           PID/WRPAC/WRPRC; PubEAA has no Launchpad list and stays on the reference
+#                           list. Not compatible with --deviations wd-3/wd-4/wd-8 (same lines).
 #
 # `wd-6` accepts an issuer that does not offer credential response encryption (Wallet Core's
 # default is REQUIRED); the response is still encrypted whenever the issuer offers it. A relaxation.
@@ -89,6 +102,12 @@
 # Reusing one credential makes presentations linkable to each other by the signature and other unique
 # values in it. For demonstrations with an issuer that issues one credential at a time.
 #
+# `wd-21` negotiates the credential's binding-key algorithm with the issuer's JWT-proof
+# `proof_signing_alg_values_supported`. Upstream always creates the key with the default (ES256); an
+# issuer that accepts only another curve (e.g. ES384 / P-384) is otherwise unsatisfiable
+# (ProofTypeSigningAlgorithmNotSupported). When the issuer accepts ES256 the upstream path is
+# unchanged; a non-ES256 key is created in the TEE, since StrongBox usually holds only P-256.
+#
 # `wd-14` rebuilds Wallet Core from its pinned source so that a registration certificate's
 # `srv_description` is read in the shape ETSI TS 119 475 V1.2.1 Annex B.2.1 defines (an array of
 # arrays) as well as the flat one it read before; a certificate written to the specification was
@@ -125,6 +144,9 @@ source ./pins.env
 UPSTREAM_DIR="$HERE/upstream"
 OUT_DIR="$HERE/out"
 DEVIATIONS="none"
+# Granular trust layers (WD-21/22/23). A comma-separated set of c1|c2|c3 = off|observe|enforce,
+# e.g. "c1=observe,c2=observe,c3=observe". Default "none" = every layer OFF = upstream behaviour.
+TRUST="none"
 # Diagnostic logging, opt-in and stamped. NOT a deviation: it changes no behaviour and
 # invalidates no result. It exists because two places in the upstream reduce a throwable to
 # `localizedMessage` and discard it, so a Kotlin exception raised without a message reaches
@@ -142,10 +164,28 @@ APP_ID_SUFFIX=""
 BRAND=""
 APP_NAME=""
 BUILD_TYPE="release"
+# EDTP proximity READER (verifier) capability. A CAPABILITY, not a deviation: it adds functionality
+# (an ISO 18013-5 reader role) rather than relaxing or reconfiguring a trust mechanism, so it does
+# not go in --deviations. Default "no" = the reader module is not compiled in and the build is
+# byte-for-byte upstream in this respect. See deviations/edtp-reader-feature.patch and
+# READER-feature-design.md.
+READER="no"
+# Optional override for the reader's bundled issuer trust anchor(s). A PEM file of one or more
+# certificates; it replaces reader-feature's res/raw/edtp_reader_trust.pem so the "Trusted issuer"
+# check validates against these instead of the build's bundled TEST anchor. Requires --reader.
+READER_TRUST=""
+# EDTP trusted-list source (build.sh --trust-lists). "ri" (default) = the EUDI reference LoTE lists at
+# trustedlist.serviceproviders.eudiw.dev, so the build is byte-for-byte upstream. "ec" = the
+# Commission's Launchpad 2026 testbed lists at development.trust.tech.ec.europa.eu for PID/WRPAC/WRPRC
+# (PubEAA has no Launchpad list, so it stays on the reference list). A build input, recorded in the
+# version.properties stamp. The Launchpad lists are RS512-signed JWS; wallet core 0.30.2's default
+# LoTE verifier already accepts RSA, so no verifier change is needed.
+TRUST_LISTS="ri"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --deviations) DEVIATIONS="${2:-}"; shift 2 ;;
+    --trust) TRUST="${2:-}"; shift 2 ;;
     --diagnostics) DIAGNOSTICS=yes; shift 1 ;;
     --wrpac-lote) WRPAC_LOTE="${2:-}"; shift 2 ;;
     --pid-lote) PID_LOTE="${2:-}"; shift 2 ;;
@@ -158,6 +198,9 @@ while [ $# -gt 0 ]; do
     --app-id-suffix) APP_ID_SUFFIX="${2:-}"; shift 2 ;;
     --app-name) APP_NAME="${2:-}"; shift 2 ;;
     --build-type) BUILD_TYPE="${2:-}"; shift 2 ;;
+    --reader) READER=yes; shift 1 ;;
+    --reader-trust) READER_TRUST="${2:-}"; shift 2 ;;
+    --trust-lists) TRUST_LISTS="${2:-}"; shift 2 ;;
     --prepare-only) SKIP_BUILD="yes"; shift ;;
     -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "build.sh: unknown argument '$1'" >&2; exit 2 ;;
@@ -166,6 +209,32 @@ done
 
 die() { echo "build.sh: $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
+
+# --- 0a. Granular trust (WD-21/22/23) ----------------------------------------------------------
+#
+# patches/0004 compiles the trust CORE (ledger, gate, config, overlay) into every EDTP build; it is
+# inert while every layer is OFF, so it changes nothing on its own. `--trust` only seeds the runtime
+# modes stamped into version.properties (read by TrustConfigHolder.seed at app start).
+#
+# `enforce` is refused until the per-layer check wiring (C1/C2/C3) is built: build.sh must not accept
+# a flag it cannot honestly honour. `off` and `observe` are honoured now — `observe` records to the
+# ledger and the overlay without blocking any flow.
+if [ "$TRUST" != "none" ]; then
+  _IFS_SAVE="$IFS"; IFS=','
+  for kv in $TRUST; do
+    k="${kv%%=*}"; v="${kv##*=}"
+    case "$k" in
+      c1|c2|c3) ;;
+      *) die "--trust: unknown layer '$k' (expected c1, c2 or c3)." ;;
+    esac
+    case "$v" in
+      off|observe) ;;
+      enforce) ;; # honoured: TrustGate blocks on a failing/unknown result; C3 also re-enables CRL/OCSP
+      *) die "--trust: unknown mode '$v' for $k (expected off, observe or enforce)." ;;
+    esac
+  done
+  IFS="$_IFS_SAVE"
+fi
 
 # --- 0. Deviations -----------------------------------------------------------------------------
 #
@@ -194,6 +263,7 @@ WANT_WD17=no
 WANT_WD18=no
 WANT_WD19=no
 WANT_WD20=no
+WANT_WD21=no
 WANT_WD7=no
 if [ "$DEVIATIONS" != "none" ]; then
   OLD_IFS="$IFS"; IFS=,
@@ -277,6 +347,10 @@ if [ "$DEVIATIONS" != "none" ]; then
       wd-20)
         WANT_WD20=yes
         ;;
+      wd-21)
+        [ -f "$HERE/deviations/wd-21.patch" ] || die "deviations/wd-21.patch is missing."
+        WANT_WD21=yes
+        ;;
       wd-19)
         [ -f "$HERE/deviations/wd-19.patch" ] || die "deviations/wd-19.patch is missing."
         WANT_WD19=yes
@@ -357,6 +431,17 @@ fi
   die "wd-14 requires wd-10: the rebuilt Wallet Core is published through wd-10's repository."
 [ -z "$MDL_LOTE" ] || [ "$WANT_WD12" = "yes" ] ||
   die "--mdl-lote is given without wd-12, so the build would not read it."
+
+# EDTP --trust-lists: validate, and refuse the deviations that rewrite the same three list lines.
+case "$TRUST_LISTS" in
+  ri|ec) ;;
+  *) die "--trust-lists must be 'ri' (reference, default) or 'ec' (Commission Launchpad testbed); got '$TRUST_LISTS'." ;;
+esac
+if [ "$TRUST_LISTS" = "ec" ]; then
+  { [ "$WANT_WD3" = "no" ] && [ "$WANT_WD4" = "no" ] && [ "$WANT_WD8" = "no" ]; } ||
+    die "--trust-lists ec rewrites the pidProviders/wrpacProviders/wrprcProviders lines, which
+    wd-3/wd-4/wd-8 also rewrite. Use one or the other, not both."
+fi
 
 if [ "$WANT_WD20" = "yes" ]; then
   cat >&2 <<'WARN'
@@ -604,6 +689,32 @@ if [ "$WANT_WD9" = "yes" ]; then
   step "Applying WD-9 (pubEaaProviders -> another list)"
   replace_lote WD-9 pubEaaProviders PubEAAProviders "$PUBEAA_LOTE"
 fi
+
+# EDTP --trust-lists ec: point PID/WRPAC/WRPRC at the Commission's Launchpad 2026 testbed lists
+# (development env). A line substitution rather than a patch, for the same reason as WD-4/WD-8: the
+# list location is a build input recorded in the stamp, not a constant buried in a diff. PubEAA has
+# no Launchpad list, so it is left on the reference list. Refused together with wd-3/wd-4/wd-8 above.
+if [ "$TRUST_LISTS" = "ec" ]; then
+  step "Applying --trust-lists ec (pidProviders/wrpacProviders/wrprcProviders -> Commission Launchpad 2026 testbed lists)"
+  EC_FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+  EC_BASE="https://development.trust.tech.ec.europa.eu/lists/eudiw"
+  for spec in \
+    "pidProviders:PIDProviders:pid-providers.json" \
+    "wrpacProviders:WRPACProviders:wrpac-providers.json" \
+    "wrprcProviders:WRPRCProviders:wrprc-providers.json"; do
+    field="${spec%%:*}"; rest="${spec#*:}"; riname="${rest%%:*}"; ecfile="${rest##*:}"
+    from="$field = Uri(\"https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/$riname.jwt\"),"
+    to="$field = Uri(\"$EC_BASE/$ecfile\"),"
+    [ "$(grep -cF "$from" "$EC_FILE")" = "1" ] ||
+      die "--trust-lists ec: the upstream $field line is not in $EC_FILE exactly once; the substitution must be revised."
+    # `|` delimiter: the replacement is a URL and contains slashes.
+    sed -i.bak "s|$from|$to|" "$EC_FILE" && rm -f "$EC_FILE.bak"
+    grep -qF "$to" "$EC_FILE" || die "--trust-lists ec: substituting $field did not take effect."
+    echo "    $field -> $EC_BASE/$ecfile"
+  done
+  echo "    pubEaaProviders stays on the reference list (the Launchpad has no PubEAA list)."
+  echo "    this build consults the Commission's development testbed lists. Every result says 'modified wallet'."
+fi
 if [ "$WANT_WD12" = "yes" ]; then
   step "Applying WD-12 (eaaProviders[\"mdl\"] -> an mDL Providers list)"
   # Two insertions in the wallet's configuration, each anchored on a line that must be there once:
@@ -824,6 +935,70 @@ if [ "$WANT_WD7" = "yes" ]; then
   echo "    release logging: WARN and above, logcat and log files. HTTP bodies are no longer logged."
 fi
 
+# --- 4c. EDTP C3 enforce: gate PKIX revocation on the C3 trust toggle -----------------------------
+#
+# relaxPkixRevocation() turns CRL/OCSP off (our dev CA publishes neither, WD-3/4). Under C3 ENFORCE
+# we must NOT relax it, so revocation is actually checked. The decision is runtime: the C3 toggle in
+# Options persists to prefs, Application.onCreate seeds TrustConfigHolder from them, and Wallet Core
+# reads the config at startup — so a change takes effect on the next app start. Applied after the
+# source set and the LoTE deviations, by replacing the single relax call with a conditional. Inert
+# unless C3 is ENFORCE (then CRL/OCSP is enforced on the issuer-signing and RPAC chains).
+C3FILE="core-logic/src/$EDTP_FLAVOR/java/eu/europa/ec/corelogic/config/WalletCoreConfigImpl.kt"
+if grep -qF "relaxPkixRevocation()" "$C3FILE"; then
+  python3 - "$C3FILE" <<'PYEOF'
+import sys,io
+p=sys.argv[1]; s=io.open(p,encoding="utf-8").read()
+old="                        relaxPkixRevocation()"
+new=("                        // EDTP C3 enforce: skip the relaxation (re-enable CRL/OCSP) when the\n"
+     "                        // C3 trust layer is set to ENFORCE (runtime toggle, read at app start).\n"
+     "                        if (eu.europa.ec.edtp.trust.TrustConfigHolder.current()\n"
+     "                                .modeFor(eu.europa.ec.edtp.trust.TrustLayer.C3_REVOCATION) !=\n"
+     "                                eu.europa.ec.edtp.trust.TrustMode.ENFORCE) {\n"
+     "                            relaxPkixRevocation()\n"
+     "                        }")
+assert s.count(old)==1, "relaxPkixRevocation anchor not unique in WalletCoreConfigImpl"
+io.open(p,"w",encoding="utf-8").write(s.replace(old,new))
+PYEOF
+  echo "    C3 enforce wired: relaxPkixRevocation() gated on TrustConfigHolder C3==ENFORCE"
+else
+  die "relaxPkixRevocation() not found in $C3FILE; the C3-enforce wiring must be regenerated."
+fi
+
+# --- 4d. EDTP reader capability ----------------------------------------------------------------
+#
+# The proximity READER (verifier) role. A capability, not a deviation: applied only with --reader,
+# so without the flag none of its edits exist and the build is byte-for-byte upstream. It adds a new
+# `reader-feature` module and registers it (settings.gradle.kts, the module enum, Koin, the nav
+# graph, a Home card) and names itself on the modified-build banner. Refused if its patch is absent,
+# on the same honesty rule as every flag: a flag that is accepted and does nothing would put a false
+# claim in a build record. Applied here, after the deviations, because it touches src/main and the
+# shared build-logic rather than a flavour source set.
+if [ "$READER" = "yes" ]; then
+  step "Applying the reader capability (--reader): proximity READER (verifier) role"
+  [ -f "$HERE/deviations/edtp-reader-feature.patch" ] ||
+    die "--reader requires deviations/edtp-reader-feature.patch, which is missing. The capability
+    cannot be honoured without it, and build.sh refuses a flag it cannot honestly honour."
+  git apply --whitespace=nowarn "$HERE/deviations/edtp-reader-feature.patch" ||
+    die "failed to apply deviations/edtp-reader-feature.patch against the pinned tag (plus patches/);
+    it must be regenerated. See READER-feature-design.md."
+  [ -f "reader-feature/build.gradle.kts" ] &&
+    grep -q '":reader-feature"' settings.gradle.kts ||
+    die "the reader capability did not take effect: reader-feature module or its settings entry is missing."
+  echo "    reader-feature compiled in; Home shows 'Read in person (verifier)'; banner names the capability."
+
+  # Optional: override the bundled issuer trust anchor(s). Copies the given PEM over the module's
+  # res/raw anchor, so a build can trust a different TEST anchor set without editing the patch.
+  if [ -n "$READER_TRUST" ]; then
+    [ -f "$READER_TRUST" ] || die "--reader-trust: file not found: $READER_TRUST"
+    grep -q "BEGIN CERTIFICATE" "$READER_TRUST" ||
+      die "--reader-trust: $READER_TRUST is not a PEM certificate file (no BEGIN CERTIFICATE)."
+    cp "$READER_TRUST" "reader-feature/src/main/res/raw/edtp_reader_trust.pem"
+    echo "    reader trust anchor <- $READER_TRUST (overrides the bundled TEST anchor)"
+  fi
+elif [ -n "$READER_TRUST" ]; then
+  die "--reader-trust requires --reader."
+fi
+
 # --- 5. Build stamp ----------------------------------------------------------------------------
 #
 # version.properties is how upstream's build reads the version, and the patch reads the deviation
@@ -887,6 +1062,19 @@ if [ "$WANT_WD20" = "yes" ]; then
     ! grep -q 'reissueTriggerUnused = 2' "$WD20_FILE" ||
     die "WD-20 did not take effect in $WD20_FILE."
   echo "    PID (mdoc and SD-JWT): RotatingBatch, one credential, reused."
+fi
+
+if [ "$WANT_WD21" = "yes" ]; then
+  step "Applying WD-21 (issuance binding-key algorithm negotiated with the issuer's proof_signing_alg_values_supported)"
+  # A plain patch of the app's issuance controller: before creating the credential's binding key it
+  # reads the issuer's required JWT-proof signing algorithms and, when the default (ES256) is not
+  # among them, creates the key with an algorithm the issuer accepts (e.g. ES384 / P-384, in the TEE).
+  git apply --whitespace=nowarn "$HERE/deviations/wd-21.patch" ||
+    die "failed to apply deviations/wd-21.patch against the pinned tag (plus patches/); it must be regenerated."
+  WD21_FILE="core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt"
+  [ "$(grep -c 'edtpNegotiateProofKeyAlgorithm' "$WD21_FILE")" = "2" ] ||
+    die "WD-21 did not take effect (the negotiation helper and its call site are expected)."
+  echo "    binding-key algorithm negotiated with the issuer (ES256 default unchanged; e.g. ES384 honoured)."
 fi
 
 if [ "$WANT_WD19" = "yes" ]; then
@@ -956,7 +1144,10 @@ if [ "$WANT_WD10" = "yes" ]; then
   fi
   # Each patch carries its own tests: for WD-10, both forms of the legal notice read and anything else
   # refused; for WD-12, the mDL list's two services mapped. A library that fails them is not used.
-  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet "${ETSI_TASKS[@]}" ) ||
+  # --no-configuration-cache: these one-shot dependency builds gain nothing from the configuration
+  # cache, and a stale entry fails to reload ("IsInIdeaSyncValueSource not found"); disabling it is
+  # the robust choice here.
+  ( cd "$ETSI_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --no-configuration-cache --quiet "${ETSI_TASKS[@]}" ) ||
     die "the patched ETSI library did not pass its tests or did not build."
   [ -f "$ETSI_JAR" ] || die "the patched ETSI library built no jar at $ETSI_JAR."
   jar tf "$ETSI_JAR" | grep -q 'EdtpLegalNoticeTextSerializer.class' ||
@@ -1127,6 +1318,13 @@ GRADLE
       die "the Wallet Core clone is at $CORE_ACTUAL, expected $WALLET_CORE_COMMIT. Remove $CORE_DIR and run again."
     git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-14.patch" ||
       die "failed to apply deviations/wd-14.patch against $WALLET_CORE_TAG; it must be regenerated."
+    # EDTP fail-closed: the credential trust verifiers return null on a thrown error (upstream =
+    # fail-open), so a revoked document signer or bad issuer signature would NOT block even under
+    # ENFORCE. This patch adds EdtpTrustEnforce (a process switch the app sets from its granular-
+    # trust config) and makes both verifiers rethrow when it is armed. It applies whenever Wallet
+    # Core is rebuilt (wd-14), so the ENFORCE the app requests is honoured on the credential path.
+    git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/edtp-c1-failclosed.patch" ||
+      die "failed to apply deviations/edtp-c1-failclosed.patch against $WALLET_CORE_TAG; it must be regenerated."
     CORE_TESTS=(--tests '*EdtpWd14Test*')
     if [ "$WANT_WD16" = "yes" ]; then
       git -C "$CORE_DIR" apply --whitespace=nowarn "$HERE/deviations/wd-16.patch" ||
@@ -1142,7 +1340,7 @@ GRADLE
     CORE_AAR="$CORE_DIR/wallet-core/build/outputs/aar/wallet-core-release.aar"
     rm -f "$CORE_AAR"
     # Its own tests and the library's other registration-certificate tests, which must still pass.
-    ( cd "$CORE_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --quiet \
+    ( cd "$CORE_DIR" && ANDROID_HOME="$SDK" ./gradlew --no-daemon --no-configuration-cache --quiet \
         :wallet-core:testDebugUnitTest "${CORE_TESTS[@]}" --tests '*RegistrationCertificate*' \
         --tests '*IssuerRegistration*' --tests '*WrpRegistration*' :wallet-core:assembleRelease ) ||
       die "the patched Wallet Core did not pass its tests or did not build."
@@ -1192,6 +1390,7 @@ allprojects {
 GRADLE
     CORE_PATCHES="wd-14.patch"; [ "$WANT_WD16" = "yes" ] && CORE_PATCHES="wd-14.patch and wd-16.patch"
     [ "$WANT_WD17" = "yes" ] && CORE_PATCHES="wd-14.patch, wd-16.patch and wd-17.patch"
+    CORE_PATCHES="$CORE_PATCHES, and edtp-c1-failclosed.patch (verifier fail-open closed)"
     echo "    Wallet Core $WALLET_CORE_VERSION rebuilt from $WALLET_CORE_TAG with $CORE_PATCHES, and substituted."
   fi
 fi
@@ -1231,7 +1430,11 @@ EFFECTIVE_APP_NAME="${APP_NAME:-$EDTP_APP_NAME}"
 cat > version.properties <<EOF
 VERSION_NAME=$EDTP_VERSION_NAME
 EDTP_DEVIATIONS=$DEVIATIONS
+EDTP_TRUST=$TRUST
+EDTP_TRUST_LISTS=$TRUST_LISTS
 EDTP_DIAGNOSTICS=$DIAGNOSTICS
+EDTP_READER=$READER
+EDTP_READER_TRUST=$READER_TRUST
 EDTP_APP_ID_SUFFIX=$EFFECTIVE_APP_ID_SUFFIX
 EDTP_APP_NAME=$EFFECTIVE_APP_NAME
 EDTP_WRPAC_LOTE=$WRPAC_LOTE
@@ -1290,7 +1493,7 @@ echo "    gradle heap ${HEAP_MB}m, kotlin daemon ${KOTLIN_HEAP_MB}m (machine has
 # It is printed below so it reaches the build record, because it is a build input like any other.
 echo "    android lint: skipped for release assembly (upstream quality gate; see build.sh)"
 
-./gradlew --no-daemon \
+./gradlew --no-daemon --no-configuration-cache \
   "-Dorg.gradle.jvmargs=-Xmx${HEAP_MB}m -Dfile.encoding=UTF-8" \
   "-Dkotlin.daemon.jvmargs=-Xmx${KOTLIN_HEAP_MB}m" \
   -Pandroid.lint.checkReleaseBuilds=false \
@@ -1327,6 +1530,8 @@ cat <<EOF
  wallet core          $WALLET_CORE_VERSION
  build type           $BUILD_TYPE
  active deviations    $DEVIATIONS
+ trusted lists        $TRUST_LISTS
+ reader capability    $READER
  patches applied      $(cd "$HERE/patches" && ls *.patch | tr '\n' ' ')
  platform commit      $(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo '<unknown>')
 ==============================================================================

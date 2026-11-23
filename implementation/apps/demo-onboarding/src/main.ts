@@ -253,6 +253,11 @@ const main = (): void => {
     .digest("hex")
     .slice(0, 12);
   const assets = `assets/${version}`;
+  const brandUrls = (b: Brand) => ({
+    name: b.name,
+    logo: `${assets}/logo.${b.logo.ext}`,
+    css: `${assets}/brand.css`,
+  });
 
   const recorded = {
     statuses: RECORDED_STATUSES,
@@ -298,15 +303,7 @@ const main = (): void => {
       // With no policy at all the page plays its recording, income certificate included.
       income: Boolean(incomePolicy) || !policy,
       login: Boolean(loginPolicy) || !policy,
-      ...(brand
-        ? {
-            brand: {
-              name: brand.name,
-              logo: `${assets}/logo.${brand.logo.ext}`,
-              css: `${assets}/brand.css`,
-            },
-          }
-        : {}),
+      ...(brand ? { brand: brandUrls(brand) } : {}),
       ...(resume ? { resume, resumeKind: resumeKind ?? "pid" } : {}),
       recorded,
     });
@@ -496,7 +493,16 @@ const main = (): void => {
     if (!book || !who) return next();
     secureHeaders(response);
     const { t } = texts(undefined);
-    response.send(renderBackoffice({ t, assets, who, cases: book.list(), now: new Date() }));
+    response.send(
+      renderBackoffice({
+        t,
+        assets,
+        who,
+        cases: book.list(),
+        now: new Date(),
+        ...(brand ? { brand: brandUrls(brand) } : {}),
+      }),
+    );
   });
 
   app.use((request, response) => {

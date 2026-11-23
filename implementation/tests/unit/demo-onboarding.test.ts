@@ -446,4 +446,23 @@ describe("a client's brand", () => {
     expect(page).not.toMatch(/Banco Horizonte/);
     expect(page).not.toMatch(/<script(?![^>]*(type="application\/json"|src=))/);
   });
+
+  it("brands the back office too", () => {
+    const branded = brandDictionary(t, loadBrand(dir(good)));
+    const page = renderBackoffice({
+      t: branded,
+      assets: "assets/abc",
+      who: "ana@example.test",
+      cases: [],
+      now: new Date(),
+      brand: {
+        name: "Banco Cliente",
+        logo: "assets/abc/logo.svg",
+        css: "assets/abc/brand.css",
+      },
+    });
+    expect(page).toContain('alt="Banco Cliente"');
+    expect(page).toContain("assets/abc/brand.css");
+    expect(page).not.toMatch(/Banco Horizonte/);
+  });
 });

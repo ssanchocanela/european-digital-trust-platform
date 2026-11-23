@@ -56,15 +56,59 @@ These are the versions that release pins; a later minor can move or rename a cal
 change against the version you actually build. Record the exact app tag + wallet-kit version in the
 run record (§9).
 
-> **⚠ Trust-model difference — investigate this FIRST.** The iOS wallet's `Package.resolved` has **no
-> ETSI TS 119 602 trusted-list library** (Android's trust lives in `eudi-lib-kmp-etsi-1196x2`, which
-> WD-10/13/15 patch). So the iOS trust mechanism is **not the same shape**: it likely does **not**
-> consume LoTE/ETSI trusted lists the way Android does, and trust anchors may be configured directly
-> in `eudi-lib-ios-wallet-kit`. This affects **WD-3, WD-4, WD-8, WD-10, WD-12, WD-13, WD-15** — half
-> the set. Before porting those one by one, map **how `eudi-lib-ios-wallet-kit` 0.51.0 establishes
-> issuer/reader trust**, then translate the *intent* (trust our dev PID/WRPAC/WRPRC/mDL anchors)
-> rather than the Android list-parsing patches. §5.1 and §5.3 below assume the Android (ETSI-list)
-> shape — adapt them to whatever iOS actually does.
+### Trust model on iOS — verified against the source (2026-11-23)
+
+Good news: iOS 0.51.0 uses the **same ETSI LoTE trust model** as Android, so these deviations **do
+map**. It is all configured in **one place in the app** (not the library):
+**`Modules/logic-core/Sources/Config/WalletKitConfig.swift`**, the computed property
+**`trustConfiguration`**. Stock it is:
+
+```swift
+// WalletKitConfig.swift → trustConfiguration
+let loteLocations = SupportedLists<NSString>(
+  pidProviders:   "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PIDProviders.jwt",
+  walletProviders: nil,
+  wrpacProviders: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPACProviders.jwt",
+  wrprcProviders: "https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/WRPRCProviders.jwt",
+  pubEaaProviders:"https://trustedlist.serviceproviders.eudiw.dev/LOTE/json/PubEAAProviders.jwt",
+  qeaProviders: nil, eaaProviders: [:])
+let classifications: EtsiContextTypeMappings = [
+  DocumentTypeIdentifier.mDocPid.rawValue: .pid,
+  DocumentTypeIdentifier.sdJwtPid.rawValue: .pid ]
+return TrustConfiguration(
+  trustSource: .etsi(EtsiTrustSource(loteLocations: loteLocations, contextTypeMappings: classifications)),
+  fallbackTrustSource: .staticList(StaticListTrustSource(rootCertificates: staticRootCertificates)),
+  defaultPolicy: .warning, requireSignedMetadata: true,
+  statusTrustPolicy: .warning, wrprcVpTrustPolicy: .warning, wrprcVciTrustPolicy: .enforce)
+```
+
+Mapping of the list/trust deviations onto this (the `EtsiTrustManager`/`validateCertTrustPath` lives
+in the iOS ETSI module `EudiEtsi1196x2`, selected by `#if canImport` in
+`eudi-lib-ios-wallet-kit`'s `TrustConfiguration.swift`):
+
+- **WD-3 / WD-4 / WD-8** — change the `SupportedLists` URLs (`pidProviders`, `wrpacProviders`,
+  `wrprcProviders`) to the Launchpad CE URLs (§5.1). **Direct, one-line each.**
+- **WD-12 (mDL)** — stock `eaaProviders` is `[:]` and `classifications` maps only the two PID doctypes
+  (no mDL), so an mDL is untrusted exactly as on Android. Add the mDL list under `eaaProviders["mdl"]`
+  **and** classify the mDL doctype in `classifications` against it (confirm the iOS `EtsiContextType`
+  has an `mdl` context).
+- **WD-10 / WD-13 / WD-15** — defect fixes **inside the ETSI module** (`EudiEtsi1196x2`,
+  `EtsiTrustManager.validateCertTrustPath`). On iOS these are a **check, not a given**: point the lists
+  at the Launchpad CE URLs, load them, and see if they parse/validate. If the iOS module shares the
+  Android KMP lib's defects (`LoTELegalNotice` as a string, chain-to-anchor, leaf-is-anchor), port the
+  equivalent fix into a **fork of the iOS ETSI module**; if they already parse, skip.
+- **Registration-cert check (WD-14/16/17 surface)** — `validateIssuerRegistrationCertificate` is a
+  **pref** (`prefsController`), already wired into `vciConfig`/`vpConfig` as
+  `validateRegistrationCertificate`. This **is** the iOS "Check Registration Certificates" switch —
+  test both positions (§5.4).
+- **requireSignedMetadata** — `true` here; WD-11 (§5.5) is the Accept header on that signed-metadata
+  request, inside `openid4vci-swift`, separate from this flag. (Setting it `false` would be the WD-2
+  relaxation, not in this build.)
+- **pub-EAA** stays at the reference list (CE 403). `vpConfig.clientIdSchemes` is already
+  `[.x509SanDns, .x509Hash]` — matches the schemes the reference build enforces.
+- There is a **second injection point**: `staticRootCertificates` (the `.staticList` **fallback**)
+  bundles root certs (`pidissuerca02_*`, `r45_staging`); our dev anchors could be added there as a
+  fallback if a list path is unavailable. `TEST` only.
 
 ---
 
@@ -119,8 +163,8 @@ Grouped by area. For each: **what**, **why/standard**, **Android site**, **iOS t
 
 Point the wallet's provider lists at the Launchpad 2026 testbed lists. Android sets these in
 `core-logic/.../WalletCoreConfigImpl.kt` (the `edtptest` source set) and overrides the URLs with
-`--pid-lote/--wrpac-lote/--wrprc-lote/--mdl-lote`. On iOS these are the Wallet Kit trust-list
-configuration.
+`--pid-lote/--wrpac-lote/--wrprc-lote/--mdl-lote`. On iOS these are the `SupportedLists` URLs in
+**`WalletKitConfig.swift` → `trustConfiguration`** (see the "Trust model on iOS" box in §1).
 
 | List | URL to configure | Android dev |
 |---|---|---|
@@ -142,7 +186,11 @@ mDL entry**, so an mDL is untrusted out of the box. Add the mDL providers list t
 iOS wallet (like Android) treats the mDL as a generic public-EAA and never trusts it.
 *(Android: `deviations/wd-12.patch`, against the ETSI 119602 library's consultation module.)*
 
-### 5.3 ETSI TS 119 602 list parsing / chain validation  *(defect fixes in the list library — fork the Swift ETSI lib)*
+### 5.3 ETSI TS 119 602 list parsing / chain validation  *(a CHECK on iOS — see the Trust model box in §1)*
+
+> **Only needed if the iOS ETSI module (`EudiEtsi1196x2`) shows the same defects.** Point the lists at
+> the Launchpad CE URLs first (§5.1) and load them; port the fixes below into a fork of that module
+> **only** for whichever actually fails to parse/validate on iOS.
 
 - **WD-10 — `LoTELegalNotice` as a multilingual string.** The list's
   `PolicyOrLegalNotice.LoTELegalNotice` is a multilingual character string; modelling it as a

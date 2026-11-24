@@ -1,0 +1,84 @@
+diff --git a/network-logic/src/main/java/eu/europa/ec/networklogic/di/EdtpRequestObjectAccept.kt b/network-logic/src/main/java/eu/europa/ec/networklogic/di/EdtpRequestObjectAccept.kt
+new file mode 100644
+index 0000000..fa1155d
+--- /dev/null
++++ b/network-logic/src/main/java/eu/europa/ec/networklogic/di/EdtpRequestObjectAccept.kt
+@@ -0,0 +1,39 @@
++/*
++ * EDTP deviation WD-19. Not upstream.
++ */
++
++package eu.europa.ec.networklogic.di
++
++import io.ktor.client.plugins.api.Send
++import io.ktor.client.plugins.api.createClientPlugin
++import io.ktor.http.HttpHeaders
++
++private const val REQUEST_OBJECT = "application/oauth-authz-req+jwt"
++
++/**
++ * The `Accept` header a request for an OpenID4VP Request Object should carry, when it has to be changed.
++ *
++ * OpenID4VP 1.0 section 5.10: a `request_uri_method=post` request "MUST use … the Accept header set to
++ * application/oauth-authz-req+jwt". The presentation library asks for that type, but the HTTP client
++ * the app hands it installs `ContentNegotiation` for JSON and other types are added too, so on the wire
++ * the wallet sent `application/oauth-authz-req+jwt; application/jwt; application/json` — not the value
++ * the specification sets, and refused by a Verifier that checks it.
++ *
++ * Returns the Request Object type alone for a request that asked for it among others, and `null` for
++ * anything else, which is left as it is.
++ */
++internal fun requestObjectAccept(accept: List<String>): String? {
++    val asked = accept.flatMap { it.split(",", ";") }.map { it.trim().lowercase() }.filter { "/" in it }
++    return if (REQUEST_OBJECT in asked && asked.any { it != REQUEST_OBJECT }) REQUEST_OBJECT else null
++}
++
++/** Applies [requestObjectAccept] as the request leaves, after every other plugin has had its say. */
++val EdtpRequestObjectAccept = createClientPlugin("EdtpRequestObjectAccept") {
++    on(Send) { request ->
++        requestObjectAccept(request.headers.getAll(HttpHeaders.Accept).orEmpty())?.let { only ->
++            request.headers.remove(HttpHeaders.Accept)
++            request.headers.append(HttpHeaders.Accept, only)
++        }
++        proceed(request)
++    }
++}
+diff --git a/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpRequestObjectAcceptTest.kt b/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpRequestObjectAcceptTest.kt
+new file mode 100644
+index 0000000..9853889
+--- /dev/null
++++ b/network-logic/src/test/java/eu/europa/ec/networklogic/di/EdtpRequestObjectAcceptTest.kt
+@@ -0,0 +1,33 @@
++/*
++ * EDTP deviation WD-19. Not upstream.
++ */
++
++package eu.europa.ec.networklogic.di
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class EdtpRequestObjectAcceptTest {
++
++    private val requestObject = "application/oauth-authz-req+jwt"
++
++    @Test
++    fun `a request for a Request Object asks for nothing else`() {
++        assertEquals(requestObject, requestObjectAccept(listOf(requestObject, "application/jwt", "application/json")))
++        assertEquals(requestObject, requestObjectAccept(listOf("$requestObject; application/jwt; application/json")))
++        assertEquals(requestObject, requestObjectAccept(listOf("$requestObject, */*")))
++    }
++
++    @Test
++    fun `a request that already asks for it alone is left as it is`() {
++        assertNull(requestObjectAccept(listOf(requestObject)))
++    }
++
++    @Test
++    fun `any other request is left as it is`() {
++        assertNull(requestObjectAccept(listOf("application/jwt", "application/json")))
++        assertNull(requestObjectAccept(listOf("application/json")))
++        assertNull(requestObjectAccept(emptyList()))
++    }
++}

@@ -1,0 +1,58 @@
+diff --git a/119602-consultation/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/consultation/EUSupportedLists.kt b/119602-consultation/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/consultation/EUSupportedLists.kt
+index baf37c5..0336d04 100644
+--- a/119602-consultation/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/consultation/EUSupportedLists.kt
++++ b/119602-consultation/src/commonMain/kotlin/eu/europa/ec/eudi/etsi119602/consultation/EUSupportedLists.kt
+@@ -49,8 +49,19 @@ public fun SupportedLists.Companion.eu(): SupportedLists<LotEMeta<VerificationCo
+         ),
+         pubEaaProviders = null,
+         qeaProviders = null,
++        // EDTP WD-12: the mDL Providers list, under the use case "mdl", so that a wallet that points
++        // eaaProviders["mdl"] at it can trust an mDL issuer. Not upstream behaviour.
++        eaaProviders = mapOf(
++            MDL_USE_CASE to UseCase.MDL.loteMeta(
++                issuance = VerificationContext.EAA(MDL_USE_CASE),
++                revocation = VerificationContext.EAAStatus(MDL_USE_CASE),
++            ),
++        ),
+     )
+ 
++/** EDTP WD-12: the use case under which the mDL Providers list is configured. */
++public const val MDL_USE_CASE: String = "mdl"
++
+ private data class UseCase(
+     val loteProfile: EUListOfTrustedEntitiesProfile,
+     val issuanceCertificateProfile: CertificateProfile?,
+diff --git a/119602-consultation/src/commonTest/kotlin/eu/europa/ec/eudi/etsi119602/consultation/edtp/EdtpWd12Test.kt b/119602-consultation/src/commonTest/kotlin/eu/europa/ec/eudi/etsi119602/consultation/edtp/EdtpWd12Test.kt
+new file mode 100644
+index 0000000..163b698
+--- /dev/null
++++ b/119602-consultation/src/commonTest/kotlin/eu/europa/ec/eudi/etsi119602/consultation/edtp/EdtpWd12Test.kt
+@@ -0,0 +1,28 @@
++package eu.europa.ec.eudi.etsi119602.consultation.edtp
++
++import eu.europa.ec.eudi.etsi119602.consultation.MDL_USE_CASE
++import eu.europa.ec.eudi.etsi119602.consultation.eu
++import eu.europa.ec.eudi.etsi119602.consultation.eu.EUMDLProvidersListSpec
++import eu.europa.ec.eudi.etsi119602.datamodel.Uri
++import eu.europa.ec.eudi.etsi1196x2.consultation.SupportedLists
++import eu.europa.ec.eudi.etsi1196x2.consultation.VerificationContext
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertNotNull
++
++// EDTP WD-12: the EU baseline carries the mDL Providers list under "mdl".
++class EdtpWd12Test {
++
++    @Test
++    fun `the EU baseline maps the mDL issuance and revocation service types`() {
++        val mdl = assertNotNull(SupportedLists.eu().eaaProviders[MDL_USE_CASE])
++        assertEquals(
++            Uri.parse(EUMDLProvidersListSpec.SVC_TYPE_ISSUANCE),
++            mdl.svcTypePerCtx.getValue(VerificationContext.EAA(MDL_USE_CASE)).svcTypeIdentifier,
++        )
++        assertEquals(
++            Uri.parse(EUMDLProvidersListSpec.SVC_TYPE_REVOCATION),
++            mdl.svcTypePerCtx.getValue(VerificationContext.EAAStatus(MDL_USE_CASE)).svcTypeIdentifier,
++        )
++    }
++}

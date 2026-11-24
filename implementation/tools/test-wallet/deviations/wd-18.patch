@@ -1,0 +1,67 @@
+diff --git a/assembly-logic/src/main/AndroidManifest.xml b/assembly-logic/src/main/AndroidManifest.xml
+index a66f9e4..50c951a 100644
+--- a/assembly-logic/src/main/AndroidManifest.xml
++++ b/assembly-logic/src/main/AndroidManifest.xml
+@@ -181,6 +181,25 @@
+                     android:host="${credentialOfferHaipHost}"
+                     android:scheme="${credentialOfferHaipScheme}" />
+ 
++            </intent-filter>
++            <!-- EDTP WD-18: the schemes of the EUDI Wallet Launchpad 2026 Testing Playbook. -->
++            <intent-filter>
++                <action android:name="android.intent.action.VIEW" />
++
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++
++                <data android:scheme="eu-eaap" />
++
++            </intent-filter>
++            <intent-filter>
++                <action android:name="android.intent.action.VIEW" />
++
++                <category android:name="android.intent.category.DEFAULT" />
++                <category android:name="android.intent.category.BROWSABLE" />
++
++                <data android:scheme="eu-eaa-offer" />
++
+             </intent-filter>
+             <intent-filter>
+                 <action android:name="android.intent.action.VIEW" />
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/helper/DeepLinkAction.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/helper/DeepLinkAction.kt
+index cb0dad8..24c2f73 100644
+--- a/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/helper/DeepLinkAction.kt
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/helper/DeepLinkAction.kt
+@@ -33,13 +33,17 @@ enum class DeepLinkType(
+             BuildConfig.OPENID4VP_SCHEME,
+             BuildConfig.EUDI_OPENID4VP_SCHEME,
+             BuildConfig.MDOC_OPENID4VP_SCHEME,
+-            BuildConfig.HAIP_OPENID4VP_SCHEME
++            BuildConfig.HAIP_OPENID4VP_SCHEME,
++            // EDTP WD-18: the EUDI Wallet Launchpad 2026 Testing Playbook's presentation scheme.
++            EDTP_LAUNCHPAD_PRESENTATION_SCHEME
+         )
+     ),
+     CREDENTIAL_OFFER(
+         schemas = listOf(
+             BuildConfig.CREDENTIAL_OFFER_SCHEME,
+-            BuildConfig.CREDENTIAL_OFFER_HAIP_SCHEME
++            BuildConfig.CREDENTIAL_OFFER_HAIP_SCHEME,
++            // EDTP WD-18: the EUDI Wallet Launchpad 2026 Testing Playbook's credential offer scheme.
++            EDTP_LAUNCHPAD_OFFER_SCHEME
+         )
+     ),
+     ISSUANCE(
+@@ -86,4 +90,10 @@ enum class DeepLinkType(
+             else -> EXTERNAL
+         }
+     }
+-}
+\ No newline at end of file
++}
++
++/** EDTP WD-18: `eu-eaap://`, an OpenID4VP request, as the EUDI Wallet Launchpad 2026 Testing Playbook uses it. */
++const val EDTP_LAUNCHPAD_PRESENTATION_SCHEME = "eu-eaap"
++
++/** EDTP WD-18: `eu-eaa-offer://`, a credential offer, as the same playbook uses it. */
++const val EDTP_LAUNCHPAD_OFFER_SCHEME = "eu-eaa-offer"

@@ -1,0 +1,165 @@
+diff --git a/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt b/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt
+index 0b3cac6..c0914b6 100644
+--- a/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt
++++ b/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt
+@@ -185,6 +185,10 @@ interface PrefKeys {
+     suspend fun getRegistrationCheckEnabled(): Boolean
+     suspend fun setRegistrationCheckEnabled(value: Boolean)
+ 
++    // EDTP additions: per-layer granular-trust toggles (C1 signatures, C2 chain, C3 revocation).
++    suspend fun getTrustLayerEnabled(key: String): Boolean
++    suspend fun setTrustLayerEnabled(key: String, value: Boolean)
++
+     suspend fun getCryptoAlias(): String
+     suspend fun setCryptoAlias(value: String)
+     suspend fun setSessionId(value: String)
+@@ -213,6 +217,14 @@ class PrefKeysImpl(
+         prefsController.setBool("RegistrationCheckEnabled", value)
+     }
+ 
++    override suspend fun getTrustLayerEnabled(key: String): Boolean {
++        return prefsController.getBool("EdtpTrust_$key", false)
++    }
++
++    override suspend fun setTrustLayerEnabled(key: String, value: Boolean) {
++        prefsController.setBool("EdtpTrust_$key", value)
++    }
++
+     override suspend fun getCryptoAlias(): String {
+         return prefsController.getString("CryptoAlias", "")
+     }
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt
+index 8a9927c..0d07fab 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt
+@@ -41,6 +41,8 @@ interface SettingsInteractor : BiometricInteractor {
+     suspend fun toggleBiometricsAuthentication()
+     suspend fun toggleShowBatchIssuanceCounter()
+     suspend fun toggleRegistrationCheck()
++
++    suspend fun toggleEdtpTrustLayer(type: SettingsMenuItemType)
+ }
+ 
+ class SettingsInteractorImpl(
+@@ -63,6 +65,9 @@ class SettingsInteractorImpl(
+     override suspend fun getSettingsItemsUi(changelogUrl: String?): List<SettingsItemUi> {
+         val deviceSupportsBiometrics = deviceSupportsBiometrics()
+         val registrationCheckEnabled = getRegistrationCheckEnabled()
++        val edtpC1 = prefKeys.getTrustLayerEnabled("C1")
++        val edtpC2 = prefKeys.getTrustLayerEnabled("C2")
++        val edtpC3 = prefKeys.getTrustLayerEnabled("C3")
+ 
+         return buildList {
+             if (deviceSupportsBiometrics) {
+@@ -130,6 +135,12 @@ class SettingsInteractorImpl(
+                 )
+             )
+ 
++            if (eu.europa.ec.dashboardfeature.BuildConfig.EDTP_BUILD) {
++                add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_C1, R.string.settings_screen_option_edtp_trust_c1, edtpC1))
++                add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_C2, R.string.settings_screen_option_edtp_trust_c2, edtpC2))
++                add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_C3, R.string.settings_screen_option_edtp_trust_c3, edtpC3))
++            }
++
+             add(
+                 SettingsItemUi(
+                     type = SettingsMenuItemType.RETRIEVE_LOGS,
+@@ -188,6 +199,46 @@ class SettingsInteractorImpl(
+         )
+     }
+ 
++    override suspend fun toggleEdtpTrustLayer(type: SettingsMenuItemType) {
++        val (key, layer) = when (type) {
++            SettingsMenuItemType.EDTP_TRUST_C1 -> "C1" to eu.europa.ec.edtp.trust.TrustLayer.C1_SIGNATURES
++            SettingsMenuItemType.EDTP_TRUST_C2 -> "C2" to eu.europa.ec.edtp.trust.TrustLayer.C2_CHAIN
++            SettingsMenuItemType.EDTP_TRUST_C3 -> "C3" to eu.europa.ec.edtp.trust.TrustLayer.C3_REVOCATION
++            else -> return
++        }
++        val newValue = !prefKeys.getTrustLayerEnabled(key)
++        prefKeys.setTrustLayerEnabled(key, newValue)
++        // Live: no restart needed — the observer reads TrustConfigHolder on every flow.
++        eu.europa.ec.edtp.trust.TrustConfigHolder.setMode(
++            layer,
++            if (newValue) eu.europa.ec.edtp.trust.TrustMode.OBSERVE
++            else eu.europa.ec.edtp.trust.TrustMode.OFF
++        )
++    }
++
++    private fun edtpTrustItem(
++        type: SettingsMenuItemType,
++        textRes: Int,
++        isChecked: Boolean,
++    ): SettingsItemUi = SettingsItemUi(
++        type = type,
++        data = ListItemDataUi(
++            itemId = type.itemId,
++            mainContentData = ListItemMainContentDataUi.Text(
++                text = resourceProvider.getString(textRes)
++            ),
++            leadingContentData = ListItemLeadingContentDataUi.Icon(
++                iconData = AppIcons.Verified
++            ),
++            trailingContentData = ListItemTrailingContentDataUi.Switch(
++                switchData = SwitchDataUi(
++                    isChecked = isChecked,
++                    enabled = true,
++                )
++            )
++        )
++    )
++
+     private suspend fun getBiometricUsageDecision(): Boolean {
+         return biometricInteractor.getBiometricUserSelection()
+     }
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt
+index 7cc56f4..cbeb91f 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt
+@@ -160,6 +160,18 @@ class SettingsViewModel(
+                 }
+             }
+ 
++            SettingsMenuItemType.EDTP_TRUST_C1,
++            SettingsMenuItemType.EDTP_TRUST_C2,
++            SettingsMenuItemType.EDTP_TRUST_C3 -> {
++                viewModelScope.launch {
++                    settingsInteractor.toggleEdtpTrustLayer(itemType)
++                    val settingsItems = settingsInteractor.getSettingsItemsUi(
++                        changelogUrl = viewState.value.changelogUrl
++                    )
++                    setState { copy(settingsItems = settingsItems) }
++                }
++            }
++
+             SettingsMenuItemType.REGISTRATION_CHECK -> {
+                 viewModelScope.launch {
+                     settingsInteractor.toggleRegistrationCheck()
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt
+index 49e4367..e7f4abd 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt
+@@ -27,6 +27,9 @@ enum class SettingsMenuItemType(val itemId: String) {
+     BIOMETRICS_AUTHENTICATION("biometricsAuthenticationId"),
+     SHOW_BATCH_ISSUANCE_COUNTER("showBatchIssuanceCounterId"),
+     REGISTRATION_CHECK("registrationCheckId"),
++    EDTP_TRUST_C1("edtpTrustC1Id"),
++    EDTP_TRUST_C2("edtpTrustC2Id"),
++    EDTP_TRUST_C3("edtpTrustC3Id"),
+     RETRIEVE_LOGS("retrieveLogsId"),
+     CHANGELOG("changelogId"),
+ }
+\ No newline at end of file
+diff --git a/resources-logic/src/main/res/values/strings.xml b/resources-logic/src/main/res/values/strings.xml
+index d428691..328066d 100644
+--- a/resources-logic/src/main/res/values/strings.xml
++++ b/resources-logic/src/main/res/values/strings.xml
+@@ -245,6 +245,9 @@
+     <string name="settings_screen_option_retrieve_logs">Retrieve logs</string>
+     <string name="settings_screen_option_changelog">Changelog</string>
+     <string name="settings_screen_option_registration_check">Check Registration Certificates</string>
++    <string name="settings_screen_option_edtp_trust_c1">Trust C1 — signatures &amp; binding</string>
++    <string name="settings_screen_option_edtp_trust_c2">Trust C2 — chain vs trust lists</string>
++    <string name="settings_screen_option_edtp_trust_c3">Trust C3 — validity &amp; revocation</string>
+     <string name="settings_screen_option_registration_check_restart">Restart the app to apply this change</string>
+     <string name="settings_intent_chooser_logs_share_title">Share logs</string>
+     <!--endregion-->

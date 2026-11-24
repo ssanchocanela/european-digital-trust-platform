@@ -1,0 +1,121 @@
+--- a/consultation/src/jvmAndAndroidMain/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/ValidateCertificateChainUsingPKIXJvm.kt
++++ b/consultation/src/jvmAndAndroidMain/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/ValidateCertificateChainUsingPKIXJvm.kt
+@@ -102,6 +102,9 @@
+     ): CertificationChainValidation<TrustAnchor> =
+         withContext(coroutineContext) {
+             require(chain.isNotEmpty()) { "Chain must not be empty" }
++            chain.first().directTrustAnchor(trustAnchors.list)?.let { anchor ->
++                return@withContext anchor.directlyTrusted(chain.first())
++            }
+             try {
+                 val pkixParameters = PKIXParameters(trustAnchors.list.toSet()).apply(customization)
+                 val certPath = certificateFactory.generateCertPath(chain.upToTrustAnchor(trustAnchors.list))
+@@ -157,6 +160,26 @@
+          * everything from the leaf up to it is validated as before. A name or key-identifier match is
+          * not enough, and a chain with no such certificate is validated unchanged.
+          */
++        /**
++         * EDTP WD-15. ETSI TS 119 602 lets a list's service digital identity be the certificate that
++         * verifies the provider's signature — for a registration certificate, the signing certificate
++         * itself (Annex G). PKIX builds no path whose leaf is the anchor, so such a signer could never be
++         * trusted. When the leaf is byte for byte one of the trust anchors' certificates, it is trusted
++         * directly at that anchor, provided it is within its validity period now. Nothing else changes.
++         */
++        internal fun X509Certificate.directTrustAnchor(trustAnchors: List<TrustAnchor>): TrustAnchor? {
++            val leaf = encoded
++            return trustAnchors.firstOrNull { it.trustedCert?.encoded?.contentEquals(leaf) == true }
++        }
++
++        private fun TrustAnchor.directlyTrusted(leaf: X509Certificate): CertificationChainValidation<TrustAnchor> =
++            try {
++                leaf.checkValidity()
++                CertificationChainValidation.Trusted(this)
++            } catch (e: CertificateException) {
++                e.notTrusted()
++            }
++
+         internal fun List<X509Certificate>.upToTrustAnchor(trustAnchors: List<TrustAnchor>): List<X509Certificate> {
+             val anchors = trustAnchors.mapNotNull { it.trustedCert?.encoded }
+             val index = drop(1).indexOfFirst { cert -> anchors.any { it.contentEquals(cert.encoded) } }
+diff --git a/consultation/src/jvmAndAndroidTest/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/edtp/EdtpWd15Test.kt b/consultation/src/jvmAndAndroidTest/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/edtp/EdtpWd15Test.kt
+new file mode 100644
+index 0000000..83f3013
+--- /dev/null
++++ b/consultation/src/jvmAndAndroidTest/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/edtp/EdtpWd15Test.kt
+@@ -0,0 +1,76 @@
++package eu.europa.ec.eudi.etsi1196x2.consultation.edtp
++
++import eu.europa.ec.eudi.etsi1196x2.consultation.CertificationChainValidation
++import eu.europa.ec.eudi.etsi1196x2.consultation.JvmSecurity
++import eu.europa.ec.eudi.etsi1196x2.consultation.NonEmptyList
++import eu.europa.ec.eudi.etsi1196x2.consultation.Sample
++import eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm
++import kotlinx.coroutines.test.runTest
++import org.bouncycastle.asn1.x500.X500Name
++import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
++import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
++import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
++import java.math.BigInteger
++import java.security.KeyPairGenerator
++import java.security.cert.CertificateExpiredException
++import java.security.cert.TrustAnchor
++import java.security.cert.X509Certificate
++import java.util.Date
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertIs
++
++// EDTP WD-15: a leaf that is byte for byte a trust anchor's certificate is trusted directly, within
++// its validity period. The JDK's default provider, which is what the wallet uses.
++class EdtpWd15Test {
++    private val certs = Sample.create()
++    private val other = Sample.create() // the same names, other keys
++
++    private suspend fun validate(chain: List<X509Certificate>, trust: List<X509Certificate>) =
++        ValidateCertificateChainUsingPKIXJvm(customization = JvmSecurity.withRevocationEnabled(false))
++            .invoke(chain, NonEmptyList(trust.map { TrustAnchor(it, null) }))
++
++    @Test
++    fun `a leaf that is itself the anchor is trusted at it`() = runTest {
++        val validation = validate(listOf(certs.end), listOf(certs.end))
++        assertIs<CertificationChainValidation.Trusted<TrustAnchor>>(validation)
++        assertEquals(certs.end, validation.trustAnchor.trustedCert)
++    }
++
++    @Test
++    fun `a leaf that is the anchor is trusted whatever follows it`() = runTest {
++        val validation = validate(listOf(certs.end, certs.intermediate), listOf(certs.end))
++        assertIs<CertificationChainValidation.Trusted<TrustAnchor>>(validation)
++    }
++
++    @Test
++    fun `a leaf with the anchor's name but another key is not trusted`() = runTest {
++        assertIs<CertificationChainValidation.NotTrusted>(validate(listOf(other.end, other.intermediate), listOf(certs.end)))
++    }
++
++    @Test
++    fun `an expired leaf that is the anchor is not trusted`() = runTest {
++        val expired = expiredCertificate()
++        val validation = validate(listOf(expired), listOf(expired))
++        assertIs<CertificationChainValidation.NotTrusted>(validation)
++        assertIs<CertificateExpiredException>(validation.cause)
++    }
++
++    @Test
++    fun `a chain whose leaf is not an anchor is validated as before`() = runTest {
++        assertIs<CertificationChainValidation.Trusted<TrustAnchor>>(
++            validate(listOf(certs.end, certs.intermediate), listOf(certs.root)),
++        )
++        assertIs<CertificationChainValidation.NotTrusted>(validate(listOf(certs.end), listOf(certs.root)))
++    }
++
++    private fun expiredCertificate(): X509Certificate {
++        val kp = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.genKeyPair()
++        val day = 24L * 60 * 60 * 1000
++        val now = System.currentTimeMillis()
++        val name = X500Name("CN=Expired signer")
++        val holder = JcaX509v3CertificateBuilder(name, BigInteger.ONE, Date(now - 2 * day), Date(now - day), name, kp.public)
++            .build(JcaContentSignerBuilder("SHA256withECDSA").build(kp.private))
++        return JcaX509CertificateConverter().getCertificate(holder)
++    }
++}

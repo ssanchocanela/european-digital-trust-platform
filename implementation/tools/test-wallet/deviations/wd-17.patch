@@ -1,0 +1,175 @@
+--- a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificateChecks.kt
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificateChecks.kt
+@@ -90,7 +90,8 @@
+                 logger?.d(TAG, "registration certificate status list as JWT failed (${jwtError.message}); trying CWT")
+                 val getStatusListTokenCwt = GetStatusListToken.usingCwt(
+                     clock = Clock.System,
+-                    httpClient = httpClient,
++                    // EDTP WD-17 (a relaxation): a CWT sent base64url-encoded as text is decoded first.
++                    httpClient = httpClient.edtpToleratingBase64UrlCwt(logger),
+                     verifyStatusListTokenSignature = EdtpRegistrationStatusTokenCwtVerifier(statusTrust),
+                     allowedClockSkew = Duration.ZERO,
+                 )
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/EdtpStatusListBase64Tolerance.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/EdtpStatusListBase64Tolerance.kt
+new file mode 100644
+index 0000000..f119fb7
+--- /dev/null
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/EdtpStatusListBase64Tolerance.kt
+@@ -0,0 +1,75 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++package eu.europa.ec.eudi.wallet.registration
++
++import eu.europa.ec.eudi.wallet.internal.d
++import eu.europa.ec.eudi.wallet.logging.Logger
++import io.ktor.client.HttpClient
++import io.ktor.client.call.replaceResponse
++import io.ktor.client.statement.HttpReceivePipeline
++import io.ktor.http.ContentType
++import io.ktor.http.Headers
++import io.ktor.http.HttpHeaders
++import io.ktor.http.contentType
++import io.ktor.utils.io.ByteReadChannel
++import io.ktor.utils.io.InternalAPI
++import io.ktor.utils.io.toByteArray
++import java.util.Base64
++
++/**
++ * EDTP WD-17 — a RELAXATION, not a fix. draft-ietf-oauth-status-list §8.2 requires a Status List Token
++ * in CWT format to be sent as its raw binary encoding. Some servers send it base64url-encoded as text.
++ * This decodes such a body back to binary before the status library reads it, and nothing else: only a
++ * response typed `application/statuslist+cwt`, only when the whole body is base64url text, and only when
++ * what it decodes to begins as a COSE_Sign1 (tagged, 0xd2, or untagged, 0x84). A binary body — the
++ * specification's — starts with one of those non-ASCII bytes and is passed through untouched. The token
++ * is then verified exactly as a binary one is: this changes the transport encoding, never what is trusted.
++ */
++@OptIn(InternalAPI::class)
++internal fun HttpClient.edtpToleratingBase64UrlCwt(logger: Logger?): HttpClient = apply {
++    // The response is replaced as a whole, with its Content-Length corrected: the client checks the body
++    // it hands on against that header.
++    receivePipeline.intercept(HttpReceivePipeline.After) { response ->
++        if (response.contentType()?.match(STATUS_LIST_CWT) != true) return@intercept
++        val received = response.rawContent.toByteArray()
++        val decoded = edtpDecodeBase64UrlCwt(received)
++        if (decoded !== received) {
++            logger?.d(TAG, "status list token was sent base64url-encoded as text; decoded (EDTP WD-17)")
++        }
++        val headers = Headers.build {
++            response.headers.forEach { name, values ->
++                if (!name.equals(HttpHeaders.ContentLength, ignoreCase = true)) appendAll(name, values)
++            }
++            append(HttpHeaders.ContentLength, decoded.size.toString())
++        }
++        proceedWith(response.call.replaceResponse(headers) { ByteReadChannel(decoded) }.response)
++    }
++}
++
++/** Returns [body] decoded when it is base64url text of a COSE_Sign1, and [body] itself otherwise. */
++internal fun edtpDecodeBase64UrlCwt(body: ByteArray): ByteArray {
++    val text = body.toString(Charsets.US_ASCII).trim()
++    if (text.isEmpty() || !BASE64URL.matches(text)) return body
++    val decoded = runCatching { Base64.getUrlDecoder().decode(text.trimEnd('=')) }.getOrNull() ?: return body
++    val first = decoded.firstOrNull()?.toInt()?.and(0xff) ?: return body
++    return if (first == COSE_SIGN1_TAGGED || first == COSE_SIGN1_UNTAGGED) decoded else body
++}
++
++private val STATUS_LIST_CWT = ContentType.parse("application/statuslist+cwt")
++private val BASE64URL = Regex("^[A-Za-z0-9_-]+=*$")
++private const val COSE_SIGN1_TAGGED = 0xd2
++private const val COSE_SIGN1_UNTAGGED = 0x84
++private const val TAG = "RegistrationCertChecks"
+diff --git a/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd17Test.kt b/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd17Test.kt
+new file mode 100644
+index 0000000..f082111
+--- /dev/null
++++ b/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd17Test.kt
+@@ -0,0 +1,76 @@
++package eu.europa.ec.eudi.wallet.registration.edtp
++
++import com.sun.net.httpserver.HttpServer
++import eu.europa.ec.eudi.statium.StatusIndex
++import eu.europa.ec.eudi.statium.StatusReference
++import eu.europa.ec.eudi.wallet.logging.Logger
++import eu.europa.ec.eudi.wallet.registration.RevocationOutcome
++import eu.europa.ec.eudi.wallet.registration.checkStatusListRevocation
++import eu.europa.ec.eudi.wallet.registration.edtpDecodeBase64UrlCwt
++import io.ktor.client.HttpClient
++import kotlinx.coroutines.runBlocking
++import org.junit.Assert.assertArrayEquals
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertSame
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import java.net.InetSocketAddress
++import java.util.Base64
++
++// EDTP WD-17 (a relaxation): a CWT Status List Token sent base64url-encoded as text is decoded to the
++// binary the specification requires, and nothing else is.
++class EdtpWd17Test {
++    private val text = FNMT_STATUS_LIST_CWT.toByteArray(Charsets.US_ASCII)
++    private val binary = Base64.getUrlDecoder().decode(FNMT_STATUS_LIST_CWT)
++
++    @Test
++    fun `base64url text of a COSE_Sign1 is decoded`() {
++        assertArrayEquals(binary, edtpDecodeBase64UrlCwt(text))
++    }
++
++    @Test
++    fun `a binary token is passed through untouched`() {
++        assertSame(binary, edtpDecodeBase64UrlCwt(binary))
++    }
++
++    @Test
++    fun `base64url text of anything else is left alone`() {
++        val other = Base64.getUrlEncoder().withoutPadding().encodeToString("not a cose structure".toByteArray()).toByteArray()
++        assertSame(other, edtpDecodeBase64UrlCwt(other))
++        val prose = "this is not base64url!".toByteArray()
++        assertSame(prose, edtpDecodeBase64UrlCwt(prose))
++    }
++
++    @Test
++    fun `the status check decodes such a body and goes on to validate the token`() = runBlocking {
++        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
++        server.createContext("/sl") { ex ->
++            if ((ex.requestHeaders.getFirst("Accept") ?: "").contains("jwt")) {
++                ex.sendResponseHeaders(400, -1)
++            } else {
++                ex.responseHeaders.add("Content-Type", "application/statuslist+cwt")
++                ex.sendResponseHeaders(200, text.size.toLong()); ex.responseBody.write(text)
++            }
++            ex.close()
++        }
++        server.start()
++        try {
++            val messages = mutableListOf<String>()
++            val outcome = checkStatusListRevocation(
++                StatusReference(index = StatusIndex(15026), uri = "http://127.0.0.1:${server.address.port}/sl"),
++                null, Logger { messages += it.message }, { HttpClient() },
++            )
++            // The token names FNMT-RCM's address as its subject, not this local one, so it is refused —
++            // but only after it was decoded, its signature verified and its claims read.
++            assertEquals(RevocationOutcome.UNKNOWN, outcome)
++            assertTrue(messages.joinToString(), messages.any { "EDTP WD-17" in it })
++            assertTrue(messages.joinToString(), messages.any { "Wrong `sub`" in it })
++        } finally {
++            server.stop(0)
++        }
++    }
++
++    private companion object {
++        const val FNMT_STATUS_LIST_CWT = "0oRZA6O_ATgiEHgaYXBwbGljYXRpb24vc3RhdHVzbGlzdCtjd3QYIVkDfDCCA3gwggL_oAMCAQICFHanWzTi80o0puQ0Qvhg1fKt9rt9MAoGCCqGSM49BAMDMGAxCzAJBgNVBAYTAkVTMREwDwYDVQQKDAhGTk1ULVJDTTEYMBYGA1UEYQwPVkFURVMtUTI4MjYwMDRKMSQwIgYDVQQDDBtBQyBSQUlaIEZOTVQtUkNNIEVVRElXIFRFU1QwHhcNMjYxMDA1MTMxMDU3WhcNNDExMDAxMTMxMDU2WjBnMQswCQYDVQQGEwJFUzERMA8GA1UECgwIRk5NVC1SQ00xGDAWBgNVBGEMD1ZBVEVTLVEyODI2MDA0SjErMCkGA1UEAwwiQUMgRk5NVCBFVURJV1JQUkMgUFJPVklERVIgU1cgVEVTVDB2MBAGByqGSM49AgEGBSuBBAAiA2IABFaBrGurljd-ZkW3TH_mZa6Dkj3wsPEeIvoVzxWJCvLVl97oOMlkxZuGFsJUgkkSOaFiTBkv7StZJTxg9d-TBuVtnw5fLVl4PVQTZw-Ho-PxAYuYzJKi5WCSKvOu_URVB6OCAXEwggFtMBIGA1UdEwEB_wQIMAYBAf8CAQAwHwYDVR0jBBgwFoAUKY0sRmeLtHsVVrYDXnvUC65vZvYwgZUGCCsGAQUFBwEBBIGIMIGFMEIGCCsGAQUFBzAChjZodHRwOi8vY3JsLXZhLmludGVnLmNlcnQuZm5tdC5lcy9jZXJ0cy9BQ1JBSVpFVURJVy5jcnQwPwYIKwYBBQUHMAGGM2h0dHA6Ly9jcmwtdmEuaW50ZWcuY2VydC5mbm10LmVzL29jc3AvT2NzcFJlc3BvbmRlcjARBgNVHSAECjAIMAYGBFUdIAAwEwYDVR0lBAwwCgYIKwYBBQUHAyQwRwYDVR0fBEAwPjA8oDqgOIY2aHR0cDovL2NybC12YS5pbnRlZy5jZXJ0LmZubXQuZXMvY3Jscy9BUkxSQUlaRVVESVcuY3JsMB0GA1UdDgQWBBRhXiYgbHbISagRFJxpV6OrzCiaqDAOBgNVHQ8BAf8EBAMCAkQwCgYIKoZIzj0EAwMDZwAwZAIwb-xcFjbBfgE1UChgfZV3L_5haV1QoKT6PxJ6BuL2zpm2MG5iRj8M4qpyg1l4fwvkAjBC_fFj2_o-82EQzDelY6krtXz58xsZkuYN3gfwCAWKtS_MO57o_iDqkNWVqUdASCr_v_9YuL8CeHpodHRwczovL3dycHJjLmRldi5jcmVkZW5jaWFsZXMuZm5tdC5lcy90b2tlbi1zdGF0dXMtbGlzdC9jcmVkZW50aWFsL3N0YXR1cy9zdGF0dXMtbGlzdC1pZC81NDBkY2UyM2Q2MzMzNmMxNzRiNTViMGQ0MmFlYzZlYQYaat9agAQabMCOABn__b9kYml0cwFjbHN0WBx4nO3BMQEAAADCoPVPbQo_oAAAAACAtwETiAAB__9YYEEiaP-uVKpcTx7HF4eM70cWtvq1u7DvQAzEPOiHP1V3pXKRN5RylmE-2rfkaO7uyhmWZY2L3jsoE8MTxFCsbmJ2sjRQXTi7PhpLNCZv_cTeq0QmuIh2NZBGlGXxCBrkmA"
++    }
++}

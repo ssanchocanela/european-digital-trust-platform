@@ -1,0 +1,113 @@
+diff --git a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificatePayload.kt b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificatePayload.kt
+index b1b11f5..2e8c99f 100644
+--- a/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificatePayload.kt
++++ b/wallet-core/src/main/java/eu/europa/ec/eudi/wallet/registration/RegistrationCertificatePayload.kt
+@@ -22,7 +22,16 @@ package eu.europa.ec.eudi.wallet.registration
+ import android.annotation.SuppressLint
+ import eu.europa.ec.eudi.statium.StatusIndex
+ import eu.europa.ec.eudi.statium.StatusReference
++import kotlinx.serialization.KSerializer
+ import kotlinx.serialization.SerialName
++import kotlinx.serialization.SerializationException
++import kotlinx.serialization.builtins.ListSerializer
++import kotlinx.serialization.descriptors.SerialDescriptor
++import kotlinx.serialization.encoding.Decoder
++import kotlinx.serialization.encoding.Encoder
++import kotlinx.serialization.json.JsonArray
++import kotlinx.serialization.json.JsonDecoder
++import kotlinx.serialization.json.JsonObject
+ import kotlinx.serialization.Serializable
+ import kotlin.time.Instant
+ 
+@@ -39,6 +48,8 @@ internal data class RegistrationCertificateDto(
+     @SerialName("sub_gn") val givenName: String? = null,
+     @SerialName("sub_fn") val familyName: String? = null,
+     val country: String? = null,
++    // EDTP WD-14: ETSI TS 119 475 V1.2.1 Annex B.2.1 defines this as an array of arrays.
++    @Serializable(with = EdtpServiceDescriptionSerializer::class)
+     @SerialName("srv_description") val serviceDescription: List<MultiLangDto> = emptyList(),
+     val entitlements: List<String> = emptyList(),
+     @SerialName("registry_uri") val registryUri: String? = null,
+@@ -119,3 +130,34 @@ internal fun RegistrationCertificateDto.toRegistrationCertificate(): Registratio
+         providedAttestations = providedAttestations.map { it.toProvidedAttestation() },
+         intermediary = intermediary?.sub?.let { Intermediary(identifier = it, name = intermediary.name) },
+     )
++
++/**
++ * EDTP WD-14. ETSI TS 119 475 V1.2.1, Annex B.2.1, defines `srvDescription` as `[1..*]` "Array of
++ * MultiLangString objects" — an array of arrays, one per service, each holding the localised texts —
++ * and Annex C's example has that shape. This model takes a flat array, so a certificate written to the
++ * specification was refused whole as malformed. Both shapes are read; the services' texts are kept in
++ * order, flattened, which is what [RegistrationCertificate.serviceDescription] holds. Anything else in
++ * the array is refused, as before.
++ */
++internal object EdtpServiceDescriptionSerializer : KSerializer<List<MultiLangDto>> {
++    private val flat = ListSerializer(MultiLangDto.serializer())
++    override val descriptor: SerialDescriptor = flat.descriptor
++
++    override fun deserialize(decoder: Decoder): List<MultiLangDto> {
++        val json = decoder as? JsonDecoder ?: return flat.deserialize(decoder)
++        val element = json.decodeJsonElement() as? JsonArray
++            ?: throw SerializationException("srv_description is not an array")
++        return element.flatMap { item ->
++            when (item) {
++                is JsonObject -> listOf(json.json.decodeFromJsonElement(MultiLangDto.serializer(), item))
++                is JsonArray -> item.map { inner ->
++                    if (inner !is JsonObject) throw SerializationException("srv_description holds a non-object")
++                    json.json.decodeFromJsonElement(MultiLangDto.serializer(), inner)
++                }
++                else -> throw SerializationException("srv_description holds neither an object nor an array")
++            }
++        }
++    }
++
++    override fun serialize(encoder: Encoder, value: List<MultiLangDto>) = flat.serialize(encoder, value)
++}
+diff --git a/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd14Test.kt b/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd14Test.kt
+new file mode 100644
+index 0000000..721f69e
+--- /dev/null
++++ b/wallet-core/src/test/java/eu/europa/ec/eudi/wallet/registration/edtp/EdtpWd14Test.kt
+@@ -0,0 +1,42 @@
++package eu.europa.ec.eudi.wallet.registration.edtp
++
++import eu.europa.ec.eudi.wallet.registration.RegistrationCertificateDto
++import eu.europa.ec.eudi.wallet.registration.toRegistrationCertificate
++import kotlinx.serialization.json.Json
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertThrows
++import org.junit.Test
++
++// EDTP WD-14: srv_description is read in the shape of ETSI TS 119 475 V1.2.1 Annex B.2.1 (an array of
++// arrays) and in the flat shape this library read before.
++class EdtpWd14Test {
++    private val json = Json { ignoreUnknownKeys = true }
++    private fun decode(srv: String) =
++        json.decodeFromString(RegistrationCertificateDto.serializer(), """{"sub":"X","srv_description":$srv}""")
++
++    @Test
++    fun `the specification's array of arrays is read`() {
++        val rc = decode("""[[{"lang":"es-ES","value":"Servicio"},{"lang":"en","value":"Service"}],[{"lang":"en","value":"Other"}]]""")
++            .toRegistrationCertificate()
++        assertEquals(listOf("Servicio", "Service", "Other"), rc.serviceDescription.map { it.value })
++        assertEquals(listOf("es-ES", "en", "en"), rc.serviceDescription.map { it.language })
++    }
++
++    @Test
++    fun `the flat array is still read`() {
++        val dto = decode("""[{"lang":"en","value":"Service"}]""")
++        assertEquals(listOf("Service"), dto.serviceDescription.map { it.text })
++    }
++
++    @Test
++    fun `an absent srv_description is still empty`() {
++        val dto = json.decodeFromString(RegistrationCertificateDto.serializer(), """{"sub":"X"}""")
++        assertEquals(emptyList<Any>(), dto.serviceDescription)
++    }
++
++    @Test
++    fun `anything else is refused`() {
++        listOf(""""text"""", """{"lang":"en","value":"x"}""", """["text"]""", """[["text"]]""", """[[[{"lang":"en","value":"x"}]]]""")
++            .forEach { bad -> assertThrows(bad, Exception::class.java) { decode(bad) } }
++    }
++}

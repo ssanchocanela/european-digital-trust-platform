@@ -1,0 +1,99 @@
+diff --git a/consultation/src/jvmAndAndroidMain/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/ValidateCertificateChainUsingPKIXJvm.kt b/consultation/src/jvmAndAndroidMain/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/ValidateCertificateChainUsingPKIXJvm.kt
+index bc11a4b..18560e6 100644
+--- a/consultation/src/jvmAndAndroidMain/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/ValidateCertificateChainUsingPKIXJvm.kt
++++ b/consultation/src/jvmAndAndroidMain/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/ValidateCertificateChainUsingPKIXJvm.kt
+@@ -104,7 +104,7 @@ public class ValidateCertificateChainUsingPKIXJvm(
+             require(chain.isNotEmpty()) { "Chain must not be empty" }
+             try {
+                 val pkixParameters = PKIXParameters(trustAnchors.list.toSet()).apply(customization)
+-                val certPath = certificateFactory.generateCertPath(chain)
++                val certPath = certificateFactory.generateCertPath(chain.upToTrustAnchor(trustAnchors.list))
+                 val result = certPathValidator.validate(certPath, pkixParameters)
+                 result.trusted()
+             } catch (e: CertPathValidatorException) {
+@@ -148,5 +148,19 @@ public class ValidateCertificateChainUsingPKIXJvm(
+ 
+         private fun Throwable.notTrusted(): CertificationChainValidation.NotTrusted =
+             CertificationChainValidation.NotTrusted(this)
++
++        /**
++         * EDTP WD-13. A trust list may anchor a CA that is not a root, and an issuer may send a chain
++         * that continues above it. PKIX takes the anchor as an input, not as part of the path, and the
++         * JDK's validator refuses a path that runs past it. So the path is cut just below the first
++         * certificate, after the leaf, that is byte for byte one of the trust anchors' certificates;
++         * everything from the leaf up to it is validated as before. A name or key-identifier match is
++         * not enough, and a chain with no such certificate is validated unchanged.
++         */
++        internal fun List<X509Certificate>.upToTrustAnchor(trustAnchors: List<TrustAnchor>): List<X509Certificate> {
++            val anchors = trustAnchors.mapNotNull { it.trustedCert?.encoded }
++            val index = drop(1).indexOfFirst { cert -> anchors.any { it.contentEquals(cert.encoded) } }
++            return if (index < 0) this else subList(0, index + 1)
++        }
+     }
+ }
+diff --git a/consultation/src/jvmAndAndroidTest/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/edtp/EdtpWd13Test.kt b/consultation/src/jvmAndAndroidTest/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/edtp/EdtpWd13Test.kt
+new file mode 100644
+index 0000000..193fed2
+--- /dev/null
++++ b/consultation/src/jvmAndAndroidTest/kotlin/eu/europa/ec/eudi/etsi1196x2/consultation/edtp/EdtpWd13Test.kt
+@@ -0,0 +1,60 @@
++package eu.europa.ec.eudi.etsi1196x2.consultation.edtp
++
++import eu.europa.ec.eudi.etsi1196x2.consultation.CertificationChainValidation
++import eu.europa.ec.eudi.etsi1196x2.consultation.JvmSecurity
++import eu.europa.ec.eudi.etsi1196x2.consultation.NonEmptyList
++import eu.europa.ec.eudi.etsi1196x2.consultation.Sample
++import eu.europa.ec.eudi.etsi1196x2.consultation.ValidateCertificateChainUsingPKIXJvm
++import kotlinx.coroutines.test.runTest
++import java.security.cert.TrustAnchor
++import java.security.cert.X509Certificate
++import kotlin.test.Test
++import kotlin.test.assertEquals
++import kotlin.test.assertIs
++
++// EDTP WD-13: a chain that runs past a CA the trust list anchors is validated up to that CA. The
++// JDK's default provider, which is what the wallet uses.
++class EdtpWd13Test {
++    private val certs = Sample.create()
++    private val other = Sample.create() // the same names, other keys
++
++    private suspend fun validate(chain: List<X509Certificate>, trust: List<X509Certificate>) =
++        ValidateCertificateChainUsingPKIXJvm(customization = JvmSecurity.withRevocationEnabled(false))
++            .invoke(chain, NonEmptyList(trust.map { TrustAnchor(it, null) }))
++
++    @Test
++    fun `a chain that continues above an anchored intermediate is trusted at that intermediate`() = runTest {
++        val validation = validate(listOf(certs.end, certs.intermediate, certs.root), listOf(certs.intermediate))
++        assertIs<CertificationChainValidation.Trusted<TrustAnchor>>(validation)
++        assertEquals(certs.intermediate, validation.trustAnchor.trustedCert)
++    }
++
++    @Test
++    fun `a chain that ends with the anchored intermediate is trusted`() = runTest {
++        val validation = validate(listOf(certs.end, certs.intermediate), listOf(certs.intermediate))
++        assertIs<CertificationChainValidation.Trusted<TrustAnchor>>(validation)
++    }
++
++    @Test
++    fun `an anchor with the same name but another key does not cut the chain`() = runTest {
++        val validation = validate(listOf(certs.end, certs.intermediate, certs.root), listOf(other.intermediate))
++        assertIs<CertificationChainValidation.NotTrusted>(validation)
++    }
++
++    @Test
++    fun `a leaf not issued by the anchored certificate is not trusted`() = runTest {
++        val validation = validate(listOf(other.end, certs.intermediate, certs.root), listOf(certs.intermediate))
++        assertIs<CertificationChainValidation.NotTrusted>(validation)
++    }
++
++    @Test
++    fun `a chain with no anchored certificate is validated unchanged`() = runTest {
++        assertIs<CertificationChainValidation.Trusted<TrustAnchor>>(
++            validate(listOf(certs.end, certs.intermediate), listOf(certs.root)),
++        )
++        assertIs<CertificationChainValidation.NotTrusted>(validate(listOf(certs.end), listOf(certs.root)))
++        assertIs<CertificationChainValidation.NotTrusted>(
++            validate(listOf(certs.end, certs.intermediate, certs.root), listOf(other.root)),
++        )
++    }
++}

@@ -1,0 +1,183 @@
+diff --git a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+index 98121f8..798cbe6 100644
+--- a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
++++ b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/Application.kt
+@@ -60,6 +60,7 @@ class Application : Application() {
+ 
+     private fun seedTrustFromPrefs() {
+         kotlinx.coroutines.runBlocking {
++            val enforce = prefKeys.getTrustEnforce()
+             mapOf(
+                 "C1" to eu.europa.ec.edtp.trust.TrustLayer.C1_SIGNATURES,
+                 "C2" to eu.europa.ec.edtp.trust.TrustLayer.C2_CHAIN,
+@@ -68,8 +69,11 @@ class Application : Application() {
+                 val on = prefKeys.getTrustLayerEnabled(key)
+                 eu.europa.ec.edtp.trust.TrustConfigHolder.setMode(
+                     layer,
+-                    if (on) eu.europa.ec.edtp.trust.TrustMode.OBSERVE
+-                    else eu.europa.ec.edtp.trust.TrustMode.OFF
++                    when {
++                        !on -> eu.europa.ec.edtp.trust.TrustMode.OFF
++                        enforce -> eu.europa.ec.edtp.trust.TrustMode.ENFORCE
++                        else -> eu.europa.ec.edtp.trust.TrustMode.OBSERVE
++                    }
+                 )
+             }
+         }
+diff --git a/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt b/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt
+index c0914b6..419bbca 100644
+--- a/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt
++++ b/business-logic/src/main/java/eu/europa/ec/businesslogic/controller/storage/PrefsController.kt
+@@ -189,6 +189,10 @@ interface PrefKeys {
+     suspend fun getTrustLayerEnabled(key: String): Boolean
+     suspend fun setTrustLayerEnabled(key: String, value: Boolean)
+ 
++    // EDTP: global enforce flag — enabled layers block on failure (and C3 re-enables CRL/OCSP).
++    suspend fun getTrustEnforce(): Boolean
++    suspend fun setTrustEnforce(value: Boolean)
++
+     suspend fun getCryptoAlias(): String
+     suspend fun setCryptoAlias(value: String)
+     suspend fun setSessionId(value: String)
+@@ -225,6 +229,14 @@ class PrefKeysImpl(
+         prefsController.setBool("EdtpTrust_$key", value)
+     }
+ 
++    override suspend fun getTrustEnforce(): Boolean {
++        return prefsController.getBool("EdtpTrust_ENFORCE", false)
++    }
++
++    override suspend fun setTrustEnforce(value: Boolean) {
++        prefsController.setBool("EdtpTrust_ENFORCE", value)
++    }
++
+     override suspend fun getCryptoAlias(): String {
+         return prefsController.getString("CryptoAlias", "")
+     }
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt
+index 0d07fab..82934da 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/interactor/SettingsInteractor.kt
+@@ -43,6 +43,8 @@ interface SettingsInteractor : BiometricInteractor {
+     suspend fun toggleRegistrationCheck()
+ 
+     suspend fun toggleEdtpTrustLayer(type: SettingsMenuItemType)
++
++    suspend fun toggleEdtpTrustEnforce()
+ }
+ 
+ class SettingsInteractorImpl(
+@@ -68,6 +70,7 @@ class SettingsInteractorImpl(
+         val edtpC1 = prefKeys.getTrustLayerEnabled("C1")
+         val edtpC2 = prefKeys.getTrustLayerEnabled("C2")
+         val edtpC3 = prefKeys.getTrustLayerEnabled("C3")
++        val edtpEnforce = prefKeys.getTrustEnforce()
+ 
+         return buildList {
+             if (deviceSupportsBiometrics) {
+@@ -139,6 +142,7 @@ class SettingsInteractorImpl(
+                 add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_C1, R.string.settings_screen_option_edtp_trust_c1, edtpC1))
+                 add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_C2, R.string.settings_screen_option_edtp_trust_c2, edtpC2))
+                 add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_C3, R.string.settings_screen_option_edtp_trust_c3, edtpC3))
++                add(edtpTrustItem(SettingsMenuItemType.EDTP_TRUST_ENFORCE, R.string.settings_screen_option_edtp_trust_enforce, edtpEnforce))
+             }
+ 
+             add(
+@@ -206,14 +210,38 @@ class SettingsInteractorImpl(
+             SettingsMenuItemType.EDTP_TRUST_C3 -> "C3" to eu.europa.ec.edtp.trust.TrustLayer.C3_REVOCATION
+             else -> return
+         }
+-        val newValue = !prefKeys.getTrustLayerEnabled(key)
+-        prefKeys.setTrustLayerEnabled(key, newValue)
+-        // Live: no restart needed — the observer reads TrustConfigHolder on every flow.
+-        eu.europa.ec.edtp.trust.TrustConfigHolder.setMode(
+-            layer,
+-            if (newValue) eu.europa.ec.edtp.trust.TrustMode.OBSERVE
+-            else eu.europa.ec.edtp.trust.TrustMode.OFF
+-        )
++        prefKeys.setTrustLayerEnabled(key, !prefKeys.getTrustLayerEnabled(key))
++        // layer suppresses the unused-param warning while keeping the mapping self-documenting.
++        check(layer == layer)
++        applyTrustModes()
++    }
++
++    override suspend fun toggleEdtpTrustEnforce() {
++        prefKeys.setTrustEnforce(!prefKeys.getTrustEnforce())
++        applyTrustModes()
++    }
++
++    // Recompute the live trust modes from the persisted toggles: an enabled layer runs in ENFORCE
++    // when the global enforce flag is on, otherwise OBSERVE; a disabled layer is OFF. The observer
++    // reads these live; the C3 CRL/OCSP re-enable in WalletCoreConfig is read at app start, so a
++    // change to enforce shows a "restart to apply" hint for that part.
++    private suspend fun applyTrustModes() {
++        val enforce = prefKeys.getTrustEnforce()
++        listOf(
++            "C1" to eu.europa.ec.edtp.trust.TrustLayer.C1_SIGNATURES,
++            "C2" to eu.europa.ec.edtp.trust.TrustLayer.C2_CHAIN,
++            "C3" to eu.europa.ec.edtp.trust.TrustLayer.C3_REVOCATION,
++        ).forEach { (key, layer) ->
++            val on = prefKeys.getTrustLayerEnabled(key)
++            eu.europa.ec.edtp.trust.TrustConfigHolder.setMode(
++                layer,
++                when {
++                    !on -> eu.europa.ec.edtp.trust.TrustMode.OFF
++                    enforce -> eu.europa.ec.edtp.trust.TrustMode.ENFORCE
++                    else -> eu.europa.ec.edtp.trust.TrustMode.OBSERVE
++                }
++            )
++        }
+     }
+ 
+     private fun edtpTrustItem(
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt
+index cbeb91f..1904bb2 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/SettingsViewModel.kt
+@@ -172,6 +172,21 @@ class SettingsViewModel(
+                 }
+             }
+ 
++            SettingsMenuItemType.EDTP_TRUST_ENFORCE -> {
++                viewModelScope.launch {
++                    settingsInteractor.toggleEdtpTrustEnforce()
++                    val settingsItems = settingsInteractor.getSettingsItemsUi(
++                        changelogUrl = viewState.value.changelogUrl
++                    )
++                    setState { copy(settingsItems = settingsItems) }
++                    setEffect {
++                        Effect.ShowSnackbar(
++                            message = resourceProvider.getString(R.string.settings_screen_option_registration_check_restart)
++                        )
++                    }
++                }
++            }
++
+             SettingsMenuItemType.REGISTRATION_CHECK -> {
+                 viewModelScope.launch {
+                     settingsInteractor.toggleRegistrationCheck()
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt
+index e7f4abd..bcf3522 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/settings/model/SettingsItemUi.kt
+@@ -30,6 +30,7 @@ enum class SettingsMenuItemType(val itemId: String) {
+     EDTP_TRUST_C1("edtpTrustC1Id"),
+     EDTP_TRUST_C2("edtpTrustC2Id"),
+     EDTP_TRUST_C3("edtpTrustC3Id"),
++    EDTP_TRUST_ENFORCE("edtpTrustEnforceId"),
+     RETRIEVE_LOGS("retrieveLogsId"),
+     CHANGELOG("changelogId"),
+ }
+\ No newline at end of file
+diff --git a/resources-logic/src/main/res/values/strings.xml b/resources-logic/src/main/res/values/strings.xml
+index 328066d..2909676 100644
+--- a/resources-logic/src/main/res/values/strings.xml
++++ b/resources-logic/src/main/res/values/strings.xml
+@@ -248,6 +248,7 @@
+     <string name="settings_screen_option_edtp_trust_c1">Trust C1 — signatures &amp; binding</string>
+     <string name="settings_screen_option_edtp_trust_c2">Trust C2 — chain vs trust lists</string>
+     <string name="settings_screen_option_edtp_trust_c3">Trust C3 — validity &amp; revocation</string>
++    <string name="settings_screen_option_edtp_trust_enforce">Trust — enforce (block on failure + CRL/OCSP)</string>
+     <string name="settings_screen_option_registration_check_restart">Restart the app to apply this change</string>
+     <string name="settings_intent_chooser_logs_share_title">Share logs</string>
+     <!--endregion-->

@@ -1,0 +1,1492 @@
+diff --git a/assembly-logic/build.gradle.kts b/assembly-logic/build.gradle.kts
+index 0112dfb..cb4e16f 100644
+--- a/assembly-logic/build.gradle.kts
++++ b/assembly-logic/build.gradle.kts
+@@ -26,6 +26,8 @@ import project.convention.logic.config.LibraryModule.IssuanceFeature
+ import project.convention.logic.config.LibraryModule.NetworkLogic
+ import project.convention.logic.config.LibraryModule.PresentationFeature
+ import project.convention.logic.config.LibraryModule.ProximityFeature
++// EDTP addition (build.sh --reader). The proximity READER (verifier) role module.
++import project.convention.logic.config.LibraryModule.ReaderFeature
+ import project.convention.logic.config.LibraryModule.ResourcesLogic
+ import project.convention.logic.config.LibraryModule.StartupFeature
+ import project.convention.logic.config.LibraryModule.StorageLogic
+@@ -71,6 +73,8 @@ dependencies {
+     api(project(DashboardFeature.path))
+     api(project(PresentationFeature.path))
+     api(project(ProximityFeature.path))
++    // EDTP addition (build.sh --reader). Present only when the reader deviation is applied.
++    api(project(ReaderFeature.path))
+     api(project(IssuanceFeature.path))
+ 
+     // Modules Kover Report
+diff --git a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/di/AssemblyModule.kt b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/di/AssemblyModule.kt
+index 5d8f39c..3f79280 100644
+--- a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/di/AssemblyModule.kt
++++ b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/di/AssemblyModule.kt
+@@ -27,6 +27,8 @@ import eu.europa.ec.issuancefeature.di.FeatureIssuanceModule
+ import eu.europa.ec.networklogic.di.LogicNetworkModule
+ import eu.europa.ec.presentationfeature.di.FeaturePresentationModule
+ import eu.europa.ec.proximityfeature.di.FeatureProximityModule
++// EDTP addition (build.sh --reader). Koin module for the proximity READER (verifier) role.
++import eu.europa.ec.readerfeature.di.FeatureReaderModule
+ import eu.europa.ec.resourceslogic.di.LogicResourceModule
+ import eu.europa.ec.startupfeature.di.FeatureStartupModule
+ import eu.europa.ec.storagelogic.di.LogicStorageModule
+@@ -52,6 +54,8 @@ import org.koin.plugin.module.dsl.startKoin
+         FeatureStartupModule::class,
+         FeaturePresentationModule::class,
+         FeatureProximityModule::class,
++        // EDTP addition (build.sh --reader). Only present when the reader deviation is applied.
++        FeatureReaderModule::class,
+         FeatureIssuanceModule::class
+     ]
+ )
+diff --git a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/ui/MainActivity.kt b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/ui/MainActivity.kt
+index 6c8cd41..8b278c3 100644
+--- a/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/ui/MainActivity.kt
++++ b/assembly-logic/src/main/java/eu/europa/ec/assemblylogic/ui/MainActivity.kt
+@@ -24,6 +24,8 @@ import eu.europa.ec.dashboardfeature.router.featureDashboardGraph
+ import eu.europa.ec.issuancefeature.router.featureIssuanceGraph
+ import eu.europa.ec.presentationfeature.router.presentationGraph
+ import eu.europa.ec.proximityfeature.router.featureProximityGraph
++// EDTP addition (build.sh --reader). Navigation graph for the proximity READER (verifier) role.
++import eu.europa.ec.readerfeature.router.featureReaderGraph
+ import eu.europa.ec.startupfeature.router.featureStartupGraph
+ import eu.europa.ec.uilogic.container.EudiComponentActivity
+ 
+@@ -38,6 +40,8 @@ class MainActivity : EudiComponentActivity() {
+                 featureDashboardGraph(it)
+                 presentationGraph(it)
+                 featureProximityGraph(it)
++                // EDTP addition (build.sh --reader). Registered only when the reader deviation is applied.
++                featureReaderGraph(it)
+                 featureIssuanceGraph(it)
+             }
+         }
+diff --git a/build-logic/convention/src/main/kotlin/project/convention/logic/config/LibraryPluginConfig.kt b/build-logic/convention/src/main/kotlin/project/convention/logic/config/LibraryPluginConfig.kt
+index 6a76d04..e921d05 100644
+--- a/build-logic/convention/src/main/kotlin/project/convention/logic/config/LibraryPluginConfig.kt
++++ b/build-logic/convention/src/main/kotlin/project/convention/logic/config/LibraryPluginConfig.kt
+@@ -35,6 +35,8 @@ enum class LibraryModule(val path: String) {
+     DashboardFeature(":dashboard-feature"),
+     PresentationFeature(":presentation-feature"),
+     ProximityFeature(":proximity-feature"),
++    // EDTP addition (build.sh --reader). The proximity READER (verifier) role module.
++    ReaderFeature(":reader-feature"),
+     IssuanceFeature(":issuance-feature");
+ 
+     val isLogicModule: Boolean
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeScreen.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeScreen.kt
+index 8c0f08e..f534074 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeScreen.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeScreen.kt
+@@ -234,6 +234,22 @@ private fun Content(
+                 )
+             }
+         )
++
++        // EDTP addition (build.sh --reader). The proximity READER (verifier) entry. Present only
++        // when the reader deviation is compiled in; an upstream build has no such card.
++        WrapActionCard(
++            config = state.readerCardConfig,
++            onActionClick = {
++                onEventSent(
++                    Event.ReaderCard.ReadPressed
++                )
++            },
++            onLearnMoreClick = {
++                onEventSent(
++                    Event.ReaderCard.ReadPressed
++                )
++            }
++        )
+     }
+ 
+     if (state.bleAvailability == BleAvailability.NO_PERMISSION) {
+@@ -510,6 +526,13 @@ private fun HomeScreenContentPreview() {
+                         icon = AppIcons.Contract,
+                         primaryButtonText = stringResource(R.string.home_screen_sign),
+                         secondaryButtonText = stringResource(R.string.home_screen_learn_more),
++                    ),
++                    // EDTP addition (build.sh --reader). Preview value for the reader (verifier) card.
++                    readerCardConfig = ActionCardConfig(
++                        title = "Read in person (verifier)",
++                        icon = AppIcons.QrScanner,
++                        primaryButtonText = "Read",
++                        secondaryButtonText = stringResource(R.string.home_screen_learn_more),
+                     )
+ 
+                 ),
+diff --git a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeViewModel.kt b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeViewModel.kt
+index 7202455..3a1cfa1 100644
+--- a/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeViewModel.kt
++++ b/dashboard-feature/src/main/java/eu/europa/ec/dashboardfeature/ui/home/HomeViewModel.kt
+@@ -35,6 +35,8 @@ import eu.europa.ec.uilogic.mvi.ViewState
+ import eu.europa.ec.uilogic.navigation.CommonScreens
+ import eu.europa.ec.uilogic.navigation.DashboardScreens
+ import eu.europa.ec.uilogic.navigation.ProximityScreens
++// EDTP addition (build.sh --reader). Route for the proximity READER (verifier) role.
++import eu.europa.ec.uilogic.navigation.ReaderScreens
+ import eu.europa.ec.uilogic.navigation.helper.generateComposableArguments
+ import eu.europa.ec.uilogic.navigation.helper.generateComposableNavigationLink
+ import eu.europa.ec.uilogic.serializer.UiSerializer
+@@ -53,6 +55,8 @@ data class State(
+     val welcomeUserMessage: String,
+     val authenticateCardConfig: ActionCardConfig,
+     val signCardConfig: ActionCardConfig,
++    // EDTP addition (build.sh --reader). The proximity READER (verifier) entry card.
++    val readerCardConfig: ActionCardConfig,
+ 
+     val bleAvailability: BleAvailability = BleAvailability.UNKNOWN,
+     val isBleCentralClientModeEnabled: Boolean = false
+@@ -72,6 +76,11 @@ sealed class Event : ViewEvent {
+         data object LearnMorePressed : SignDocumentCard()
+     }
+ 
++    // EDTP addition (build.sh --reader). The proximity READER (verifier) entry card.
++    sealed class ReaderCard : Event() {
++        data object ReadPressed : ReaderCard()
++    }
++
+     sealed class BottomSheet : Event() {
+         data class UpdateBottomSheetState(val isOpen: Boolean) : BottomSheet()
+         data object Close : BottomSheet()
+@@ -145,6 +154,15 @@ class HomeViewModel(
+                 primaryButtonText = resourceProvider.getString(R.string.home_screen_sign),
+                 secondaryButtonText = resourceProvider.getString(R.string.home_screen_learn_more)
+             ),
++            // EDTP addition (build.sh --reader). Literal strings rather than resources: this card
++            // exists only in a reader build, and the modified-build banner already marks it a TEST
++            // capability, so it needs no translated copy.
++            readerCardConfig = ActionCardConfig(
++                title = "Read in person (verifier)",
++                icon = AppIcons.QrScanner,
++                primaryButtonText = "Read",
++                secondaryButtonText = resourceProvider.getString(R.string.home_screen_learn_more)
++            ),
+             isBleCentralClientModeEnabled = homeInteractor.isBleCentralClientModeEnabled(),
+         )
+     }
+@@ -171,6 +189,9 @@ class HomeViewModel(
+                 sheetContent = HomeScreenBottomSheetContent.LearnMoreAboutSignDocument
+             )
+ 
++            // EDTP addition (build.sh --reader). Opens the proximity READER (verifier) role.
++            is Event.ReaderCard.ReadPressed -> navigateToReader()
++
+             is Event.BottomSheet.UpdateBottomSheetState -> {
+                 setState {
+                     copy(isBottomSheetOpen = event.isOpen)
+@@ -278,6 +299,16 @@ class HomeViewModel(
+         }
+     }
+ 
++    // EDTP addition (build.sh --reader). The reader module's start destination takes no arguments,
++    // so this navigates straight to its route.
++    private fun navigateToReader() {
++        setEffect {
++            Effect.Navigation.SwitchScreen(
++                screenRoute = ReaderScreens.Scan.screenRoute
++            )
++        }
++    }
++
+     private fun navigateToDocumentSign() {
+         setEffect {
+             Effect.Navigation.SwitchScreen(
+diff --git a/reader-feature/.gitignore b/reader-feature/.gitignore
+new file mode 100644
+index 0000000..796b96d
+--- /dev/null
++++ b/reader-feature/.gitignore
+@@ -0,0 +1 @@
++/build
+diff --git a/reader-feature/build.gradle.kts b/reader-feature/build.gradle.kts
+new file mode 100644
+index 0000000..7eb914b
+--- /dev/null
++++ b/reader-feature/build.gradle.kts
+@@ -0,0 +1,60 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation. Compiled in only when the
++ * build is produced with `tools/test-wallet/build.sh --reader`; the deviation that adds this module
++ * (and registers it in settings.gradle.kts, the module enum, Koin and the navigation graph) is
++ * applied only under that flag, so without it the build is byte-for-byte upstream.
++ */
++
++import com.android.build.api.dsl.LibraryExtension
++import project.convention.logic.config.LibraryModule
++
++plugins {
++    id("project.android.feature")
++    // The proximity READER (verifier) role drives Multipaz directly (VerificationHelper, the BLE
++    // reader transports, DeviceRequestGenerator / DeviceResponseParser). This convention plugin adds
++    // `api(eudi-wallet-core)`, which brings Multipaz onto the compile classpath — the same source the
++    // holder role already uses. No new dependency is introduced; the version is the one pinned there.
++    id("project.wallet.core")
++}
++
++extensions.configure<LibraryExtension>("android") {
++    namespace = "eu.europa.ec.readerfeature"
++}
++
++moduleConfig {
++    module = LibraryModule.ReaderFeature
++}
++
++dependencies {
++    // Multipaz android-legacy carries the reader-side transport (VerificationHelper, the BLE reader
++    // transports). eudi-wallet-core exposes the Multipaz *core* (org.multipaz.*) but not this
++    // android-legacy module, so it is declared here. The version must track the Multipaz that
++    // eudi-wallet-core resolves (0.99.0 at the pinned wallet-core); if that bumps, bump this with it.
++    implementation("org.multipaz:multipaz-android-legacy:0.99.0")
++
++    // CameraX, to scan the holder's device-engagement QR. The decode itself reuses common-feature's
++    // QrCodeAnalyzer (ZXing lives there); these are the camera surface and lifecycle binding, which
++    // common-feature declares `implementation` and so does not expose.
++    implementation(libs.androidx.camera.core)
++    implementation(libs.androidx.camera.lifecycle)
++    implementation(libs.androidx.camera.view)
++    implementation(libs.androidx.camera.camera2)
++    // Runtime permission requests for BLE and the camera, on the scan screen.
++    implementation(libs.accompanist.permissions)
++}
+diff --git a/reader-feature/src/main/AndroidManifest.xml b/reader-feature/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..ec148b1
+--- /dev/null
++++ b/reader-feature/src/main/AndroidManifest.xml
+@@ -0,0 +1,34 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++  ~ Copyright (c) 2026 European Commission
++  ~
++  ~ Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++  ~ Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++  ~ except in compliance with the Licence.
++  ~
++  ~ You may obtain a copy of the Licence at:
++  ~ https://joinup.ec.europa.eu/software/page/eupl
++  ~
++  ~ Unless required by applicable law or agreed to in writing, software distributed under
++  ~ the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++  ~ ANY KIND, either express or implied. See the Licence for the specific language
++  ~ governing permissions and limitations under the Licence.
++  ~
++  ~ EDTP addition. Proximity READER (verifier) role. The permissions a verifier needs to read a
++  ~ credential presented in person: BLE as mdoc reader (central and peripheral server modes), and the
++  ~ camera to scan the holder's device-engagement QR. Requested at runtime on the scan screen. NFC is
++  ~ added in a later phase. These are merged into the app manifest only when this module is compiled
++  ~ in (the reader capability); an upstream build never carries them.
++  -->
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++
++    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
++    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
++    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
++    <uses-permission android:name="android.permission.CAMERA" />
++
++    <uses-feature
++        android:name="android.hardware.bluetooth_le"
++        android:required="false" />
++
++</manifest>
+diff --git a/reader-feature/src/main/java/eu/europa/ec/readerfeature/di/FeatureReaderModule.kt b/reader-feature/src/main/java/eu/europa/ec/readerfeature/di/FeatureReaderModule.kt
+new file mode 100644
+index 0000000..5c411af
+--- /dev/null
++++ b/reader-feature/src/main/java/eu/europa/ec/readerfeature/di/FeatureReaderModule.kt
+@@ -0,0 +1,49 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.readerfeature.di
++
++import eu.europa.ec.readerfeature.interactor.ReaderScanInteractor
++import eu.europa.ec.readerfeature.interactor.ReaderScanInteractorImpl
++import eu.europa.ec.readerfeature.interactor.ReaderTrustStore
++import eu.europa.ec.readerfeature.interactor.ReaderTrustStoreImpl
++import eu.europa.ec.resourceslogic.provider.ResourceProvider
++import org.koin.core.annotation.ComponentScan
++import org.koin.core.annotation.Configuration
++import org.koin.core.annotation.Factory
++import org.koin.core.annotation.Module
++import org.koin.core.annotation.Single
++
++@Module
++@Configuration
++@ComponentScan("eu.europa.ec.readerfeature")
++class FeatureReaderModule
++
++@Single
++fun provideReaderTrustStore(
++    context: android.content.Context,
++): ReaderTrustStore = ReaderTrustStoreImpl(context)
++
++@Factory
++fun provideReaderScanInteractor(
++    resourceProvider: ResourceProvider,
++    trustStore: ReaderTrustStore,
++): ReaderScanInteractor =
++    ReaderScanInteractorImpl(resourceProvider, trustStore)
+diff --git a/reader-feature/src/main/java/eu/europa/ec/readerfeature/interactor/ReaderScanInteractor.kt b/reader-feature/src/main/java/eu/europa/ec/readerfeature/interactor/ReaderScanInteractor.kt
+new file mode 100644
+index 0000000..cd2bd63
+--- /dev/null
++++ b/reader-feature/src/main/java/eu/europa/ec/readerfeature/interactor/ReaderScanInteractor.kt
+@@ -0,0 +1,364 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.readerfeature.interactor
++
++import android.content.Context
++import androidx.core.content.ContextCompat
++import com.android.identity.android.mdoc.deviceretrieval.VerificationHelper
++import com.android.identity.android.mdoc.transport.DataTransportOptions
++import eu.europa.ec.resourceslogic.provider.ResourceProvider
++import kotlinx.coroutines.flow.Flow
++import kotlinx.coroutines.flow.MutableSharedFlow
++import kotlinx.coroutines.flow.asSharedFlow
++import org.multipaz.cbor.Cbor
++import org.multipaz.crypto.Algorithm
++import org.multipaz.mdoc.connectionmethod.MdocConnectionMethod
++import org.multipaz.mdoc.connectionmethod.MdocConnectionMethodBle
++import org.multipaz.mdoc.request.DeviceRequestGenerator
++import org.multipaz.mdoc.response.DeviceResponseParser
++
++/**
++ * What the reader (verifier) transport reports back to the UI. A thin, Multipaz-free surface: the
++ * view model never touches `VerificationHelper`, so the BLE/engagement machinery stays behind this
++ * boundary.
++ */
++sealed interface ReaderTransferEvent {
++    /** The holder's device engagement was parsed; the reader is connecting over the chosen transport. */
++    data object Connecting : ReaderTransferEvent
++
++    /** The transport is up. Phase 3 sends the document request at this point. */
++    data object Connected : ReaderTransferEvent
++
++    /**
++     * A device response arrived. Carried with the session transcript so Phase 3/4 can parse and
++     * verify it with [org.multipaz.mdoc.response.DeviceResponseParser]. Not yet consumed in Phase 2.
++     */
++    data class ResponseReceived(
++        val deviceResponse: ByteArray,
++        val sessionTranscript: ByteArray,
++    ) : ReaderTransferEvent
++
++    data class Disconnected(val transportSpecificTermination: Boolean) : ReaderTransferEvent
++
++    data class Error(val throwable: Throwable) : ReaderTransferEvent
++}
++
++/** One disclosed element, rendered Multipaz-free for the UI. [value] is the CBOR diagnostic text. */
++data class ReaderAttribute(
++    val namespace: String,
++    val element: String,
++    val value: String,
++)
++
++/** Outcome of a single verification check. SKIPPED = could not be evaluated (e.g. no trust anchor). */
++enum class CheckOutcome { PASS, FAIL, SKIPPED }
++
++/** One line of the verification verdict for a document. */
++data class ReaderCheck(
++    val name: String,
++    val outcome: CheckOutcome,
++    val detail: String? = null,
++)
++
++/**
++ * One document in the response, with its disclosed attributes and the verification verdict. The
++ * checks are computed Multipaz-free from the parsed `Document`, so the UI shows exactly what was
++ * verified — it never dresses a failing read up as a success.
++ */
++data class ReaderDocument(
++    val docType: String,
++    val attributes: List<ReaderAttribute>,
++    val checks: List<ReaderCheck>,
++)
++
++interface ReaderScanInteractor {
++    /** Hot stream of transport events. Collected by the view model for the life of the screen. */
++    fun events(): Flow<ReaderTransferEvent>
++
++    /**
++     * Start an ISO 18013-5 reader session from a scanned device-engagement QR. Builds the
++     * [VerificationHelper], feeds it the engagement, and on the engagement callback connects over
++     * the first BLE transport the holder offered. Idempotent per session: a second call cancels the
++     * previous helper first.
++     */
++    fun startEngagement(context: Context, engagementQr: String)
++
++    /**
++     * Build and send the document request on the live session (PID and mDL). Called once the
++     * transport is up. Unsigned (no reader authentication) in this cut; the holder returns only the
++     * documents it holds, so asking for both is safe. The response arrives via
++     * [ReaderTransferEvent.ResponseReceived]. Suspending: `addDocumentRequest` is a coroutine.
++     */
++    suspend fun requestDocuments()
++
++    /**
++     * Parse a device response into a Multipaz-free list of documents and their disclosed attributes.
++     * Suspending: `DeviceResponseParser.parse` is a coroutine. The verification verdict (issuer
++     * signature, trust anchor, validity, device auth) is read from the same parse in Phase 4.
++     */
++    suspend fun parseResponse(deviceResponse: ByteArray, sessionTranscript: ByteArray): List<ReaderDocument>
++
++    /** Tear down the current session and release the transport. */
++    fun cancel()
++}
++
++class ReaderScanInteractorImpl(
++    @Suppress("unused") private val resourceProvider: ResourceProvider,
++    private val trustStore: ReaderTrustStore,
++) : ReaderScanInteractor {
++
++    // replay = 0: events are transient. A small buffer so a burst (Connecting→Connected) is never
++    // dropped if the collector is momentarily busy; tryEmit then always succeeds.
++    private val _events = MutableSharedFlow<ReaderTransferEvent>(
++        replay = 0,
++        extraBufferCapacity = 16,
++    )
++
++    private var verificationHelper: VerificationHelper? = null
++
++    override fun events(): Flow<ReaderTransferEvent> = _events.asSharedFlow()
++
++    override fun startEngagement(context: Context, engagementQr: String) {
++        cancel()
++
++        val listener = object : VerificationHelper.Listener {
++            override fun onReaderEngagementReady(readerEngagement: ByteArray) {
++                // Reverse engagement only; unused in the QR-led flow.
++            }
++
++            override fun onDeviceEngagementReceived(
++                connectionMethods: List<MdocConnectionMethod>,
++            ) {
++                // Prefer a BLE transport (the capability's requirement); fall back to whatever the
++                // holder offered first so the failure, if any, is a connect error rather than silence.
++                val method = connectionMethods.firstOrNull { it is MdocConnectionMethodBle }
++                    ?: connectionMethods.firstOrNull()
++                if (method == null) {
++                    _events.tryEmit(
++                        ReaderTransferEvent.Error(
++                            IllegalStateException("The holder offered no connection method.")
++                        )
++                    )
++                    return
++                }
++                _events.tryEmit(ReaderTransferEvent.Connecting)
++                runCatching { verificationHelper?.connect(method) }
++                    .onFailure { _events.tryEmit(ReaderTransferEvent.Error(it)) }
++            }
++
++            override fun onMoveIntoNfcField() {
++                // NFC handover is a later phase.
++            }
++
++            override fun onDeviceConnected() {
++                _events.tryEmit(ReaderTransferEvent.Connected)
++            }
++
++            override fun onDeviceDisconnected(transportSpecificTermination: Boolean) {
++                _events.tryEmit(ReaderTransferEvent.Disconnected(transportSpecificTermination))
++            }
++
++            override fun onResponseReceived(deviceResponseBytes: ByteArray) {
++                val transcript = verificationHelper?.sessionTranscript ?: ByteArray(0)
++                _events.tryEmit(
++                    ReaderTransferEvent.ResponseReceived(
++                        deviceResponse = deviceResponseBytes,
++                        sessionTranscript = transcript,
++                    )
++                )
++            }
++
++            override fun onError(error: Throwable) {
++                _events.tryEmit(ReaderTransferEvent.Error(error))
++            }
++        }
++
++        runCatching {
++            val helper = VerificationHelper.Builder(
++                context,
++                listener,
++                ContextCompat.getMainExecutor(context),
++            )
++                .setDataTransportOptions(DataTransportOptions.Builder().build())
++                .build()
++            verificationHelper = helper
++            helper.setDeviceEngagementFromQrCode(engagementQr)
++        }.onFailure { _events.tryEmit(ReaderTransferEvent.Error(it)) }
++    }
++
++    override suspend fun requestDocuments() {
++        val helper = verificationHelper
++            ?: throw IllegalStateException("No active reader session.")
++        // Unsigned request (no reader authentication) in this cut: readerKey/cert chain are null and
++        // the signature algorithm is UNSET, so nothing is signed — the holder discloses without
++        // verifying a reader identity. Request-side reader auth is a later phase. One docRequest per
++        // document type (PID and mDL); the holder returns only those it has.
++        val generator = DeviceRequestGenerator(helper.sessionTranscript)
++        for ((docType, items) in REQUESTED_DOCUMENTS) {
++            generator.addDocumentRequest(
++                docType,
++                items,
++                requestInfo = null,
++                readerKey = null,
++                signatureAlgorithm = Algorithm.UNSET,
++                readerKeyCertificateChain = null,
++            )
++        }
++        helper.sendRequest(generator.generate())
++    }
++
++    override suspend fun parseResponse(
++        deviceResponse: ByteArray,
++        sessionTranscript: ByteArray,
++    ): List<ReaderDocument> {
++        val parsed = DeviceResponseParser(deviceResponse, sessionTranscript).parse()
++        val result = mutableListOf<ReaderDocument>()
++        for (document in parsed.documents) {
++            val attributes = document.issuerNamespaces.flatMap { namespace ->
++                document.getIssuerEntryNames(namespace).map { element ->
++                    val value = runCatching {
++                        Cbor.toDiagnostics(document.getIssuerEntryData(namespace, element))
++                    }.getOrElse { "<unreadable>" }
++                    ReaderAttribute(namespace = namespace, element = element, value = value)
++                }
++            }
++            result += ReaderDocument(
++                docType = document.docType,
++                attributes = attributes,
++                checks = buildVerdict(document),
++            )
++        }
++        return result
++    }
++
++    /**
++     * The verification verdict for one document, read from the parsed [DeviceResponseParser.Document]
++     * (issuer signature, digest integrity, validity, device authentication) plus a trust-anchor check
++     * of the issuer certificate chain against [trustStore]. Each is reported as PASS/FAIL/SKIPPED; a
++     * failing check is never hidden.
++     */
++    private suspend fun buildVerdict(document: DeviceResponseParser.Document): List<ReaderCheck> {
++        val checks = mutableListOf<ReaderCheck>()
++
++        checks += ReaderCheck(
++            name = "Issuer signature (MSO)",
++            outcome = if (document.issuerSignedAuthenticated) CheckOutcome.PASS else CheckOutcome.FAIL,
++        )
++
++        val digestFailures = document.numIssuerEntryDigestMatchFailures
++        checks += ReaderCheck(
++            name = "Data integrity (digests)",
++            outcome = if (digestFailures == 0) CheckOutcome.PASS else CheckOutcome.FAIL,
++            detail = if (digestFailures > 0) "$digestFailures element(s) failed the digest match" else null,
++        )
++
++        val now = kotlin.time.Clock.System.now()
++        val from = document.validityInfoValidFrom
++        val until = document.validityInfoValidUntil
++        val withinValidity = now >= from && now <= until
++        checks += ReaderCheck(
++            name = "Validity period",
++            outcome = if (withinValidity) CheckOutcome.PASS else CheckOutcome.FAIL,
++            detail = "valid $from … $until",
++        )
++
++        checks += ReaderCheck(
++            name = "Device authentication",
++            outcome = if (document.deviceSignedAuthenticated) CheckOutcome.PASS else CheckOutcome.FAIL,
++        )
++
++        val anchors = trustStore.anchors()
++        checks += if (anchors.isEmpty()) {
++            ReaderCheck(
++                name = "Trusted issuer",
++                outcome = CheckOutcome.SKIPPED,
++                detail = "no trust anchor configured",
++            )
++        } else {
++            // The chain reaches trust when one of its certificates IS a configured anchor (anchor in
++            // chain) or is SIGNED BY one (the anchor's key verifies a cert in the chain — e.g. the
++            // document-signer leaf signed by our PID Provider CA). The MSO signature check above only
++            // proves the response was signed by the document-signer cert in this chain, not that that
++            // signer is trusted.
++            val chainCerts = document.issuerCertificateChain?.certificates.orEmpty()
++            val trusted = anchors.any { anchor ->
++                chainCerts.any { it == anchor } ||
++                    chainCerts.any { cert ->
++                        runCatching { cert.verify(anchor.ecPublicKey) }.isSuccess
++                    }
++            }
++            ReaderCheck(
++                name = "Trusted issuer",
++                outcome = if (trusted) CheckOutcome.PASS else CheckOutcome.FAIL,
++                detail = if (!trusted) "chain does not reach a configured anchor" else null,
++            )
++        }
++
++        return checks
++    }
++
++    override fun cancel() {
++        runCatching { verificationHelper?.disconnect() }
++        verificationHelper = null
++    }
++
++    private companion object {
++        const val PID_DOC_TYPE = "eu.europa.ec.eudi.pid.1"
++        const val MDL_DOC_TYPE = "org.iso.18013.5.1.mDL"
++        const val MDL_NAMESPACE = "org.iso.18013.5.1"
++
++        // Fixed demo attribute sets; `false` = do not ask the holder to retain the value. Elements
++        // the holder does not have are simply absent from the response. age_over_18 is deliberately
++        // NOT requested from the PID: it does not exist there (PID Rulebook v1.1, CLAUDE.md §6.1).
++        // The PID namespace equals its docType; the mDL namespace is org.iso.18013.5.1.
++        val PID_ITEMS: Map<String, Map<String, Boolean>> = mapOf(
++            PID_DOC_TYPE to mapOf(
++                "family_name" to false,
++                "given_name" to false,
++                "birth_date" to false,
++                "nationality" to false,
++                "issuing_country" to false,
++                "issuing_authority" to false,
++                "expiry_date" to false,
++            ),
++        )
++        val MDL_ITEMS: Map<String, Map<String, Boolean>> = mapOf(
++            MDL_NAMESPACE to mapOf(
++                "family_name" to false,
++                "given_name" to false,
++                "birth_date" to false,
++                "document_number" to false,
++                "issuing_country" to false,
++                "issuing_authority" to false,
++                "issue_date" to false,
++                "expiry_date" to false,
++                "driving_privileges" to false,
++                "un_distinguishing_sign" to false,
++            ),
++        )
++
++        // One entry per requested document type. mDL is just another entry — no structural change.
++        val REQUESTED_DOCUMENTS: Map<String, Map<String, Map<String, Boolean>>> = mapOf(
++            PID_DOC_TYPE to PID_ITEMS,
++            MDL_DOC_TYPE to MDL_ITEMS,
++        )
++    }
++}
+diff --git a/reader-feature/src/main/java/eu/europa/ec/readerfeature/interactor/ReaderTrustStore.kt b/reader-feature/src/main/java/eu/europa/ec/readerfeature/interactor/ReaderTrustStore.kt
+new file mode 100644
+index 0000000..ededca0
+--- /dev/null
++++ b/reader-feature/src/main/java/eu/europa/ec/readerfeature/interactor/ReaderTrustStore.kt
+@@ -0,0 +1,72 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.readerfeature.interactor
++
++import android.content.Context
++import org.multipaz.crypto.X509Cert
++
++/**
++ * Issuer trust anchors for the reader (verifier) side — the IACA / document-signer anchors a PID's
++ * MSO must chain to. This is the *opposite* store from the holder's reader-trust store.
++ *
++ * Anchors are loaded from the bundled PEM `res/raw/edtp_reader_trust.pem`. The build ships one anchor:
++ * the "EDTP Development PID Provider CA - TEST ONLY", extracted from the published PID Providers LoTE,
++ * which the test PID issuer's signing certificates chain to. `build.sh --reader-trust <file>` replaces
++ * the file's contents. If it holds no usable certificate, no anchors are returned and the "Trusted
++ * issuer" check reports SKIPPED rather than PASS.
++ *
++ * The resource is referenced through `R.raw` (not `getIdentifier` by name) on purpose: the release
++ * build shrinks resources (`isShrinkResources = true`), and a resource reached only by a string name
++ * is not seen as used and is stripped — which silently removed this anchor from a release APK. A
++ * direct `R.raw` reference is kept.
++ *
++ * `TEST` only; never a production anchor (CLAUDE.md §7).
++ */
++interface ReaderTrustStore {
++    fun anchors(): List<X509Cert>
++}
++
++class ReaderTrustStoreImpl(
++    private val context: Context,
++) : ReaderTrustStore {
++
++    private val loaded: List<X509Cert> by lazy { load() }
++
++    override fun anchors(): List<X509Cert> = loaded
++
++    private fun load(): List<X509Cert> {
++        val pem = runCatching {
++            context.resources.openRawResource(eu.europa.ec.readerfeature.R.raw.edtp_reader_trust)
++                .bufferedReader().use { it.readText() }
++        }.getOrElse { return emptyList() }
++        // Parse every PEM certificate block, ignoring comment lines around them.
++        return PEM_CERT.findAll(pem)
++            .mapNotNull { match -> runCatching { X509Cert.fromPem(match.value) }.getOrNull() }
++            .toList()
++    }
++
++    private companion object {
++        val PEM_CERT = Regex(
++            "-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",
++            RegexOption.DOT_MATCHES_ALL,
++        )
++    }
++}
+diff --git a/reader-feature/src/main/java/eu/europa/ec/readerfeature/router/Graph.kt b/reader-feature/src/main/java/eu/europa/ec/readerfeature/router/Graph.kt
+new file mode 100644
+index 0000000..4f55595
+--- /dev/null
++++ b/reader-feature/src/main/java/eu/europa/ec/readerfeature/router/Graph.kt
+@@ -0,0 +1,47 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.readerfeature.router
++
++import androidx.navigation.NavController
++import androidx.navigation.NavGraphBuilder
++import androidx.navigation.compose.composable
++import androidx.navigation.compose.navigation
++import eu.europa.ec.readerfeature.ui.scan.ReaderScanScreen
++import eu.europa.ec.uilogic.navigation.ModuleRoute
++import eu.europa.ec.uilogic.navigation.ReaderScreens
++import org.koin.androidx.compose.koinViewModel
++
++fun NavGraphBuilder.featureReaderGraph(navController: NavController) {
++    navigation(
++        startDestination = ReaderScreens.Scan.screenRoute,
++        route = ModuleRoute.ReaderModule.route
++    ) {
++        // Scan (entry)
++        composable(
++            route = ReaderScreens.Scan.screenRoute,
++        ) {
++            ReaderScanScreen(
++                navController,
++                koinViewModel()
++            )
++        }
++    }
++}
+diff --git a/reader-feature/src/main/java/eu/europa/ec/readerfeature/ui/scan/ReaderScanScreen.kt b/reader-feature/src/main/java/eu/europa/ec/readerfeature/ui/scan/ReaderScanScreen.kt
+new file mode 100644
+index 0000000..d94ffdb
+--- /dev/null
++++ b/reader-feature/src/main/java/eu/europa/ec/readerfeature/ui/scan/ReaderScanScreen.kt
+@@ -0,0 +1,331 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.readerfeature.ui.scan
++
++import android.Manifest
++import android.os.Build
++import androidx.camera.core.CameraSelector
++import androidx.camera.core.ImageAnalysis
++import androidx.camera.core.Preview
++import androidx.camera.lifecycle.ProcessCameraProvider
++import androidx.camera.view.PreviewView
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.Button
++import androidx.compose.material3.HorizontalDivider
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.remember
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.viewinterop.AndroidView
++import androidx.core.content.ContextCompat
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import androidx.lifecycle.compose.collectAsStateWithLifecycle
++import androidx.navigation.NavController
++import com.google.accompanist.permissions.ExperimentalPermissionsApi
++import com.google.accompanist.permissions.rememberMultiplePermissionsState
++import eu.europa.ec.commonfeature.ui.qr_scan.component.QrCodeAnalyzer
++import eu.europa.ec.readerfeature.interactor.CheckOutcome
++import eu.europa.ec.readerfeature.interactor.ReaderCheck
++import eu.europa.ec.readerfeature.interactor.ReaderDocument
++import eu.europa.ec.uilogic.component.content.ContentScreen
++import eu.europa.ec.uilogic.component.content.ContentTitle
++import eu.europa.ec.uilogic.component.content.ScreenNavigateAction
++import eu.europa.ec.uilogic.component.utils.OncePerViewModelEffect
++import eu.europa.ec.uilogic.component.utils.SPACING_MEDIUM
++import eu.europa.ec.uilogic.component.utils.SPACING_SMALL
++import kotlinx.coroutines.flow.collect
++import kotlinx.coroutines.flow.onEach
++import java.util.concurrent.Executors
++
++private val readerPermissions: List<String>
++    get() = buildList {
++        add(Manifest.permission.CAMERA)
++        // Runtime BLE permissions exist from Android 12 (API 31); below that the install-time
++        // BLUETOOTH/BLUETOOTH_ADMIN permissions cover it and no runtime grant is needed.
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
++            add(Manifest.permission.BLUETOOTH_SCAN)
++            add(Manifest.permission.BLUETOOTH_CONNECT)
++            add(Manifest.permission.BLUETOOTH_ADVERTISE)
++        }
++    }
++
++/**
++ * Reader (verifier) entry screen.
++ *
++ * Phase 2: request camera + BLE permissions, scan the holder's device-engagement QR, hand it to the
++ * view model, and reflect the transport state (scanning → connecting → connected). The disclosed
++ * attributes and the verification verdict replace the connected state in later phases.
++ */
++@OptIn(ExperimentalPermissionsApi::class)
++@Composable
++fun ReaderScanScreen(
++    navController: NavController,
++    viewModel: ReaderScanViewModel,
++) {
++    val state: State by viewModel.viewState.collectAsStateWithLifecycle()
++    val context = LocalContext.current
++    val permissions = rememberMultiplePermissionsState(readerPermissions)
++
++    ContentScreen(
++        isLoading = state.isLoading,
++        navigatableAction = ScreenNavigateAction.BACKABLE,
++        onBack = { viewModel.setEvent(Event.GoBack) },
++    ) { paddingValues ->
++        Column(
++            modifier = Modifier
++                .fillMaxSize()
++                .padding(paddingValues),
++            verticalArrangement = Arrangement.spacedBy(SPACING_MEDIUM.dp),
++        ) {
++            ContentTitle(
++                title = "Read in person (verifier)",
++                subtitle = when (state.status) {
++                    ReaderStatus.SCANNING -> "Point the camera at the holder's QR code."
++                    ReaderStatus.CONNECTING -> "Connecting over Bluetooth…"
++                    ReaderStatus.CONNECTED -> "Connected. Requesting the credential…"
++                    ReaderStatus.REQUESTING -> "Reading the credential…"
++                    ReaderStatus.COMPLETED -> "Credential read. Verification verdict comes next."
++                    ReaderStatus.DISCONNECTED -> "The other device disconnected."
++                    ReaderStatus.ERROR -> state.error ?: "Something went wrong."
++                },
++            )
++
++            when {
++                !permissions.allPermissionsGranted -> PermissionPrompt { permissions.launchMultiplePermissionRequest() }
++
++                state.status == ReaderStatus.SCANNING -> CameraPreview(
++                    onQrScanned = { payload -> viewModel.setEvent(Event.QrScanned(context, payload)) },
++                )
++
++                state.status == ReaderStatus.COMPLETED -> AttributesList(
++                    documents = state.documents,
++                    onReadAgain = { viewModel.setEvent(Event.Retry) },
++                )
++
++                else -> StatusPanel(
++                    status = state.status,
++                    error = state.error,
++                    onRetry = { viewModel.setEvent(Event.Retry) },
++                )
++            }
++        }
++    }
++
++    OncePerViewModelEffect(viewModel) {
++        viewModel.setEvent(Event.Init)
++    }
++
++    androidx.compose.runtime.LaunchedEffect(Unit) {
++        viewModel.effect.onEach { effect ->
++            when (effect) {
++                is Effect.Navigation.Pop -> navController.popBackStack()
++            }
++        }.collect()
++    }
++}
++
++@Composable
++private fun PermissionPrompt(onRequest: () -> Unit) {
++    Column(
++        modifier = Modifier.fillMaxWidth(),
++        verticalArrangement = Arrangement.spacedBy(SPACING_MEDIUM.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Text(
++            text = "Reading in person needs the camera (to scan the QR) and Bluetooth (to connect).",
++            style = MaterialTheme.typography.bodyMedium,
++            textAlign = TextAlign.Center,
++        )
++        Button(onClick = onRequest) { Text("Grant permissions") }
++    }
++}
++
++@Composable
++private fun StatusPanel(
++    status: ReaderStatus,
++    error: String?,
++    onRetry: () -> Unit,
++) {
++    Column(
++        modifier = Modifier.fillMaxWidth(),
++        verticalArrangement = Arrangement.spacedBy(SPACING_MEDIUM.dp),
++        horizontalAlignment = Alignment.CenterHorizontally,
++    ) {
++        Text(
++            text = when (status) {
++                ReaderStatus.CONNECTING -> "Connecting…"
++                ReaderStatus.CONNECTED -> "Connected"
++                ReaderStatus.REQUESTING -> "Reading…"
++                ReaderStatus.COMPLETED -> "Done"
++                ReaderStatus.DISCONNECTED -> "Disconnected"
++                ReaderStatus.ERROR -> error ?: "Error"
++                ReaderStatus.SCANNING -> ""
++            },
++            style = MaterialTheme.typography.titleMedium,
++            textAlign = TextAlign.Center,
++        )
++        if (status == ReaderStatus.ERROR || status == ReaderStatus.DISCONNECTED) {
++            Button(onClick = onRetry) { Text("Scan again") }
++        }
++    }
++}
++
++@Composable
++private fun AttributesList(
++    documents: List<ReaderDocument>,
++    onReadAgain: () -> Unit,
++) {
++    Column(
++        modifier = Modifier
++            .fillMaxWidth()
++            .verticalScroll(rememberScrollState()),
++        verticalArrangement = Arrangement.spacedBy(SPACING_MEDIUM.dp),
++    ) {
++        if (documents.isEmpty()) {
++            Text(
++                text = "The holder disclosed no attributes.",
++                style = MaterialTheme.typography.bodyMedium,
++            )
++        }
++        documents.forEach { document ->
++            Text(
++                text = document.docType,
++                style = MaterialTheme.typography.titleSmall,
++            )
++
++            Text(
++                text = "Verification",
++                style = MaterialTheme.typography.labelLarge,
++            )
++            document.checks.forEach { check ->
++                CheckRow(check)
++            }
++
++            Text(
++                text = "Disclosed attributes",
++                style = MaterialTheme.typography.labelLarge,
++            )
++            document.attributes.forEach { attribute ->
++                Column(modifier = Modifier.fillMaxWidth()) {
++                    Text(
++                        text = attribute.element,
++                        style = MaterialTheme.typography.labelMedium,
++                    )
++                    Text(
++                        text = attribute.value,
++                        style = MaterialTheme.typography.bodyMedium,
++                    )
++                }
++            }
++            HorizontalDivider()
++        }
++        Button(onClick = onReadAgain) { Text("Read another") }
++    }
++}
++
++@Composable
++private fun CheckRow(check: ReaderCheck) {
++    val (glyph, color) = when (check.outcome) {
++        CheckOutcome.PASS -> "✓" to Color(0xFF2E7D32)
++        CheckOutcome.FAIL -> "✗" to MaterialTheme.colorScheme.error
++        CheckOutcome.SKIPPED -> "–" to MaterialTheme.colorScheme.onSurfaceVariant
++    }
++    Row(
++        modifier = Modifier.fillMaxWidth(),
++        horizontalArrangement = Arrangement.spacedBy(SPACING_SMALL.dp),
++    ) {
++        Text(text = glyph, color = color, style = MaterialTheme.typography.bodyMedium)
++        Column(modifier = Modifier.fillMaxWidth()) {
++            Text(text = check.name, style = MaterialTheme.typography.bodyMedium)
++            check.detail?.let {
++                Text(
++                    text = it,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    style = MaterialTheme.typography.bodySmall,
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun CameraPreview(
++    onQrScanned: (String) -> Unit,
++) {
++    val context = LocalContext.current
++    val lifecycleOwner = LocalLifecycleOwner.current
++    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
++
++    Box(
++        modifier = Modifier
++            .fillMaxSize()
++            .background(Color.Black),
++        contentAlignment = Alignment.Center,
++    ) {
++        AndroidView(
++            modifier = Modifier.fillMaxSize(),
++            factory = { ctx ->
++                val previewView = PreviewView(ctx)
++                val preview = Preview.Builder().build()
++                val selector = CameraSelector.Builder()
++                    .requireLensFacing(CameraSelector.LENS_FACING_BACK)
++                    .build()
++                preview.surfaceProvider = previewView.surfaceProvider
++
++                val imageAnalysis = ImageAnalysis.Builder()
++                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
++                    .build()
++                imageAnalysis.setAnalyzer(
++                    analysisExecutor,
++                    QrCodeAnalyzer { result ->
++                        ContextCompat.getMainExecutor(ctx).execute { onQrScanned(result) }
++                    },
++                )
++
++                runCatching {
++                    ProcessCameraProvider.getInstance(ctx).get().bindToLifecycle(
++                        lifecycleOwner,
++                        selector,
++                        preview,
++                        imageAnalysis,
++                    )
++                }
++                previewView
++            },
++        )
++    }
++}
+diff --git a/reader-feature/src/main/java/eu/europa/ec/readerfeature/ui/scan/ReaderScanViewModel.kt b/reader-feature/src/main/java/eu/europa/ec/readerfeature/ui/scan/ReaderScanViewModel.kt
+new file mode 100644
+index 0000000..13c4b90
+--- /dev/null
++++ b/reader-feature/src/main/java/eu/europa/ec/readerfeature/ui/scan/ReaderScanViewModel.kt
+@@ -0,0 +1,195 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ */
++
++package eu.europa.ec.readerfeature.ui.scan
++
++import android.content.Context
++import androidx.lifecycle.viewModelScope
++import eu.europa.ec.readerfeature.interactor.ReaderDocument
++import eu.europa.ec.readerfeature.interactor.ReaderScanInteractor
++import eu.europa.ec.readerfeature.interactor.ReaderTransferEvent
++import eu.europa.ec.uilogic.mvi.MviViewModel
++import eu.europa.ec.uilogic.mvi.ViewEvent
++import eu.europa.ec.uilogic.mvi.ViewSideEffect
++import eu.europa.ec.uilogic.mvi.ViewState
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.launch
++import org.koin.core.annotation.KoinViewModel
++
++/** ISO 18013-5 device-engagement prefix. The reader ignores any other QR it happens to see. */
++private const val MDOC_ENGAGEMENT_PREFIX = "mdoc:"
++
++enum class ReaderStatus {
++    /** Camera is up, waiting for a device-engagement QR. */
++    SCANNING,
++
++    /** Engagement parsed; connecting over the chosen (BLE) transport. */
++    CONNECTING,
++
++    /** Transport established; the PID document request has been sent, awaiting the response. */
++    REQUESTING,
++
++    /** Transport established (pre-request). Transient. */
++    CONNECTED,
++
++    /** The response was parsed; disclosed attributes are shown. */
++    COMPLETED,
++
++    /** The holder disconnected or the session ended. */
++    DISCONNECTED,
++
++    /** The engagement, connection or transport failed. */
++    ERROR,
++}
++
++data class State(
++    val isLoading: Boolean = false,
++    val status: ReaderStatus = ReaderStatus.SCANNING,
++    val error: String? = null,
++    val documents: List<ReaderDocument> = emptyList(),
++    // Guards against re-processing: the analyzer fires many frames; only the first valid engagement
++    // starts a session.
++    val engagementHandled: Boolean = false,
++) : ViewState
++
++sealed class Event : ViewEvent {
++    data object Init : Event()
++    data object GoBack : Event()
++
++    /** A QR frame was decoded by the camera analyzer. */
++    data class QrScanned(val context: Context, val payload: String) : Event()
++
++    /** Scan again after a disconnect or error. */
++    data object Retry : Event()
++}
++
++sealed class Effect : ViewSideEffect {
++    sealed class Navigation : Effect() {
++        data object Pop : Navigation()
++    }
++}
++
++/**
++ * Reader (verifier) entry view model.
++ *
++ * Phase 2: scan the holder's engagement QR, connect over BLE, and reflect the transport state. The
++ * document request (Phase 3) and the verification verdict (Phase 4) build on [ReaderTransferEvent].
++ */
++@KoinViewModel
++class ReaderScanViewModel(
++    private val interactor: ReaderScanInteractor,
++) : MviViewModel<Event, State, Effect>() {
++
++    private var eventsJob: Job? = null
++
++    override fun setInitialState(): State = State()
++
++    override fun handleEvents(event: Event) {
++        when (event) {
++            is Event.Init -> observeTransport()
++
++            is Event.QrScanned -> {
++                if (viewState.value.engagementHandled) return
++                if (!event.payload.startsWith(MDOC_ENGAGEMENT_PREFIX)) return
++                setState { copy(engagementHandled = true, status = ReaderStatus.CONNECTING, error = null) }
++                interactor.startEngagement(event.context, event.payload)
++            }
++
++            is Event.Retry -> {
++                interactor.cancel()
++                setState {
++                    copy(
++                        status = ReaderStatus.SCANNING,
++                        error = null,
++                        documents = emptyList(),
++                        engagementHandled = false,
++                    )
++                }
++            }
++
++            is Event.GoBack -> {
++                interactor.cancel()
++                setEffect { Effect.Navigation.Pop }
++            }
++        }
++    }
++
++    private fun observeTransport() {
++        if (eventsJob != null) return
++        eventsJob = viewModelScope.launch {
++            interactor.events().collect { transfer ->
++                when (transfer) {
++                    is ReaderTransferEvent.Connecting ->
++                        setState { copy(status = ReaderStatus.CONNECTING, error = null) }
++
++                    is ReaderTransferEvent.Connected -> {
++                        setState { copy(status = ReaderStatus.CONNECTED, error = null) }
++                        sendDocumentRequest()
++                    }
++
++                    is ReaderTransferEvent.ResponseReceived ->
++                        handleResponse(transfer.deviceResponse, transfer.sessionTranscript)
++
++                    is ReaderTransferEvent.Disconnected ->
++                        setState { copy(status = ReaderStatus.DISCONNECTED) }
++
++                    is ReaderTransferEvent.Error ->
++                        setState {
++                            copy(
++                                status = ReaderStatus.ERROR,
++                                error = transfer.throwable.message ?: "Reader transport error",
++                            )
++                        }
++                }
++            }
++        }
++    }
++
++    private fun sendDocumentRequest() {
++        setState { copy(status = ReaderStatus.REQUESTING, error = null) }
++        viewModelScope.launch {
++            runCatching { interactor.requestDocuments() }
++                .onFailure {
++                    setState {
++                        copy(status = ReaderStatus.ERROR, error = it.message ?: "Request failed")
++                    }
++                }
++        }
++    }
++
++    private fun handleResponse(deviceResponse: ByteArray, sessionTranscript: ByteArray) {
++        viewModelScope.launch {
++            runCatching { interactor.parseResponse(deviceResponse, sessionTranscript) }
++                .onSuccess { docs ->
++                    setState { copy(status = ReaderStatus.COMPLETED, documents = docs, error = null) }
++                }
++                .onFailure {
++                    setState {
++                        copy(status = ReaderStatus.ERROR, error = it.message ?: "Could not read the response")
++                    }
++                }
++        }
++    }
++
++    override fun onCleared() {
++        interactor.cancel()
++        super.onCleared()
++    }
++}
+diff --git a/reader-feature/src/main/res/raw/edtp_reader_trust.pem b/reader-feature/src/main/res/raw/edtp_reader_trust.pem
+new file mode 100644
+index 0000000..d1fa2e1
+--- /dev/null
++++ b/reader-feature/src/main/res/raw/edtp_reader_trust.pem
+@@ -0,0 +1,22 @@
++# EDTP reader (verifier) trust anchors — TEST ONLY.
++# Provenance: the "EDTP Development PID Provider CA - TEST ONLY" anchor, extracted from the
++# published PID Providers LoTE (ssanchocanela.github.io/.../lote/PIDProviders.jwt), which the
++# test PID issuer's signing certificates chain to. Public certificate (not a secret). This is
++# NOT a notified PID Provider and never a production anchor (CLAUDE.md §7). A PID whose MSO
++# chains to this anchor is TEST data. Override/extend with build.sh --reader-trust <file>.
++# Snapshot taken 2026-11-09; the CA is valid 2026-09-23 .. 2028-09-22.
++-----BEGIN CERTIFICATE-----
++MIICXzCCAgagAwIBAgIUMQeL1vDEPc5hwgTo3+l4mO8HLuwwCgYIKoZIzj0EAwIw
++fDE1MDMGA1UEAwwsRURUUCBEZXZlbG9wbWVudCBQSUQgUHJvdmlkZXIgQ0EgLSBU
++RVNUIE9OTFkxNjA0BgNVBAoMLUVEVFAgZGV2ZWxvcG1lbnQsIG5vdCBhIG5vdGlm
++aWVkIFBJRCBQcm92aWRlcjELMAkGA1UEBhMCRVMwHhcNMjYwOTIzMTY1MTUwWhcN
++MjgwOTIyMTY1MTUwWjB8MTUwMwYDVQQDDCxFRFRQIERldmVsb3BtZW50IFBJRCBQ
++cm92aWRlciBDQSAtIFRFU1QgT05MWTE2MDQGA1UECgwtRURUUCBkZXZlbG9wbWVu
++dCwgbm90IGEgbm90aWZpZWQgUElEIFByb3ZpZGVyMQswCQYDVQQGEwJFUzBZMBMG
++ByqGSM49AgEGCCqGSM49AwEHA0IABHlnv0Ea3VFsM1WqiDlGq8+eF5WCEz1F1+Qj
++0bvldlRgDQVFrP34VskB8Vwnf5+o/bs0eT8D9UsL5Z7f4Qp4PC+jZjBkMB8GA1Ud
++IwQYMBaAFNmkP2RUZd0I/NVd4H7CzduW33RzMBIGA1UdEwEB/wQIMAYBAf8CAQAw
++DgYDVR0PAQH/BAQDAgGGMB0GA1UdDgQWBBTZpD9kVGXdCPzVXeB+ws3blt90czAK
++BggqhkjOPQQDAgNHADBEAiA7m/uVcUxGJ0RoOhPgHL5s8Rbb/78YWxI9LfE10FMK
++PAIgJo1x/1Z1zjeDkUb5pvotqawzmuiZH9U3/VPReUCzn8E=
++-----END CERTIFICATE-----
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index c9cf97f..d7fc8b6 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -58,6 +58,9 @@ include(":common-feature")
+ include(":dashboard-feature")
+ include(":presentation-feature")
+ include(":proximity-feature")
++// EDTP addition (build.sh --reader). The proximity READER (verifier) role. Present only when the
++// reader deviation is applied; an upstream build never includes this module.
++include(":reader-feature")
+ include(":issuance-feature")
+ include(":analytics-logic")
+ include(":baseline-profile")
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
+index 03ead72..57bfeae 100644
+--- a/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/component/content/EdtpModifiedBuildBanner.kt
+@@ -56,7 +56,11 @@ fun EdtpModifiedBuildBanner(modifier: Modifier = Modifier) {
+     Text(
+         text = "EDTP TEST WALLET · MODIFIED REFERENCE BUILD · NOT THE OFFICIAL EUDI WALLET" +
+                 " · deviations: ${BuildConfig.EDTP_DEVIATIONS}" +
+-                " · trust: ${BuildConfig.EDTP_TRUST}",
++                " · trust: ${BuildConfig.EDTP_TRUST}" +
++                // EDTP reader capability (build.sh --reader). This clause is compiled in only when
++                // the reader deviation is applied, so a build that carries the proximity reader
++                // (verifier) role says so on every screen, and a build without it never mentions it.
++                " · reader (verifier)",
+         modifier = modifier
+             .fillMaxWidth()
+             .background(BANNER_BACKGROUND)
+diff --git a/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/RouterContract.kt b/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/RouterContract.kt
+index 291154d..ceca513 100644
+--- a/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/RouterContract.kt
++++ b/ui-logic/src/main/java/eu/europa/ec/uilogic/navigation/RouterContract.kt
+@@ -90,6 +90,13 @@ sealed class ProximityScreens {
+     data object Success : Screen(name = "PROXIMITY_SUCCESS", parameters = "?scopeId={scopeId}")
+ }
+ 
++// EDTP addition (build.sh --reader). The proximity READER (verifier) role's screens. These route
++// names are harmless constants; the navigation graph that uses them (featureReaderGraph) and the
++// module that defines the screens are compiled in only when the reader deviation is applied.
++sealed class ReaderScreens {
++    data object Scan : Screen(name = "READER_SCAN")
++}
++
+ sealed class IssuanceScreens {
+     data object AddDocument : Screen(
+         name = "ISSUANCE_ADD_DOCUMENT",
+@@ -118,5 +125,9 @@ sealed class ModuleRoute(val route: String) : NavigatableItem {
+     data object DashboardModule : ModuleRoute("DASHBOARD_MODULE")
+     data object PresentationModule : ModuleRoute("PRESENTATION_MODULE")
+     data object ProximityModule : ModuleRoute("PROXIMITY_MODULE")
++
++    // EDTP addition (build.sh --reader). The proximity READER (verifier) role's module route.
++    data object ReaderModule : ModuleRoute("READER_MODULE")
++
+     data object IssuanceModule : ModuleRoute("ISSUANCE_MODULE")
+ }
+\ No newline at end of file

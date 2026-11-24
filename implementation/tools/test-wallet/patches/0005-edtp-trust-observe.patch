@@ -1,0 +1,251 @@
+diff --git a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
+index 85a94f2..df36329 100644
+--- a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
++++ b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCoreDocumentsController.kt
+@@ -688,11 +688,20 @@ class WalletCoreDocumentsControllerImpl(
+                                 )
+                             }
+                         )
++                        // EDTP addition (observe). Recorded after the state is sent, below the
++                        // diag-issuance block's region so that patch still applies. Inert unless a
++                        // trust layer is active.
++                        eu.europa.ec.edtp.trust.observe.EdtpTrustObserver
++                            .observeOfferFailure(untrustedReason)
+                     }
+ 
+                     is OfferResult.Success -> {
+                         val issuerRegistration = result.offer.issuerRegistration
+                             .toIssuerRegistrationDomain(locale = resourceProvider.getLocale())
++                        // EDTP addition (observe). Surface the issuer registration-certificate
++                        // evaluation in the trust ledger; inert unless a trust layer is active.
++                        eu.europa.ec.edtp.trust.observe.EdtpTrustObserver
++                            .observeOffer(issuerRegistration)
+                         // with the check off Core evaluates nothing, so every offer would
+                         // otherwise refuse for lack of an outcome
+                         val registrationRefused = walletCoreConfig.isRegistrationCheckEnabled &&
+diff --git a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCorePresentationController.kt b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCorePresentationController.kt
+index f0539e4..5226321 100644
+--- a/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCorePresentationController.kt
++++ b/core-logic/src/main/java/eu/europa/ec/corelogic/controller/WalletCorePresentationController.kt
+@@ -600,6 +600,10 @@ class WalletCorePresentationControllerImpl(
+             verifierName = relyingParty.name
+             verifierIsFullyVerified = relyingParty.isFullyVerified
+ 
++            // EDTP addition (observe). Record the access-certificate (RPAC) and registration (WRPRC)
++            // verdicts in the trust ledger; inert unless a trust layer is active.
++            eu.europa.ec.edtp.trust.observe.EdtpTrustObserver.observePresentation(relyingParty)
++
+             val combinationsDomain = success.buildCombinationsDomain()
+ 
+             matchByKey = success.buildMatchByKey()
+diff --git a/core-logic/src/main/java/eu/europa/ec/edtp/trust/observe/EdtpTrustObserver.kt b/core-logic/src/main/java/eu/europa/ec/edtp/trust/observe/EdtpTrustObserver.kt
+new file mode 100644
+index 0000000..a4ba387
+--- /dev/null
++++ b/core-logic/src/main/java/eu/europa/ec/edtp/trust/observe/EdtpTrustObserver.kt
+@@ -0,0 +1,205 @@
++/*
++ * Copyright (c) 2026 European Commission
++ *
++ * Licensed under the EUPL, Version 1.2 or - as soon they will be approved by the European
++ * Commission - subsequent versions of the EUPL (the "Licence"); You may not use this work
++ * except in compliance with the Licence.
++ *
++ * You may obtain a copy of the Licence at:
++ * https://joinup.ec.europa.eu/software/page/eupl
++ *
++ * Unless required by applicable law or agreed to in writing, software distributed under
++ * the Licence is distributed on an "AS IS" basis, WITHOUT WARRANTIES OR CONDITIONS OF
++ * ANY KIND, either express or implied. See the Licence for the specific language
++ * governing permissions and limitations under the Licence.
++ *
++ * ---
++ *
++ * EDTP addition. Not part of the upstream EUDI Reference Implementation.
++ *
++ * App-boundary observers (step 3). They translate the trust outcomes the app ALREADY receives —
++ * the issuer registration evaluation on a resolved offer, and the relying-party evaluation on a
++ * received presentation request — into TrustLedger entries, so the overlay lights up with real data
++ * WITHOUT any wallet-core change. These are OBSERVE-grade: they surface what the core already
++ * decided. The deeper checks that the core does not currently expose (pre-store fail-open, RPAC
++ * revocation on the ETSI path, the credential's own status list, …) are wired later as wallet-core
++ * patches; those are what make C1/C2/C3 fully ENFORCE-able.
++ *
++ * Inert unless a trust layer is active: each entry point returns immediately when every layer is OFF.
++ */
++
++package eu.europa.ec.edtp.trust.observe
++
++import eu.europa.ec.corelogic.model.IssuerRegistrationDomain
++import eu.europa.ec.corelogic.model.RegistrationFailureReasonDomain
++import eu.europa.ec.corelogic.model.RegistrationStatusDomain
++import eu.europa.ec.corelogic.model.RelyingPartyDomain
++import eu.europa.ec.corelogic.model.UntrustedIssuerReasonDomain
++import eu.europa.ec.edtp.trust.TrustConfigHolder
++import eu.europa.ec.edtp.trust.TrustGate
++import eu.europa.ec.edtp.trust.TrustLayer
++import eu.europa.ec.edtp.trust.TrustLedger
++import eu.europa.ec.edtp.trust.TrustOutcome
++import eu.europa.ec.edtp.trust.TrustPoint
++import eu.europa.ec.edtp.trust.TrustReason
++import eu.europa.ec.edtp.trust.TrustSubject
++import java.util.UUID
++
++object EdtpTrustObserver {
++
++    /** A resolved credential offer: record the issuer registration-certificate (RPRC) evaluation. */
++    fun observeOffer(issuerRegistration: IssuerRegistrationDomain) {
++        if (!TrustConfigHolder.current().anyActive) return
++        TrustLedger.startRun(TrustPoint.OFFER, UUID.randomUUID().toString())
++        when (issuerRegistration) {
++            is IssuerRegistrationDomain.Verified ->
++                recordRegistrationLayers(TrustPoint.OFFER, TrustSubject.RPRC, failure = null)
++
++            is IssuerRegistrationDomain.Blocked ->
++                // Authenticated and in date, but the offer is outside the registered scope.
++                recordRegistrationLayers(
++                    TrustPoint.OFFER, TrustSubject.RPRC,
++                    failure = RegistrationFailureReasonDomain.ENTITLEMENT_MISSING,
++                )
++
++            is IssuerRegistrationDomain.NotVerified ->
++                recordRegistrationLayers(TrustPoint.OFFER, TrustSubject.RPRC, failure = issuerRegistration.reason)
++
++            is IssuerRegistrationDomain.NotEvaluated ->
++                recordAllSkipped(TrustPoint.OFFER, TrustSubject.RPRC)
++        }
++    }
++
++    /** A credential offer refused as untrusted before success. */
++    fun observeOfferFailure(reason: UntrustedIssuerReasonDomain?) {
++        if (!TrustConfigHolder.current().anyActive) return
++        TrustLedger.startRun(TrustPoint.OFFER, UUID.randomUUID().toString())
++        when (reason) {
++            UntrustedIssuerReasonDomain.ACCESS_CERTIFICATE ->
++                // Signed issuer metadata missing/invalid → the provider could not be authenticated.
++                TrustGate.check(
++                    TrustLayer.C1_SIGNATURES, TrustPoint.OFFER, TrustSubject.ISSUER_SIGNATURE,
++                    passed = false, onFail = TrustReason.SIGNATURE_INVALID,
++                    detail = "signed issuer metadata missing or invalid",
++                )
++
++            UntrustedIssuerReasonDomain.REGISTRATION_CERTIFICATE ->
++                TrustGate.check(
++                    TrustLayer.C2_CHAIN, TrustPoint.OFFER, TrustSubject.RPRC,
++                    passed = false, onFail = TrustReason.UNTRUSTED_PROVIDER,
++                    detail = "registration certificate refused",
++                )
++
++            null -> Unit
++        }
++    }
++
++    /** A received presentation request: record the access-certificate (RPAC) and registration
++     *  (WRPRC) evaluations the app already resolved. */
++    fun observePresentation(relyingParty: RelyingPartyDomain) {
++        if (!TrustConfigHolder.current().anyActive) return
++        TrustLedger.startRun(TrustPoint.PRESENT, UUID.randomUUID().toString())
++
++        // RPAC — the access-certificate chain verdict (C2). The app exposes only trusted/untrusted
++        // here; validity-date and CRL/OCSP of the RPAC are not surfaced and are added with the later
++        // wallet-core wiring.
++        TrustGate.check(
++            TrustLayer.C2_CHAIN, TrustPoint.PRESENT, TrustSubject.RPAC,
++            passed = relyingParty.hasTrustedAccessCertificate,
++            onFail = TrustReason.UNTRUSTED_PROVIDER,
++            detail = relyingParty.uniqueId?.let { "requester $it" },
++        )
++
++        // WRPRC — the registration-certificate evaluation (C1 signature/binding, C2 chain/entitlement,
++        // C3 validity/status).
++        when (val reg = relyingParty.registration) {
++            is RegistrationStatusDomain.Verified -> {
++                recordRegistrationLayers(TrustPoint.PRESENT, TrustSubject.RPRC, failure = null)
++                if (reg.overaskedClaims.isNotEmpty()) {
++                    TrustGate.check(
++                        TrustLayer.C2_CHAIN, TrustPoint.PRESENT, TrustSubject.ENTITLEMENT,
++                        passed = false, onFail = TrustReason.OVER_ASKING,
++                        detail = "${reg.overaskedClaims.size} claim(s) outside registered scope",
++                    )
++                }
++            }
++
++            is RegistrationStatusDomain.NotVerified ->
++                recordRegistrationLayers(TrustPoint.PRESENT, TrustSubject.RPRC, failure = reg.reason)
++
++            is RegistrationStatusDomain.NotEvaluated ->
++                recordAllSkipped(TrustPoint.PRESENT, TrustSubject.RPRC)
++        }
++    }
++
++    // --- helpers ------------------------------------------------------------------------------
++
++    /**
++     * One result per layer from a single registration outcome. A non-null [failure] fails exactly
++     * the layer it belongs to; layers before it pass (they were reached), layers after it are
++     * skipped (never reached). A null [failure] passes all three.
++     */
++    private fun recordRegistrationLayers(
++        point: TrustPoint,
++        subject: TrustSubject,
++        failure: RegistrationFailureReasonDomain?,
++    ) {
++        val failingLayer = failure?.let { layerOf(it) }
++        TrustLayer.entries.forEach { layer ->
++            val outcome = when {
++                failingLayer == null -> TrustOutcome.PASS
++                layer == failingLayer -> TrustOutcome.FAIL
++                layer.ordinal < failingLayer.ordinal -> TrustOutcome.PASS
++                else -> TrustOutcome.SKIP
++            }
++            TrustGate.gate(
++                eu.europa.ec.edtp.trust.TrustCheckResult(
++                    layer = layer,
++                    point = point,
++                    subject = subject,
++                    outcome = outcome,
++                    reason = if (outcome == TrustOutcome.FAIL) reasonOf(failure!!) else TrustReason.OK,
++                )
++            )
++        }
++    }
++
++    private fun recordAllSkipped(point: TrustPoint, subject: TrustSubject) {
++        TrustLayer.entries.forEach { layer ->
++            TrustGate.gate(
++                eu.europa.ec.edtp.trust.TrustCheckResult(
++                    layer = layer, point = point, subject = subject,
++                    outcome = TrustOutcome.SKIP, reason = TrustReason.NOT_EVALUATED,
++                )
++            )
++        }
++    }
++
++    private fun layerOf(reason: RegistrationFailureReasonDomain): TrustLayer = when (reason) {
++        RegistrationFailureReasonDomain.CERTIFICATE_ABSENT,
++        RegistrationFailureReasonDomain.MALFORMED,
++        RegistrationFailureReasonDomain.SIGNATURE_INVALID,
++        RegistrationFailureReasonDomain.NOT_BOUND_TO_REQUESTER -> TrustLayer.C1_SIGNATURES
++
++        RegistrationFailureReasonDomain.UNTRUSTED_PROVIDER,
++        RegistrationFailureReasonDomain.ENTITLEMENT_MISSING -> TrustLayer.C2_CHAIN
++
++        RegistrationFailureReasonDomain.STATUS_MISSING,
++        RegistrationFailureReasonDomain.EXPIRED,
++        RegistrationFailureReasonDomain.REVOKED,
++        RegistrationFailureReasonDomain.REVOCATION_STATUS_UNKNOWN -> TrustLayer.C3_REVOCATION
++    }
++
++    private fun reasonOf(reason: RegistrationFailureReasonDomain): TrustReason = when (reason) {
++        RegistrationFailureReasonDomain.CERTIFICATE_ABSENT -> TrustReason.MALFORMED
++        RegistrationFailureReasonDomain.MALFORMED -> TrustReason.MALFORMED
++        RegistrationFailureReasonDomain.SIGNATURE_INVALID -> TrustReason.SIGNATURE_INVALID
++        RegistrationFailureReasonDomain.NOT_BOUND_TO_REQUESTER -> TrustReason.NOT_BOUND_TO_REQUESTER
++        RegistrationFailureReasonDomain.UNTRUSTED_PROVIDER -> TrustReason.UNTRUSTED_PROVIDER
++        RegistrationFailureReasonDomain.ENTITLEMENT_MISSING -> TrustReason.ENTITLEMENT_MISSING
++        RegistrationFailureReasonDomain.STATUS_MISSING -> TrustReason.STATUS_MISSING
++        RegistrationFailureReasonDomain.EXPIRED -> TrustReason.EXPIRED
++        RegistrationFailureReasonDomain.REVOKED -> TrustReason.REVOKED
++        RegistrationFailureReasonDomain.REVOCATION_STATUS_UNKNOWN -> TrustReason.REVOCATION_STATUS_UNKNOWN
++    }
++}

@@ -233,8 +233,14 @@ requests that must carry one type alone. Replicate on the iOS networking layer:
   (ARF §6.6.2.2.) *(`deviations/wd-11.patch`.)*
 - **WD-19 — OpenID4VP Request Object.** A request for the Request Object (`request_uri`) must send
   `Accept: application/oauth-authz-req+jwt` **alone** (OpenID4VP 1.0 §5.10). *(`deviations/wd-19.patch`.)*
-  **iOS: verify** in `openid4vp-swift` 0.41.0 (its request-object fetch); WD-11's sibling is already
-  correct on iOS, so this one probably is too.
+  **iOS: different — verified, `openid4vp-swift` 0.41.0.** Its `RequestFetcher` (`getJwtViaGET` →
+  `fetchString`, `getJwtViaPOST` → `postJwtString` which sets only `Content-Type:
+  application/x-www-form-urlencoded`) **sets no `Accept` header** — URLSession sends its default
+  `*/*`. So the **Android bug does not reproduce** (iOS never adds `application/json`), but iOS also
+  does not send the §5.10 single type. `oauth-authz-req+jwt` appears only as the JWT `typ` it
+  validates. **Action: test the request-object fetch against FNMT on device.** A content-negotiating
+  inbox accepts `*/*`; if FNMT's inbox rejects it, set `Accept: application/oauth-authz-req+jwt`
+  explicitly in a fork of `RequestFetcher` (`getJwtString` / the POST). Only then is a change needed.
 
 > **✓ WD-11 is already correct on iOS (verified — openid4vci-swift 0.53.2).**
 > `MetadataFetcher.determineAcceptHeader(for:)` returns `application/jwt` **alone** for `.requireSigned`
@@ -256,8 +262,14 @@ requests that must carry one type alone. Replicate on the iOS networking layer:
   in the deep-link/offer parser. *(`deviations/wd-18.patch`.)*
 - **WD-20 — PID reused across presentations** (`RotatingBatch`, one credential) instead of used once
   (`OnceOnly`, ten) — **privacy relaxation** (presentations become **linkable**). Needed for a demo
-  where one PID is presented repeatedly (e.g. presentation-during-issuance). iOS: the PID issuance
-  batch / credential-reuse policy. *(`deviations/wd-20.patch`.)*
+  where one PID is presented repeatedly (e.g. presentation-during-issuance). *(`deviations/wd-20.patch`.)*
+  **iOS: a config knob, verified (wallet-kit 0.51.0 / wallet-storage 0.26.0).**
+  `OpenId4VciService.resolveCredentialOptions` maps the policy as
+  `let resolvedPolicy: CredentialPolicy = if case .onceOnly = selectedPolicy { .oneTimeUse } else { .rotateUse }`,
+  and a caller-supplied `userCredentialOptions` **overrides** it. So issue the PID with
+  `CredentialOptions(credentialPolicy: .rotateUse, batchSize: 1)` (or drive the issuer's
+  `CredentialReusePolicy` to a rotating one) instead of letting it resolve to `.oneTimeUse`. Direct
+  analog to Android's `RotatingBatch` — **a parameter at issuance, not a patch.**
 
 ### 5.7 Binding-key algorithm negotiation (ES384 / P-384)  *(WD-21 — defect fix, app issuance controller)*
 

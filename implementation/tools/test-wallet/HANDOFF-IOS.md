@@ -233,12 +233,24 @@ requests that must carry one type alone. Replicate on the iOS networking layer:
   (ARF §6.6.2.2.) *(`deviations/wd-11.patch`.)*
 - **WD-19 — OpenID4VP Request Object.** A request for the Request Object (`request_uri`) must send
   `Accept: application/oauth-authz-req+jwt` **alone** (OpenID4VP 1.0 §5.10). *(`deviations/wd-19.patch`.)*
+  **iOS: verify** in `openid4vp-swift` 0.41.0 (its request-object fetch); WD-11's sibling is already
+  correct on iOS, so this one probably is too.
+
+> **✓ WD-11 is already correct on iOS (verified — openid4vci-swift 0.53.2).**
+> `MetadataFetcher.determineAcceptHeader(for:)` returns `application/jwt` **alone** for `.requireSigned`
+> (only `.preferSigned` sends `application/jwt, application/json`). The app sets
+> `requireSignedMetadata: true` ⇒ `.requireSigned`, so the single-type Accept header is **already
+> sent**. No change needed.
 
 ### 5.6 Protocol / offer behaviour  *(config — app)*
 
 - **WD-6 — response encryption `REQUIRED` → `SUPPORTED`** (security **relaxation**). Accept an issuer
-  that offers no credential-response encryption. iOS: the OpenID4VCI issuance config
-  (`credentialResponseEncryption` policy). *(`deviations/wd-6.patch`.)*
+  that offers no credential-response encryption. *(`deviations/wd-6.patch`.)*
+  **✓ Already satisfied on iOS (verified).** `OpenId4VciService` requests response encryption **only
+  when the issuer advertises it** (`isResponseEncryptionSupported = issuerMetadata.credentialResponseEncryption != .notSupported`),
+  and `IssuanceRequester` decodes a **plaintext** response for a `.notSupported` issuer. FNMT advertises
+  `credentialResponseEncryption = NotSupported`, so iOS already accepts it. No relaxation needed
+  (wallet-kit 0.51.0 / openid4vci-swift 0.53.2).
 - **WD-18 — accept the Launchpad URL schemes** `eu-eaap://` (presentation) and `eu-eaa-offer://`
   (credential offer). iOS: register the schemes in **Info.plist** (`CFBundleURLTypes`) and accept them
   in the deep-link/offer parser. *(`deviations/wd-18.patch`.)*
@@ -254,18 +266,25 @@ requests that must carry one type alone. Replicate on the iOS networking layer:
 ES384 (P-384) proof of possession. The reference wallet always creates the credential's **binding key
 as ES256 (P-256)**, so an ES384-only issuer is unsatisfiable (`ProofTypeSigningAlgorithmNotSupported`).
 
-**Port:** before creating the binding key, read the offered document's
-`proofTypesSupported[JWT].proof_signing_alg_values_supported`, pick a supported algorithm, and create
-the binding key with **that** algorithm (ES384 ⇒ P-384) instead of the ES256 default; fall back to the
-default unchanged when the issuer accepts ES256. On iOS, Secure Enclave generally holds only P-256, so
-a P-384 key must go to a **software/TEE-equivalent** key store, not the Secure Enclave — mirror the
-Android choice (`setUseStrongBox(false)`), i.e. do not force the hardware enclave for the non-P-256
-key. *(Android: `deviations/wd-21.patch`, `WalletCoreDocumentsController`.)*
+That is the **Android** problem. *(Android: `deviations/wd-21.patch`, `WalletCoreDocumentsController`.)*
 
-**Caveat (carries to iOS):** the FNMT issuer also sets `key_attestations_required`. If a key
-attestation becomes a hard gate, it needs a key-attestation provider the reference wallet does not
-configure — a separate, larger piece. Not yet proven end-to-end on Android either; flag it if it
-blocks.
+> **✓ The negotiation is already built-in on iOS (verified — wallet-kit 0.51.0 / openid4vci-swift 0.53.2).**
+> `OpenId4VciService.initSecurityKeys(...)` reads the issuer's `credentialSigningAlgValuesSupported`
+> and calls `findCompatibleSigningAlgorithm(...)`, which picks an algorithm present in **both** that
+> set and the **registered secure areas' supported EC curves** (and honours `keyOptions?.curve`).
+> `SecureAreaSigner.getSignatureAlgorithm` and `mapToJWSAlgorithmType` handle **ES256/ES384/ES512**. So
+> iOS already selects ES384 for an ES384-only issuer — **no code patch like Android's**.
+
+**The one real iOS task:** make sure a **secure area that supports P-384 is registered** (and/or set
+`issueReq.keyOptions.curve = .P384`). The iPhone **Secure Enclave is P-256 only**, so if only the
+Secure Enclave is registered, `findCompatibleSigningAlgorithm` throws *"No valid signing algorithms"* —
+the same StrongBox-vs-P-384 wall as Android. Register the **software secure area** (from the iso18013
+libs) for the P-384 key. This is **configuration, not a patch**.
+
+**Key attestation:** the FNMT issuer also sets `key_attestations_required`. On iOS this is **already
+wired** — `initSecurityKeys` builds a key-attestation JWT (`getKeyAttestationJWT`) and uses the
+attestation proof type when the issuer requires it — so the gate that is an open question on Android
+may already be covered on iOS. Confirm end-to-end against FNMT.
 
 ---
 

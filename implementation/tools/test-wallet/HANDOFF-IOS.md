@@ -182,9 +182,19 @@ Point the wallet's provider lists at the Launchpad 2026 testbed lists. Android s
 
 Wallet Kit trusts an attestation issuer only through a providers list, and its EU baseline has **no
 mDL entry**, so an mDL is untrusted out of the box. Add the mDL providers list to the trust baseline
-**and** classify the ISO doctype `org.iso.18013.5.1.mDL` against the `"mdl"` list. Without this the
-iOS wallet (like Android) treats the mDL as a generic public-EAA and never trusts it.
-*(Android: `deviations/wd-12.patch`, against the ETSI 119602 library's consultation module.)*
+**and** classify the ISO doctype `org.iso.18013.5.1.mDL` against it. Without this the iOS wallet (like
+Android) treats the mDL as untrusted. *(Android: `deviations/wd-12.patch`.)*
+
+> **✓ Verified — iOS has the mDL context, the app just drops it.** In
+> `MdocSecurity18013/EudiEtsi1196x2/EtsiContextType.swift`, the enum **already has `case mdl = "mDL"`**
+> (verification context `VerificationContextEAA(useCase: …mdlUseCase)`), and its **`.default` mapping
+> already classifies the mDL**: `["eu.europa.ec.eudi.pid.1": .pid, "urn:eudi:pid:1": .pid,
+> "org.iso.18013.5.1.mDL": .mdl]`. But the **app overrides** it in `WalletKitConfig.swift →
+> trustConfiguration` with a `classifications` that maps **only the two PID doctypes** (no mDL), and
+> leaves `SupportedLists.eaaProviders = [:]`. So WD-12 on iOS is **two edits in `WalletKitConfig`**:
+> (1) add `"org.iso.18013.5.1.mDL": .mdl` to `classifications` (or pass `.default`); (2) supply the mDL
+> Providers list URL in `SupportedLists.eaaProviders` for the mDL EAA use-case (confirm the exact key
+> in `EudiEtsi1196x2/EudiTrustLists.swift`). **Config, not a library patch** — unless WD-10/13/15 bite.
 
 ### 5.3 ETSI TS 119 602 list parsing / chain validation  *(a CHECK on iOS — see the Trust model box in §1)*
 
@@ -258,8 +268,15 @@ requests that must carry one type alone. Replicate on the iOS networking layer:
   `credentialResponseEncryption = NotSupported`, so iOS already accepts it. No relaxation needed
   (wallet-kit 0.51.0 / openid4vci-swift 0.53.2).
 - **WD-18 — accept the Launchpad URL schemes** `eu-eaap://` (presentation) and `eu-eaa-offer://`
-  (credential offer). iOS: register the schemes in **Info.plist** (`CFBundleURLTypes`) and accept them
-  in the deep-link/offer parser. *(`deviations/wd-18.patch`.)*
+  (credential offer). *(`deviations/wd-18.patch`.)* **iOS: verified — two small edits, no library
+  change.** Schemes live in **`Wallet/Wallet.plist` → `CFBundleURLTypes` → `CFBundleURLSchemes`**
+  (today: `eudi-openid4vp, mdoc-openid4vp, openid4vp, haip-vp, openid-credential-offer, haip-vci,
+  rqes`). (1) Add `eu-eaap` and `eu-eaa-offer` there so iOS launches the app for them. (2) Route them
+  to the right action in `Modules/logic-ui/.../DeepLinkController.swift` — `DeepLink.Action.parseType`
+  maps a scheme to `.openid4vp` (presentation) or `.credential_offer` (issuance) via each action's
+  `getSchemas(...)` (`UrlSchemaController.retrieveSchemas`). Mirror how `haip-vp` resolves to
+  `.openid4vp` and `haip-vci` to `.credential_offer`: `eu-eaap` → presentation, `eu-eaa-offer` →
+  offer.
 - **WD-20 — PID reused across presentations** (`RotatingBatch`, one credential) instead of used once
   (`OnceOnly`, ten) — **privacy relaxation** (presentations become **linkable**). Needed for a demo
   where one PID is presented repeatedly (e.g. presentation-during-issuance). *(`deviations/wd-20.patch`.)*

@@ -429,3 +429,35 @@ relaxation (WD-6 / WD-17 / WD-20).
 - `TRUST-GRANULAR-design.md`, `READER-feature-design.md` — the designs for §6 and §7.
 - [`pins.env`](pins.env) — the Android upstream + dependency pins this build is defined against.
 - [`HANDOFF-MAC.md`](HANDOFF-MAC.md) — the Android build/sign/run recipe, for cross-reference.
+
+---
+
+## 11. At-a-glance — iOS status per change (verified against source, 2026-11-24)
+
+Status read against `eudi-app-ios-wallet-ui` tag `Wallet/Demo_2026.09.42-Demo_Build=42` and its pins
+(wallet-kit 0.51.0, openid4vci 0.53.2, openid4vp 0.41.0, iso18013 0.25.0, wallet-storage 0.26.0).
+
+Legend: **✅ already handled** (no change) · **🔧 config/param** (no logic code) · **🧪 test, fork
+only if it fails** · **⛏ build** (real work).
+
+| Change | iOS status | What to do on iOS (where) |
+|---|---|---|
+| **WD-3 / WD-4 / WD-8** trust lists → Launchpad CE | 🔧 config | Change the `SupportedLists` URLs in `WalletKitConfig.swift → trustConfiguration` |
+| **WD-12** mDL trust | 🔧 config | Same file: add `"org.iso.18013.5.1.mDL": .mdl` to `classifications` (or pass `.default`) + mDL list URL in `eaaProviders`. The lib already has `.mdl` |
+| **WD-6** response encryption `REQUIRED→SUPPORTED` | ✅ already handled | `OpenId4VciService` requests encryption only if the issuer advertises it; `.notSupported` → plaintext |
+| **WD-11** Accept `application/jwt` alone | ✅ already handled | `MetadataFetcher.determineAcceptHeader(.requireSigned)` already sends it alone |
+| **WD-21** ES384/P-384 binding key | ✅ negotiation built-in · 🔧 config | `initSecurityKeys` already negotiates from `credentialSigningAlgValuesSupported`; just **register a P-384-capable secure area** (Secure Enclave is P-256 only). Key attestation already wired |
+| **WD-20** PID reused (RotatingBatch) | 🔧 param | Issue the PID with `CredentialOptions(credentialPolicy: .rotateUse, batchSize: 1)` (overrides `resolveCredentialOptions`) |
+| **WD-18** Launchpad URL schemes | 🔧 config | Add `eu-eaap` / `eu-eaa-offer` to `Wallet/Wallet.plist` `CFBundleURLSchemes` + route in `DeepLinkController.Action.parseType` (mirror `haip-vp`/`haip-vci`) |
+| **Reg-cert check** (WD-14/16/17 surface) | 🔧 config | Already a pref: `validateIssuerRegistrationCertificate` → test **both** positions |
+| **WD-19** Accept for the Request Object | 🧪 test | iOS sends no `Accept` (URLSession `*/*`); Android bug does not reproduce. Test vs FNMT; set the header in a `RequestFetcher` fork only if the inbox rejects `*/*` |
+| **WD-10 / WD-13 / WD-15** ETSI list parse / chain | 🧪 test | Point lists at Launchpad CE and load them; fork `EudiEtsi1196x2` (`EtsiTrustManager`) only for whichever actually fails to parse/validate |
+| **WD-7** release logging | n/a (Android identity) | Just ensure the iOS **release** build does not log credential contents |
+| **C1/C2/C3** granular trust (§6) | ⛏ optional | Partly native via `TrustConfiguration` policies (`.enforce`/`.warning` per context); the full overlay is optional for a first cut |
+| **Reader (verifier)** capability (§7) | ⛏ build | Reimplement with the iOS proximity/mdoc-reader stack (`iso18013-data-transfer`); can be phase 2 |
+
+**Bottom line:** of the 17 Android deviations, on iOS **none needs new business-logic code** — they are
+configuration in `WalletKitConfig.swift`, `Wallet.plist`, and issuance parameters. The only real
+uncertainty is on-device validation of the ETSI lists (WD-10/13/15) and the Request-Object fetch
+(WD-19), each a small targeted fork **only if** it fails. The reader role (§7) is the one genuine
+build, and it can be a second phase.
